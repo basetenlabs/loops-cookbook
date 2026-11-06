@@ -1,0 +1,66 @@
+# Standalone SeparateVerifierEpisode: guess A-D and score the hidden target.
+# uv run loops run examples/episode_basics/train_separate_verifier.toml
+
+recipe = "rl"
+
+[runtime]
+factory = "loops_cookbook.episodes:create_runtime"
+
+[runtime.config]
+episode = "episodes:SeparateVerifierEpisode"
+agent_timeout_seconds = 90   # cut before the reply: unversioned; after it: graded, 0 if no answer was kept
+
+[runtime.config.sandbox]
+provider = "blaxel"
+image = "blaxel/base-image:latest"
+memory_mb = 2048
+ttl = "10m"
+
+[runtime.config.grading_sandbox]
+provider = "blaxel"
+image = "blaxel/base-image:latest"
+memory_mb = 2048
+ttl = "10m"
+
+[providers.blaxel]
+region = "us-was-1"
+
+[runtime.files]
+tasks = "questions.jsonl"
+
+[model]
+base_model = "Qwen/Qwen3.5-4B"
+lora_rank = 8
+max_seq_len = 1024
+renderer_chat_template_kwargs = { enable_thinking = false }
+
+[sampling]
+max_generation_tokens = 16
+
+[training]
+mode = "sync"
+group_size = 16
+max_group_losses = 0
+groups_per_step = 1
+max_steps = 5
+max_consecutive_unusable_groups = 20   # stop if every group scores alike
+learning_rate = 0.0001
+loss_fn = "cispo"
+
+[rollout]
+max_concurrent_rollouts = 2
+max_concurrent_verifiers = 2
+setup_timeout_seconds = 150
+
+[rollout.grading]
+timeout_seconds = 180
+
+[compute]
+scope = "dedicated"
+
+[output]
+run_name = "episode-separate-verifier"
+output_dir = "runs/episode-separate-verifier"
+trainer_checkpoint_every = 0
+sampler_checkpoint_every = 0
+checkpoint_ttl_seconds = 0

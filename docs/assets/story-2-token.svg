@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -20 1960 870" width="1960" height="870">
+<defs><marker id="h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<rect x="0" y="-20" width="1960" height="870" fill="#fff"/>
+<text x="40" y="54.0" font-family="Helvetica, Arial" font-size="34" font-weight="bold" fill="#1e1e1e">A token&#x27;s journey: from the sampler to a training row</text>
+<text x="40" y="84.0" font-family="Helvetica, Arial" font-size="16" font-weight="normal" fill="#6b7280">Same path for both model-access modes. Only the front door differs.</text>
+<rect x="40" y="100" width="1880" height="46" rx="12" fill="#fff3bf" fill-opacity="1.0" stroke="#f59e0b" stroke-width="1"/>
+<text x="58" y="130.0" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">Training uses the sampler&#x27;s own token IDs. Text never goes back into training.</text>
+<rect x="1400" y="30" width="24" height="18" rx="0" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="1432" y="45.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#6b7280">cookbook</text>
+<rect x="1570" y="30" width="24" height="18" rx="0" fill="#b2f2bb" fill-opacity="1.0" stroke="#2f9e44" stroke-width="2"/>
+<text x="1602" y="45.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#6b7280">user code</text>
+<rect x="1740" y="30" width="24" height="18" rx="0" fill="#ffd8a8" fill-opacity="1.0" stroke="#e8590c" stroke-width="2"/>
+<text x="1772" y="45.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#6b7280">external</text>
+<rect x="40" y="170" width="1880" height="345" rx="12" fill="#dbe4ff" fill-opacity="0.7" stroke="#6b7280" stroke-width="1"/>
+<text x="54" y="197.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#6b7280">During run() — every model call</text>
+<rect x="70" y="250" width="230" height="150" rx="12" fill="#b2f2bb" fill-opacity="1.0" stroke="#2f9e44" stroke-width="2"/>
+<text x="138.2" y="309.75" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">Your agent</text>
+<text x="114.8" y="336.15" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">Episode.run() or a</text>
+<text x="87.5" y="353.7" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">subprocess / Harbor agent</text>
+<rect x="360" y="214" width="300" height="96" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="485.04" y="246.05" font-family="Helvetica, Arial" font-size="16" font-weight="bold" fill="#1e1e1e">direct</text>
+<text x="412.5" y="271.85" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">model.llm().generate(...)</text>
+<text x="467.1" y="289.40000000000003" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">Python call</text>
+<rect x="360" y="336" width="300" height="118" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="464.24" y="370.275" font-family="Helvetica, Arial" font-size="16" font-weight="bold" fill="#1e1e1e">openai_http</text>
+<text x="412.5" y="396.075" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">POST /v1/chat/completions</text>
+<text x="408.6" y="413.625" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">to the run&#x27;s local gateway</text>
+<text x="420.3" y="431.175" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">(URL + per-attempt key)</text>
+<polyline points="300,300 360,262" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="300,350 360,395" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<rect x="730" y="250" width="300" height="150" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="823.84" y="300.975" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">Conversation</text>
+<text x="763.0" y="327.375" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">renderer: messages → token IDs</text>
+<text x="805.9" y="344.925" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">exact-prefix bridge</text>
+<text x="829.3" y="362.475" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">llm/client.py</text>
+<polyline points="660,262 730,300" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="660,395 730,350" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<rect x="1480" y="250" width="280" height="150" rx="12" fill="#ffd8a8" fill-opacity="1.0" stroke="#e8590c" stroke-width="2"/>
+<text x="1559.16" y="309.75" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">Loops sampler</text>
+<text x="1522.5" y="336.15" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">completion IDs + logprobs</text>
+<text x="1557.6" y="353.7" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">+ policy version</text>
+<rect x="1100" y="214" width="310" height="222" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="1197.54" y="254.475" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#1e1e1e">Attempt lease</text>
+<text x="1175.44" y="276.575" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#1e1e1e">(the receipt book)</text>
+<text x="1169.2" y="302.675" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">1 whose call? attempt,</text>
+<text x="1161.4" y="320.225" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">  producer, conversation</text>
+<text x="1196.5" y="337.77500000000003" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">2 fresh enough?</text>
+<text x="1169.2" y="355.32500000000005" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">  max_steps_off_policy</text>
+<text x="1165.3" y="372.87500000000006" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">3 did the agent get it?</text>
+<text x="1161.4" y="390.42500000000007" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">  HTTP: after full write</text>
+<text x="1192.6" y="407.9750000000001" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">4 closed at seal</text>
+<polyline points="1030,300 1100,300" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<rect x="1024.6" y="278.0" width="80.8" height="21.5" rx="0" fill="#ffffff" fill-opacity="1.0" stroke="none" stroke-width="0"/>
+<text x="1028.6" y="294.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e">prompt IDs</text>
+<polyline points="1410,300 1480,300" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="1480,360 1410,360" fill="none" stroke="#6b7280" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#h)"/>
+<rect x="1419.16" y="338.0" width="51.68" height="21.5" rx="0" fill="#ffffff" fill-opacity="1.0" stroke="none" stroke-width="0"/>
+<text x="1423.16" y="354.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#6b7280">Sample</text>
+<polyline points="1100,380 1030,380" fill="none" stroke="#6b7280" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#h)"/>
+<polyline points="730,475 185,475 185,400" fill="none" stroke="#6b7280" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#h)"/>
+<rect x="322.46000000000004" y="486.0" width="270.08" height="21.5" rx="0" fill="#ffffff" fill-opacity="1.0" stroke="none" stroke-width="0"/>
+<text x="326.46000000000004" y="502.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#6b7280">parsed back to a message → the agent</text>
+<rect x="40" y="540" width="1880" height="270" rx="12" fill="#e5dbff" fill-opacity="0.7" stroke="#6b7280" stroke-width="1"/>
+<text x="54" y="567.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#6b7280">At seal, then after grading</text>
+<rect x="1100" y="590" width="310" height="150" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="1157.76" y="640.625" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#1e1e1e">Delivered samples only</text>
+<text x="1165.3" y="666.725" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">undelivered / abandoned</text>
+<text x="1180.9" y="684.275" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">replies are dropped</text>
+<text x="1208.2" y="701.8249999999999" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">lease.seal()</text>
+<polyline points="1255,436 1255,590" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<rect x="1273.94" y="478.0" width="37.120000000000005" height="21.5" rx="0" fill="#ffffff" fill-opacity="1.0" stroke="none" stroke-width="0"/>
+<text x="1277.94" y="494.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e">seal</text>
+<rect x="740" y="590" width="290" height="150" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="819.48" y="640.975" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">Rollout.chains</text>
+<text x="818.7" y="667.375" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">samples joined by</text>
+<text x="814.8" y="684.925" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">exact token prefix</text>
+<text x="842.1" y="702.4749999999999" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">evidence.py</text>
+<rect x="380" y="590" width="290" height="150" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="482.88" y="640.975" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">Advantage</text>
+<text x="450.9" y="667.375" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">reward − group mean</text>
+<text x="493.8" y="684.925" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">(no std)</text>
+<text x="486.0" y="702.4749999999999" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">rl/grpo.py</text>
+<rect x="70" y="590" width="250" height="150" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="120.12" y="640.975" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">Datums → trainer</text>
+<text x="93.60000000000001" y="667.375" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">target = completion tokens</text>
+<text x="109.2" y="684.925" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">everything else masked</text>
+<text x="128.7" y="702.4749999999999" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">grpo.build_rows</text>
+<polyline points="1100,665 1030,665" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="740,665 670,665" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="380,665 320,665" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<rect x="1480" y="590" width="440" height="170" rx="12" fill="#fff0f6" fill-opacity="0.7" stroke="#6b7280" stroke-width="1"/>
+<text x="1494" y="617.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#6b7280"></text>
+<rect x="1500" y="606" width="190" height="136" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="1550.8" y="658.4" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#1e1e1e">Transcript</text>
+<text x="1536.5" y="684.5" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">messages as the</text>
+<text x="1540.4" y="702.05" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">agent saw them</text>
+<rect x="1710" y="606" width="190" height="136" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="1765.22" y="649.625" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#1e1e1e">Only for:</text>
+<text x="1734.8" y="675.725" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">transcripts/*.json</text>
+<text x="1742.6" y="693.275" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">(trace = &quot;full&quot;)</text>
+<text x="1758.2" y="710.8249999999999" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">group grader</text>
+<text x="1500" y="785.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#c92a2a">never becomes training data</text>
+</svg>

@@ -1,0 +1,15 @@
+# Keeps the workflows' actions current, in one grouped PR a week. Python
+# dependencies stay manual: their ranges are bounded on purpose (pyproject.toml),
+# and the dependency-ranges workflow checks both ends each night.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ["*"]

@@ -1,0 +1,75 @@
+# Terminal-Bench 2.1 on GLM-5.3-Flash, async, on Blaxel sandboxes.
+# uv run loops check examples/terminal_bench/train.toml   # downloads the dataset
+
+recipe = "rl"
+
+[runtime]
+factory = "loops_cookbook.harbor:create_runtime"
+
+[runtime.files]
+job = "harbor.yaml"
+
+[runtime.config]
+reward_key = "reward"
+
+[providers.blaxel]
+# Credentials stay in .env as BL_WORKSPACE and BL_API_KEY. Every sandbox is created in
+# this region; the job does not name one. Every deadline has a default: Harbor's start
+# bound, reconcile + image build + create + attach (60 + 420 + 120 + 30 = 630s), fits
+# the task's build timeout (600s, times the job's environment_build_timeout_multiplier
+# of 1.1).
+region = "us-was-1"
+
+[model]
+base_model = "zai-org/GLM-5.3-Flash"
+max_seq_len = 262144
+lora_rank = 32
+renderer_chat_template_kwargs = { reasoning_effort = "low", clear_thinking = false }
+
+[sampling]
+temperature = 1.0
+max_generation_tokens = 16384
+max_trajectory_tokens = 131072
+
+[training]
+mode = "async"
+max_steps = 50
+learning_rate = 0.00001
+adam_epsilon = 0.00000001
+group_size = 8
+max_group_losses = 2
+groups_per_step = 4
+max_consecutive_unusable_groups = 100
+max_steps_off_policy = 3
+max_policy_delta_in_trajectory = 3
+loss_fn = "cispo"
+
+[rollout]
+max_concurrent_rollouts = 48
+max_concurrent_verifiers = 48
+max_rollout_retries = 2   # a failed sandbox or trial gets a fresh attempt
+max_consecutive_rollout_failures = 100
+# Every sandbox create (including its deploy wait), image build, and release with its
+# absence check holds one of these; with up to 96 trials churning sandboxes, the default
+# of 8 throttles sandbox starts.
+max_concurrent_provisioning = 32
+rollout_timeout_seconds = 21600
+setup_timeout_seconds = 7200
+# Sandboxes that may start ahead of a free sampling slot, as a fraction of
+# max_concurrent_rollouts (5 here); they never start a group backpressure holds back.
+prestart_allowance = 0.1
+
+[rollout.grading]
+timeout_seconds = 21600  # > 5 regrade tries x (build + verifier) + backoff; check names any task over it
+
+[compute]
+scope = "serverless"
+# keep_run = false # Deactivates this run on exit.
+
+[output]
+run_name = "terminal-bench-glm53-flash"
+output_dir = "runs/terminal-bench"
+wandb_project = "loops-harbor-terminal-bench-example"
+trainer_checkpoint_every = 10
+sampler_checkpoint_every = 10
+checkpoint_ttl_seconds = 0

@@ -1,0 +1,75 @@
+# A custom runtime, local, on Blaxel sandboxes: local_episode.py runs agent_program.py
+# as its own process on the training machine for each episode, in a Blaxel sandbox the
+# run provisions, and verifier.py scores what the sandbox holds.
+# uv sync --extra blaxel
+# uv run loops check patterns/custom_runtime/local/train_blaxel.toml
+#
+# agent_program.py and verifier.py reach each sandbox only through its usage
+# environment, with the Blaxel SDK from the training interpreter that runs them.
+
+recipe = "rl"
+
+[runtime]
+factory = "loops_cookbook.episodes:create_runtime"
+
+[runtime.files]
+tasks = "../../../tasks/hidden_answer.jsonl"   # one hidden answer to learn (tasks/README)
+
+[runtime.config]
+episode = "local_episode:BlaxelAgentEpisode"
+agent_timeout_seconds = 90   # cut after its reply: graded on what it left; before it: unversioned
+
+# The two programs run with the PATH's python3, which `uv run` makes the training
+# interpreter, with the Blaxel SDK that sandbox_io needs for a Blaxel sandbox.
+# A ./ or ../ path in either command resolves beside local_episode.py.
+[runtime.config.options]
+agent = ["python3", "./agent_program.py"]
+verifier = ["python3", "./verifier.py"]
+grade_against = "sandbox"   # verify the answer the agent left in its sandbox
+
+[runtime.config.sandbox]
+provider = "blaxel"
+image = "blaxel/base-image:latest"
+memory_mb = 2048
+ttl = "1h"         # required: it must outlast one episode
+
+[providers.blaxel]
+# Credentials stay in .env as BL_WORKSPACE and BL_API_KEY.
+region = "us-was-1"
+
+[model]
+base_model = "Qwen/Qwen3.5-4B"
+lora_rank = 8
+max_seq_len = 1024
+renderer_chat_template_kwargs = { enable_thinking = false }
+
+[sampling]
+max_generation_tokens = 32
+
+[training]
+mode = "sync"
+group_size = 16
+max_group_losses = 0
+groups_per_step = 1
+max_steps = 5
+max_consecutive_unusable_groups = 20   # stop if every group scores alike
+learning_rate = 0.0001
+loss_fn = "cispo"
+
+[rollout]
+max_concurrent_rollouts = 16
+max_concurrent_verifiers = 16
+setup_timeout_seconds = 60
+
+[rollout.grading]
+timeout_seconds = 30
+
+[compute]
+scope = "dedicated"
+
+[output]
+run_name = "custom-local-blaxel"
+output_dir = "runs/custom-local-blaxel"
+trainer_checkpoint_every = 0
+sampler_checkpoint_every = 0
+checkpoint_ttl_seconds = 0

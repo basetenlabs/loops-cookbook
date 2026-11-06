@@ -1,0 +1,72 @@
+# A multi-turn agent with tools, in a Blaxel sandbox: tool_episode.py writes each task's
+# files into a sandbox the run provisions, lets the model change them with a shell and a
+# file writer, and grades what the sandbox holds with the task's check.
+# uv sync --extra blaxel
+# uv run loops check examples/tool_agent/train_blaxel.toml
+
+recipe = "rl"
+
+[runtime]
+factory = "loops_cookbook.episodes:create_runtime"
+
+[runtime.config]
+episode = "tool_episode:ToolEpisode"
+agent_timeout_seconds = 180   # cut after a delivered reply: graded from what it left in the sandbox; before one: unversioned
+
+# The agent's own limits, validated at check as its ToolOptions.
+[runtime.config.options]
+max_turns = 12
+command_timeout_seconds = 20
+max_output_chars = 2000
+
+# One Blaxel sandbox per episode, provisioned before setup() and released by the run.
+[runtime.config.sandbox]
+provider = "blaxel"
+image = "blaxel/base-image:latest"
+memory_mb = 2048
+ttl = "1h"         # required: it must outlast one episode
+
+[runtime.files]
+tasks = "tasks.jsonl"
+
+[providers.blaxel]
+# Credentials stay in .env as BL_WORKSPACE and BL_API_KEY.
+region = "us-was-1"
+
+[model]
+base_model = "Qwen/Qwen3.5-4B"
+lora_rank = 8
+max_seq_len = 8192   # the whole conversation, tool results included
+renderer_chat_template_kwargs = { enable_thinking = false }
+
+[sampling]
+max_generation_tokens = 512
+
+[training]
+mode = "sync"
+group_size = 16
+max_group_losses = 1   # a cloud sandbox can fail; its group still trains
+groups_per_step = 1
+max_steps = 5
+max_consecutive_unusable_groups = 20   # stop if every group scores alike
+learning_rate = 0.0001
+loss_fn = "cispo"
+
+[rollout]
+max_concurrent_rollouts = 16
+max_concurrent_verifiers = 16
+max_rollout_retries = 2   # a failed sandbox gets a fresh attempt
+setup_timeout_seconds = 90   # setup() attaches and writes the task's files
+
+[rollout.grading]
+timeout_seconds = 60
+
+[compute]
+scope = "dedicated"
+
+[output]
+run_name = "tool-agent-blaxel"
+output_dir = "runs/tool-agent-blaxel"
+trainer_checkpoint_every = 0
+sampler_checkpoint_every = 0
+checkpoint_ttl_seconds = 0

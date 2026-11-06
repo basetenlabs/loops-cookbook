@@ -1,0 +1,20 @@
+schema_version = "1.4"
+
+# Two steps, each verified in the agent's own environment as soon as it ends: the
+# first step's reward lands during sampling, the last one's at grading.
+
+[agent]
+timeout_sec = 180
+
+[environment]
+cpus = 1
+memory_mb = 256
+
+[verifier]
+timeout_sec = 30
+
+[[steps]]
+name = "first"
+
+[[steps]]
+name = "second"

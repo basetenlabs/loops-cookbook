@@ -1,0 +1,53 @@
+name: dependency-ranges
+# CI checks uv.lock. A project that installs the cookbook resolves its ranges in its own
+# lock instead, so this checks both ends of the ranges: the newest versions they allow
+# (highest), and the floor of each direct dependency (lowest-direct). It runs nightly,
+# so a new upstream release that breaks us shows here before a user reports it, and
+# before each release (release.yml), which attaches the versions it checked. Like the
+# lock, it skips releases younger than 7 days ([tool.uv] exclude-newer), except
+# Baseten's own packages.
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: The commit to check
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        resolution: [highest, lowest-direct]
+    env:
+      # Every uv command resolves this way; a sync that did not would find the lock stale.
+      UV_RESOLUTION: ${{ matrix.resolution }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv lock --upgrade
+      # Saved before the checks: a later lock can resolve other versions, so a failed
+      # run keeps the versions it failed on.
+      - run: >-
+          uv export --locked --no-hashes --no-emit-project
+          --extra harbor-blaxel --extra harbor-daytona --extra wandb
+          --output-file dependencies-${{ matrix.resolution }}.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dependencies-${{ matrix.resolution }}
+          path: dependencies-${{ matrix.resolution }}.txt
+      - run: uv sync --locked --extra harbor-blaxel --extra harbor-daytona --extra wandb
+      - run: uv run pyright
+      - run: uv run pytest -q

@@ -1,0 +1,61 @@
+# Standalone HostScoredEpisode: guess A-D and score the hidden target.
+# uv run loops run examples/episode_basics/train_host_scored.toml
+
+recipe = "rl"
+
+[runtime]
+factory = "loops_cookbook.episodes:create_runtime"
+
+[runtime.config]
+episode = "episodes:HostScoredEpisode"
+agent_timeout_seconds = 90   # cut before the reply: unversioned; after it: graded, 0 if no answer was kept
+
+[runtime.files]
+tasks = "questions.jsonl"
+
+[model]
+base_model = "Qwen/Qwen3.5-4B"
+lora_rank = 8
+max_seq_len = 1024
+renderer_chat_template_kwargs = { enable_thinking = false }
+
+[sampling]
+max_generation_tokens = 16
+
+[training]
+mode = "sync"
+group_size = 16
+max_group_losses = 0
+groups_per_step = 1
+max_steps = 5
+max_consecutive_unusable_groups = 20   # stop if every group scores alike
+learning_rate = 0.0001
+loss_fn = "cispo"
+
+[rollout]
+max_concurrent_rollouts = 16
+max_concurrent_verifiers = 16
+setup_timeout_seconds = 60
+
+[rollout.grading]
+timeout_seconds = 10
+
+[eval]
+every_steps = 2   # and before the first update and after the last
+
+[eval.sets.val]
+samples_per_task = 4
+
+[eval.sets.val.runtime.files]
+tasks = "questions_val.jsonl"   # other letters, the same prompt: it shows the eval
+# mechanics, not generalization, and its score falls as the policy learns "B"
+
+[compute]
+scope = "dedicated"
+
+[output]
+run_name = "episode-host-scored"
+output_dir = "runs/episode-host-scored"
+trainer_checkpoint_every = 0
+sampler_checkpoint_every = 0
+checkpoint_ttl_seconds = 0

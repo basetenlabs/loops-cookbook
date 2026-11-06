@@ -1,0 +1,77 @@
+# An Episode, in-process, direct, on Blaxel sandboxes, whose groups an LLM judge ranks:
+# judge_episode.py answers with llm() and writes the answer into a sandbox the run
+# provisions; grade() reads it back from there, and grade_group() asks a judge model,
+# through its own OpenAI-compatible client, to rank each group's answers.
+# uv sync --extra blaxel
+# uv run loops check examples/llm_judge/train_blaxel.toml
+
+recipe = "rl"
+
+[runtime]
+factory = "loops_cookbook.episodes:create_runtime"
+
+[runtime.config]
+episode = "judge_episode:SandboxedRankedEpisode"
+agent_timeout_seconds = 60
+
+# One Blaxel sandbox per episode, provisioned before setup() and released by the run.
+[runtime.config.sandbox]
+provider = "blaxel"
+image = "blaxel/base-image:latest"
+memory_mb = 2048
+ttl = "1h"         # required: it must outlast one episode
+
+# The episode's own settings, validated at check as its JudgeOptions: its judge,
+# never the policy. No secret goes here: the key stays in the environment.
+[runtime.config.options]
+judge_base_url = "https://inference.baseten.co/v1"   # any OpenAI-compatible endpoint
+judge_model = "openai/gpt-oss-120b"
+judge_api_key_env = "BASETEN_API_KEY"                # the variable that holds its key
+rank_weight = 0.8                                    # the rest is grade()'s length reward
+max_words = 60
+
+[runtime.files]
+tasks = "tasks.jsonl"
+
+[providers.blaxel]
+# Credentials stay in .env as BL_WORKSPACE and BL_API_KEY.
+region = "us-was-1"
+
+[model]
+base_model = "Qwen/Qwen3.5-4B"
+lora_rank = 8
+max_seq_len = 1024
+renderer_chat_template_kwargs = { enable_thinking = false }
+
+[sampling]
+max_generation_tokens = 128
+
+[training]
+mode = "sync"
+group_size = 16
+max_group_losses = 0
+groups_per_step = 1
+max_steps = 5
+max_consecutive_unusable_groups = 20   # stop if every group scores alike
+learning_rate = 0.0001
+loss_fn = "cispo"
+
+[rollout]
+max_concurrent_rollouts = 8
+max_concurrent_verifiers = 4   # one judge call holds one of these for its whole group
+max_rollout_retries = 2         # a failed sandbox gets a fresh attempt
+setup_timeout_seconds = 90      # setup() attaches to the sandbox
+max_consecutive_rollout_failures = 8   # a judge that keeps failing stops the run
+
+[rollout.grading]
+timeout_seconds = 120   # each grade() try, and each judge call
+
+[compute]
+scope = "dedicated"
+
+[output]
+run_name = "custom-llm-judge-blaxel"
+output_dir = "runs/custom-llm-judge-blaxel"
+trainer_checkpoint_every = 0
+sampler_checkpoint_every = 0
+checkpoint_ttl_seconds = 0

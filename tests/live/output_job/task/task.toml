@@ -1,0 +1,24 @@
+schema_version = "1.4"
+
+[[artifacts]]
+source = "/app/answer.txt"
+destination = "answer.txt"
+
+[[artifacts]]
+source = "/app/output.txt"
+destination = "output.txt"
+
+[agent]
+timeout_sec = 300
+
+[environment]
+cpus = 1
+memory_mb = 256
+
+[verifier]
+environment_mode = "separate"
+timeout_sec = 30
+
+[verifier.environment]
+cpus = 1
+memory_mb = 256

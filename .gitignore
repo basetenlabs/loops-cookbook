@@ -1,0 +1,22 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.DS_Store
+.venv/
+/dist/
+.env
+.pytest_cache/
+.ruff_cache/
+.worktrees/
+wandb/
+
+# Training output written by `loops run`
+runs/
+outputs/
+
+# Private working notes, kept out of the published recipe
+notes/
+
+# Data the SFT examples download and write
+examples/sft_toucan/data/
+examples/sft_toucan/evaluation.json

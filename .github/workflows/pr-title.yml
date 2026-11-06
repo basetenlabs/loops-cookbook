@@ -1,0 +1,47 @@
+name: pr-title
+# develop takes squash merges, so a PR's title becomes its commit on develop. The
+# title should be a Conventional Commit: "type(scope): summary", with the scope
+# optional. See CONTRIBUTING.md. The check is advisory: a title in another form
+# gets a warning, and the job passes. PRs into main are releases;
+# release-title.yml checks them.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+    branches: [develop]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  pr-title:
+    runs-on: ubuntu-latest
+    steps:
+      - id: title
+        continue-on-error: true
+        uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            test
+            refactor
+            perf
+            build
+            ci
+            deps
+            chore
+            revert
+          requireScope: false
+          # The summary starts with a letter or a digit, and does not end with a period.
+          subjectPattern: ^[A-Za-z0-9].*[^.]$
+          subjectPatternError: |
+            The summary "{subject}" in "{title}" must start with a letter or a
+            digit and must not end with a period.
+      - if: steps.title.outcome == 'failure'
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          echo "::warning::\"$TITLE\" is not a Conventional Commit, such as \"fix(rl): resume at the right group\". See CONTRIBUTING.md."

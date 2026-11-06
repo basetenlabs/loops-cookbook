@@ -1,0 +1,81 @@
+"""Blaxel usage code: reaching a sandbox the run's registry already owns.
+
+Nothing here creates, deletes, or holds an adapter. A caller has the
+``ProviderResource`` a provisioned sandbox's handle carries, and gets the SDK's usage
+client for exactly that sandbox, or a failure. So code outside the registry, such as
+Harbor's environment, can use a sandbox without being able to bypass the registry's
+ownership.
+
+A sandbox is usable only while it is ``DEPLOYED``; ``deployed`` is that rule, and
+the adapter's provisioning and liveness and ``attach`` all read it.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Awaitable, Callable
+
+from blaxel.core.sandbox import SandboxInstance
+
+from loops_cookbook.providers.blaxel.incidents import DEAD, close_clients, configure_clients
+from loops_cookbook.resources.api import CreationDisposition, ProviderResource, ProvisioningFailure
+
+DEPLOYED = "DEPLOYED"
+POLL_SECONDS = 2.0
+
+
+def deployed(status: object) -> bool:
+    """Whether a sandbox in ``status`` is usable.
+
+    Being readable proves nothing: a deleted sandbox stays readable, as
+    ``TERMINATED``, for many minutes.
+    """
+    return status == DEPLOYED
+
+
+async def attach(
+    resource: ProviderResource,
+    *,
+    timeout_seconds: float,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> SandboxInstance:
+    """The usage client for the provisioned sandbox, once it is ``DEPLOYED``.
+
+    Bounded by ``timeout_seconds``, the provider's attach deadline. The sandbox must
+    carry the ownership labels it was created with. The client has the network
+    deadlines installed; its caller closes it with ``close_clients``.
+    """
+    sandbox: SandboxInstance | None = None
+    try:
+        async with asyncio.timeout(timeout_seconds):
+            while True:
+                sandbox = await SandboxInstance.get(resource.name)
+                configure_clients(sandbox)
+                status = sandbox.status
+                if deployed(status):
+                    break
+                read, sandbox = sandbox, None
+                await close_clients(read)
+                if status in DEAD:
+                    raise ProvisioningFailure(
+                        f"Blaxel sandbox {resource.name} entered {status}",
+                        CreationDisposition.DEFINITELY_CREATED,
+                        resource,
+                    )
+                await sleep(POLL_SECONDS)
+    except BaseException:
+        if sandbox is not None:  # a client read just before the deadline
+            await close_clients(sandbox)
+        raise
+    observed = sandbox.metadata.to_dict()
+    labels = observed.get("labels") or {}
+    if observed.get("name") != resource.name or any(
+        labels.get(key) != value for key, value in resource.labels.items()
+    ):
+        await close_clients(sandbox)
+        raise ProvisioningFailure(
+            f"Blaxel sandbox {resource.name} does not carry the ownership it was created with",
+            CreationDisposition.DEFINITELY_CREATED,
+            resource,
+        )
+    return sandbox

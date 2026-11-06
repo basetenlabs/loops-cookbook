@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -20 1920 1070" width="1920" height="1070">
+<defs><marker id="h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<rect x="0" y="-20" width="1920" height="1070" fill="#1e1e2e"/>
+<text x="40" y="54.0" font-family="Helvetica, Arial" font-size="34" font-weight="bold" fill="#e5e5e5">The SFT recipe: rows in, a LoRA out</text>
+<text x="40.0" y="84.0" font-family="Helvetica, Arial" font-size="16" font-weight="normal" fill="#a0a0a0">loops check runs the top band and stops; loops run runs both. No Loops trainer starts until every row is rendered.</text>
+<rect x="40" y="100" width="1840" height="46" rx="12" fill="#4d4417" fill-opacity="1.0" stroke="#fcc419" stroke-width="1"/>
+<text x="58" y="130.0" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#e5e5e5">A token trains when the model&#x27;s own template has the model write it, in a trained turn, after that turn&#x27;s prompt.</text>
+<rect x="1360" y="30" width="24" height="18" rx="0" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="2"/>
+<text x="1392" y="45.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#a0a0a0">cookbook</text>
+<rect x="1530" y="30" width="24" height="18" rx="0" fill="#1a4d2e" fill-opacity="1.0" stroke="#69db7c" stroke-width="2"/>
+<text x="1562" y="45.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#a0a0a0">user code</text>
+<rect x="1700" y="30" width="24" height="18" rx="0" fill="#5c3d1a" fill-opacity="1.0" stroke="#ffa94d" stroke-width="2"/>
+<text x="1732" y="45.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#a0a0a0">external</text>
+<rect x="40" y="170" width="1840" height="400" rx="12" fill="#242c45" fill-opacity="0.7" stroke="#a0a0a0" stroke-width="1"/>
+<text x="54" y="197.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#a0a0a0">Before anything is provisioned  (check, and the start of run)</text>
+<rect x="70" y="230" width="380" height="150" rx="12" fill="#1a4d2e" fill-opacity="1.0" stroke="#69db7c" stroke-width="2"/>
+<text x="213.2" y="289.75" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#e5e5e5">JSONL rows</text>
+<text x="170.3" y="316.15" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">chat: messages + weight</text>
+<text x="154.7" y="333.7" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">tokens: input_ids + weights</text>
+<rect x="530" y="230" width="380" height="150" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="2"/>
+<text x="635.76" y="289.75" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#e5e5e5">Validate every row</text>
+<text x="606.9" y="316.15" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">against its format&#x27;s contract</text>
+<text x="645.9" y="333.7" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">load_rows · data.py</text>
+<rect x="990" y="230" width="380" height="150" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="2"/>
+<text x="1086.4" y="280.975" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#e5e5e5">Render, mark targets</text>
+<text x="1082.5" y="307.375" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">the model&#x27;s chat template</text>
+<text x="1090.3" y="324.925" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">(tokens rows: as given)</text>
+<text x="1086.4" y="342.475" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">supervise · sequences.py</text>
+<rect x="1450" y="230" width="380" height="150" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="2"/>
+<text x="1611.92" y="280.975" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#e5e5e5">Report</text>
+<text x="1515.2" y="307.375" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">what trains, split, refused, why</text>
+<text x="1573.7" y="324.925" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">digest + schedule</text>
+<text x="1503.5" y="342.475" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">plan · run.py; run writes data.json</text>
+<polyline points="450,305.0 530,305.0" fill="none" stroke="#e5e5e5" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="910,305.0 990,305.0" fill="none" stroke="#e5e5e5" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="1370,305.0 1450,305.0" fill="none" stroke="#e5e5e5" stroke-width="2" marker-end="url(#h)"/>
+<rect x="530" y="410" width="380" height="120" rx="12" fill="#5c1a1a" fill-opacity="1.0" stroke="#ff8787" stroke-width="1"/>
+<text x="622.5" y="443.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#e5e5e5">a row breaks the contract</text>
+<text x="603.52" y="470.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#e5e5e5">the first 20 named by file:line;</text>
+<text x="658.12" y="488.2" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#e5e5e5">no trainer starts</text>
+<polyline points="720.0,380 720.0,410" fill="none" stroke="#ff8787" stroke-width="2" marker-end="url(#h)"/>
+<rect x="990" y="430" width="118" height="70" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="1"/>
+<text x="1008.44" y="457.0" font-family="Helvetica, Arial" font-size="13" font-weight="bold" fill="#e5e5e5">one sequence</text>
+<rect x="1121" y="430" width="118" height="70" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="1"/>
+<text x="1169.86" y="457.0" font-family="Helvetica, Arial" font-size="13" font-weight="bold" fill="#e5e5e5">one</text>
+<text x="1125.92" y="473.9" font-family="Helvetica, Arial" font-size="13" font-weight="bold" fill="#e5e5e5">per trained turn</text>
+<rect x="1252" y="430" width="118" height="70" rx="12" fill="#5c1a1a" fill-opacity="1.0" stroke="#ff8787" stroke-width="1"/>
+<text x="1283.96" y="457.0" font-family="Helvetica, Arial" font-size="13" font-weight="bold" fill="#e5e5e5">refused,</text>
+<text x="1273.82" y="473.9" font-family="Helvetica, Arial" font-size="13" font-weight="bold" fill="#e5e5e5">with reason</text>
+<polyline points="1180.0,380 1180.0,430" fill="none" stroke="#e5e5e5" stroke-width="2" marker-end="url(#h)"/>
+<text x="1044.8" y="525.0" font-family="Helvetica, Arial" font-size="13" font-weight="normal" fill="#a0a0a0">split when the template rewrites history</text>
+<rect x="1450" y="430" width="380" height="70" rx="12" fill="#4d4417" fill-opacity="1.0" stroke="#fcc419" stroke-width="1"/>
+<text x="1548.48" y="462.0" font-family="Helvetica, Arial" font-size="16" font-weight="bold" fill="#e5e5e5">loops check stops here</text>
+<text x="1545.36" y="483.0" font-family="Helvetica, Arial" font-size="13" font-weight="normal" fill="#a0a0a0">and run, if no row can train</text>
+<polyline points="1640.0,380 1640.0,430" fill="none" stroke="#a0a0a0" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#h)"/>
+<rect x="40" y="610" width="1840" height="400" rx="12" fill="#2d2545" fill-opacity="0.7" stroke="#a0a0a0" stroke-width="1"/>
+<text x="54" y="637.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#a0a0a0">Each update, total_steps times  (run)</text>
+<rect x="70" y="670" width="380" height="150" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="2"/>
+<text x="203.84" y="720.975" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#e5e5e5">Pick a batch</text>
+<text x="146.9" y="747.375" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">batch_size sequences, epoch e</text>
+<text x="143.0" y="764.925" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">shuffled with shuffle_seed + e</text>
+<text x="205.4" y="782.4749999999999" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">Schedule.batch</text>
+<rect x="530" y="670" width="380" height="150" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="2"/>
+<text x="663.84" y="720.975" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#e5e5e5">Build datums</text>
+<text x="614.7" y="747.375" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">token i predicts token i+1;</text>
+<text x="638.1" y="764.925" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">only targets weighted</text>
+<text x="626.4" y="782.4749999999999" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">SupervisedSequence.datum</text>
+<rect x="990" y="670" width="380" height="150" rx="12" fill="#5c3d1a" fill-opacity="1.0" stroke="#ffa94d" stroke-width="2"/>
+<text x="1119.16" y="720.975" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#e5e5e5">Loops trainer</text>
+<text x="1055.2" y="747.375" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">forward_backward (cross_entropy)</text>
+<text x="1105.9" y="764.925" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">then one optim_step</text>
+<text x="1141.0" y="782.4749999999999" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">no sampler</text>
+<rect x="1450" y="670" width="380" height="150" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="2"/>
+<text x="1569.8" y="712.2" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#e5e5e5">Keep and record</text>
+<text x="1530.8" y="738.6" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">on cadence, always the last:</text>
+<text x="1519.1" y="756.15" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">sampler weights · trainer state</text>
+<text x="1573.7" y="773.6999999999999" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">+ resume manifest</text>
+<text x="1523.0" y="791.2499999999999" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">steps.jsonl · W&amp;B every update</text>
+<polyline points="450,745.0 530,745.0" fill="none" stroke="#e5e5e5" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="910,745.0 990,745.0" fill="none" stroke="#e5e5e5" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="1370,745.0 1450,745.0" fill="none" stroke="#e5e5e5" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="1830,305.0 1860,305.0 1860,590 430,590 430,670" fill="none" stroke="#e5e5e5" stroke-width="2" marker-end="url(#h)"/>
+<rect x="800.52" y="576" width="318.96000000000004" height="20.25" rx="0" fill="#1e1e2e" fill-opacity="1.0" stroke="none" stroke-width="0"/>
+<text x="804.52" y="591.0" font-family="Helvetica, Arial" font-size="13" font-weight="normal" fill="#e5e5e5">sequences held compactly; datums built as sent</text>
+<rect x="990" y="850" width="380" height="120" rx="12" fill="#1e1e2e" fill-opacity="1.0" stroke="#a0a0a0" stroke-width="1"/>
+<text x="1078.6" y="879.0" font-family="Helvetica, Arial" font-size="13" font-weight="normal" fill="#e5e5e5">train/nll: token mean from the</text>
+<text x="1105.64" y="895.9" font-family="Helvetica, Arial" font-size="13" font-weight="normal" fill="#e5e5e5">logprobs Loops returns</text>
+<text x="1065.08" y="912.8" font-family="Helvetica, Arial" font-size="13" font-weight="normal" fill="#e5e5e5">val/nll: forward only, at step -1,</text>
+<text x="1065.08" y="929.6999999999999" font-family="Helvetica, Arial" font-size="13" font-weight="normal" fill="#e5e5e5">every eval.every_steps, at the end</text>
+<polyline points="1180.0,820 1180.0,850" fill="none" stroke="#a0a0a0" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#h)"/>
+<rect x="1450" y="850" width="380" height="120" rx="12" fill="#5c1a1a" fill-opacity="1.0" stroke="#ff8787" stroke-width="1"/>
+<text x="1538.6" y="879.0" font-family="Helvetica, Arial" font-size="13" font-weight="normal" fill="#e5e5e5">a run that fails or is stopped</text>
+<text x="1535.22" y="895.9" font-family="Helvetica, Arial" font-size="13" font-weight="normal" fill="#e5e5e5">tries to save the last update&#x27;s</text>
+<text x="1535.22" y="912.8" font-family="Helvetica, Arial" font-size="13" font-weight="normal" fill="#e5e5e5">state; a resume continues after</text>
+<text x="1521.7" y="929.6999999999999" font-family="Helvetica, Arial" font-size="13" font-weight="normal" fill="#e5e5e5">the last one saved  ·  failure.json</text>
+<polyline points="1640.0,820 1640.0,850" fill="none" stroke="#ff8787" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#h)"/>
+<rect x="70" y="850" width="840" height="120" rx="12" fill="#2a2d33" fill-opacity="1.0" stroke="#a0a0a0" stroke-width="1"/>
+<text x="315.28" y="886.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#e5e5e5">A resume is held to the digest and the schedule:</text>
+<text x="278.88" y="904.2" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#e5e5e5">same data, renderer, max_seq_len, batch size, shuffle_seed</text>
+<text x="326.2" y="922.4000000000001" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#e5e5e5">and learning-rate schedule, or it is refused.</text>
+</svg>

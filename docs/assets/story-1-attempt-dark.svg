@@ -1,0 +1,139 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -20 2164 918.75" width="2164" height="918.75">
+<defs><marker id="h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<rect x="0" y="-20" width="2164" height="918.75" fill="#1e1e2e"/>
+<text x="40" y="54.0" font-family="Helvetica, Arial" font-size="34" font-weight="bold" fill="#e5e5e5">One attempt, start to finish</text>
+<text x="40" y="84.0" font-family="Helvetica, Arial" font-size="16" font-weight="normal" fill="#a0a0a0">Custom runtime (Episode). Left to right is time. Cleanup runs in the background while the rollout waits for its group.</text>
+<rect x="40" y="100" width="2084" height="46" rx="12" fill="#4d4417" fill-opacity="1.0" stroke="#fcc419" stroke-width="1"/>
+<text x="58" y="130.0" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#e5e5e5">You must write run() and grade() (or grade_group()); the rest is optional. The cookbook owns every slot, clock and sandbox around them.</text>
+<rect x="1604" y="30" width="24" height="18" rx="0" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="2"/>
+<text x="1636" y="45.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#a0a0a0">cookbook</text>
+<rect x="1774" y="30" width="24" height="18" rx="0" fill="#1a4d2e" fill-opacity="1.0" stroke="#69db7c" stroke-width="2"/>
+<text x="1806" y="45.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#a0a0a0">user code</text>
+<rect x="1944" y="30" width="24" height="18" rx="0" fill="#5c3d1a" fill-opacity="1.0" stroke="#ffa94d" stroke-width="2"/>
+<text x="1976" y="45.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#a0a0a0">external</text>
+<rect x="230" y="170" width="250" height="44" rx="12" fill="#2a2d33" fill-opacity="1.0" stroke="#a0a0a0" stroke-width="1"/>
+<text x="329.0" y="200.0" font-family="Helvetica, Arial" font-size="20" font-weight="bold" fill="#e5e5e5">Admit</text>
+<rect x="504" y="170" width="250" height="44" rx="12" fill="#3a3024" fill-opacity="1.0" stroke="#a0a0a0" stroke-width="1"/>
+<text x="603.0" y="200.0" font-family="Helvetica, Arial" font-size="20" font-weight="bold" fill="#e5e5e5">Setup</text>
+<rect x="778" y="170" width="250" height="44" rx="12" fill="#242c45" fill-opacity="1.0" stroke="#a0a0a0" stroke-width="1"/>
+<text x="861.4" y="200.0" font-family="Helvetica, Arial" font-size="20" font-weight="bold" fill="#e5e5e5">Sampling</text>
+<rect x="1052" y="170" width="250" height="44" rx="12" fill="#2d2545" fill-opacity="1.0" stroke="#a0a0a0" stroke-width="1"/>
+<text x="1156.2" y="200.0" font-family="Helvetica, Arial" font-size="20" font-weight="bold" fill="#e5e5e5">Seal</text>
+<rect x="1326" y="170" width="250" height="44" rx="12" fill="#1f3326" fill-opacity="1.0" stroke="#a0a0a0" stroke-width="1"/>
+<text x="1414.6" y="200.0" font-family="Helvetica, Arial" font-size="20" font-weight="bold" fill="#e5e5e5">Grading</text>
+<rect x="1600" y="170" width="250" height="44" rx="12" fill="#2a2d33" fill-opacity="1.0" stroke="#a0a0a0" stroke-width="1"/>
+<text x="1662.6" y="200.0" font-family="Helvetica, Arial" font-size="20" font-weight="bold" fill="#e5e5e5">Cleanup (bg)</text>
+<rect x="1874" y="170" width="250" height="44" rx="12" fill="#1d3336" fill-opacity="1.0" stroke="#a0a0a0" stroke-width="1"/>
+<text x="1973.0" y="200.0" font-family="Helvetica, Arial" font-size="20" font-weight="bold" fill="#e5e5e5">Group</text>
+<text x="40" y="313.0" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#a0a0a0">Cookbook does</text>
+<text x="40" y="461.0" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#a0a0a0">You write</text>
+<text x="40" y="582.0" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#a0a0a0">Clock running</text>
+<text x="40" y="723.0" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#a0a0a0">If it goes wrong</text>
+<rect x="230" y="232" width="250" height="150" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="2"/>
+<text x="257.76" y="282.625" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">Wait for a start place</text>
+<text x="292.6" y="308.725" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">capacity.admit()</text>
+<text x="269.2" y="326.27500000000003" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">≤ rollouts + pre-start</text>
+<text x="308.2" y="343.82500000000005" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">places (10%)</text>
+<rect x="504" y="232" width="250" height="150" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="2"/>
+<text x="522.9200000000001" y="280.35" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">Create execution sandbox</text>
+<text x="562.7" y="302.45000000000005" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">(if configured)</text>
+<text x="547.1" y="328.55000000000007" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">resources.provision()</text>
+<text x="543.2" y="346.1000000000001" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">written to the journal</text>
+<rect x="778" y="232" width="250" height="150" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="2"/>
+<text x="810.18" y="271.575" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">Give a sampling slot;</text>
+<text x="801.34" y="293.675" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">record every model call</text>
+<text x="848.4" y="319.77500000000003" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">hold(SAMPLING)</text>
+<text x="813.3" y="337.32500000000005" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">max_concurrent_rollouts</text>
+<text x="852.3" y="354.87500000000006" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">attempt lease</text>
+<rect x="1052" y="232" width="250" height="150" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="2"/>
+<text x="1084.18" y="269.3" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">Seal: stop processes,</text>
+<text x="1106.28" y="291.40000000000003" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">close the lease,</text>
+<text x="1101.86" y="313.50000000000006" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">build the Rollout</text>
+<text x="1079.5" y="339.6000000000001" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">from the sampler&#x27;s tokens</text>
+<text x="1130.2" y="357.1500000000001" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">driver._seal</text>
+<rect x="1326" y="232" width="250" height="150" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="2"/>
+<text x="1344.92" y="291.4" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">Admit; optional verifier</text>
+<text x="1380.8" y="317.5" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">hold(VERIFICATION)</text>
+<text x="1357.4" y="335.05" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">max_concurrent_verifiers</text>
+<rect x="1600" y="232" width="250" height="150" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="2"/>
+<text x="1645.44" y="282.625" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">Release everything</text>
+<text x="1631.4" y="308.725" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">close(closing), clients,</text>
+<text x="1635.3" y="326.27500000000003" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">attempt directory, then</text>
+<text x="1647.0" y="343.82500000000005" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">registered resources</text>
+<rect x="1874" y="232" width="250" height="150" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="2"/>
+<text x="1928.28" y="280.35" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">Check the group,</text>
+<text x="1941.54" y="302.45000000000005" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">then batch it</text>
+<text x="1909.3" y="328.55000000000007" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">stale → size → variance</text>
+<text x="1905.4" y="346.1000000000001" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">all-equal rewards → drop</text>
+<polyline points="480,307 504,307" fill="none" stroke="#e5e5e5" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="754,307 778,307" fill="none" stroke="#e5e5e5" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="1028,307 1052,307" fill="none" stroke="#e5e5e5" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="1302,307 1326,307" fill="none" stroke="#e5e5e5" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="1850,307 1874,307" fill="none" stroke="#e5e5e5" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="1576,330 1600,330" fill="none" stroke="#a0a0a0" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#h)"/>
+<polyline points="1451.0,232 1451.0,222 1999.0,222 1999.0,232" fill="none" stroke="#e5e5e5" stroke-width="2" marker-end="url(#h)"/>
+<text x="349.8" y="465.0" font-family="Helvetica, Arial" font-size="20" font-weight="normal" fill="#a0a0a0">—</text>
+<rect x="504" y="400" width="250" height="110" rx="12" fill="#1a4d2e" fill-opacity="1.0" stroke="#69db7c" stroke-width="2"/>
+<text x="533.32" y="437.425" font-family="Helvetica, Arial" font-size="16" font-weight="bold" fill="#e5e5e5">__init__(task, options)</text>
+<text x="579.08" y="458.225" font-family="Helvetica, Arial" font-size="16" font-weight="bold" fill="#e5e5e5">setup(setup)</text>
+<text x="582.2" y="484.02500000000003" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">no model yet</text>
+<rect x="778" y="400" width="250" height="110" rx="12" fill="#1a4d2e" fill-opacity="1.0" stroke="#69db7c" stroke-width="2"/>
+<text x="857.24" y="439.05" font-family="Helvetica, Arial" font-size="16" font-weight="bold" fill="#e5e5e5">run(sample)</text>
+<text x="793.8" y="464.85" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">your agent; returns metadata</text>
+<text x="797.6999999999999" y="482.40000000000003" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">sample.model: llm() or HTTP</text>
+<text x="1171.8" y="465.0" font-family="Helvetica, Arial" font-size="20" font-weight="normal" fill="#a0a0a0">—</text>
+<rect x="1326" y="400" width="250" height="110" rx="12" fill="#1a4d2e" fill-opacity="1.0" stroke="#69db7c" stroke-width="2"/>
+<text x="1355.32" y="447.825" font-family="Helvetica, Arial" font-size="16" font-weight="bold" fill="#e5e5e5">grade(grading) → reward</text>
+<text x="1365.2" y="473.625" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">sees grading.timed_out</text>
+<rect x="1600" y="400" width="250" height="110" rx="12" fill="#1a4d2e" fill-opacity="1.0" stroke="#69db7c" stroke-width="2"/>
+<text x="1666.7600000000002" y="447.825" font-family="Helvetica, Arial" font-size="16" font-weight="bold" fill="#e5e5e5">close(closing)</text>
+<text x="1693.8" y="473.625" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">optional</text>
+<rect x="1874" y="400" width="250" height="110" rx="12" fill="#1a4d2e" fill-opacity="1.0" stroke="#69db7c" stroke-width="2"/>
+<text x="1915.8" y="437.425" font-family="Helvetica, Arial" font-size="16" font-weight="bold" fill="#e5e5e5">grade_group(members,</text>
+<text x="1965.72" y="458.225" font-family="Helvetica, Arial" font-size="16" font-weight="bold" fill="#e5e5e5">options)</text>
+<text x="1897.6" y="484.02500000000003" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#a0a0a0">optional; replaces rewards</text>
+<text x="304.3" y="577.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#a0a0a0">off the clock</text>
+<rect x="504" y="528" width="250" height="38" rx="12" fill="#3a3024" fill-opacity="1.0" stroke="#a0a0a0" stroke-width="1"/>
+<text x="514" y="547.0" font-family="Helvetica, Arial" font-size="14" font-weight="bold" fill="#e5e5e5">setup clock</text>
+<text x="514" y="561.0" font-family="Menlo, monospace" font-size="11" font-weight="normal" fill="#a0a0a0">setup_timeout_seconds</text>
+<rect x="778" y="528" width="250" height="38" rx="12" fill="#242c45" fill-opacity="1.0" stroke="#a0a0a0" stroke-width="1"/>
+<text x="788" y="547.0" font-family="Helvetica, Arial" font-size="14" font-weight="bold" fill="#e5e5e5">rollout clock (backstop)</text>
+<text x="788" y="561.0" font-family="Menlo, monospace" font-size="11" font-weight="normal" fill="#a0a0a0">rollout_timeout_seconds</text>
+<rect x="794" y="574" width="218" height="38" rx="12" fill="#1a4d4d" fill-opacity="1.0" stroke="#a0a0a0" stroke-width="1"/>
+<text x="804" y="593.0" font-family="Helvetica, Arial" font-size="14" font-weight="bold" fill="#e5e5e5">agent deadline</text>
+<text x="804" y="607.0" font-family="Menlo, monospace" font-size="11" font-weight="normal" fill="#a0a0a0">agent_timeout_seconds</text>
+<text x="1111.48" y="576.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#a0a0a0">cancellation grace</text>
+<rect x="1326" y="528" width="250" height="38" rx="12" fill="#1f3326" fill-opacity="1.0" stroke="#a0a0a0" stroke-width="1"/>
+<text x="1336" y="547.0" font-family="Helvetica, Arial" font-size="14" font-weight="bold" fill="#e5e5e5">grading clock</text>
+<text x="1336" y="561.0" font-family="Menlo, monospace" font-size="11" font-weight="normal" fill="#a0a0a0">[rollout.grading] timeout</text>
+<rect x="1600" y="528" width="250" height="38" rx="12" fill="#2a2d33" fill-opacity="1.0" stroke="#a0a0a0" stroke-width="1"/>
+<text x="1610" y="547.0" font-family="Helvetica, Arial" font-size="14" font-weight="bold" fill="#e5e5e5">cleanup clock</text>
+<text x="1610" y="561.0" font-family="Menlo, monospace" font-size="11" font-weight="normal" fill="#a0a0a0">[rollout.cleanup] timeout</text>
+<rect x="1874" y="528" width="250" height="38" rx="12" fill="#1d3336" fill-opacity="1.0" stroke="#a0a0a0" stroke-width="1"/>
+<text x="1884" y="547.0" font-family="Helvetica, Arial" font-size="14" font-weight="bold" fill="#e5e5e5">grading clock</text>
+<text x="1884" y="561.0" font-family="Menlo, monospace" font-size="11" font-weight="normal" fill="#a0a0a0">per grade_group() call</text>
+<rect x="504" y="642" width="250" height="150" rx="12" fill="#5c1a1a" fill-opacity="1.0" stroke="#ff8787" stroke-width="1"/>
+<text x="567.12" y="676.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#e5e5e5">setup clock fires</text>
+<text x="534.36" y="698.2" font-family="Helvetica, Arial" font-size="14" font-weight="bold" fill="#e5e5e5">→ retry as a fresh attempt</text>
+<rect x="778" y="642" width="250" height="150" rx="12" fill="#5c1a1a" fill-opacity="1.0" stroke="#ff8787" stroke-width="1"/>
+<text x="790.16" y="676.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#e5e5e5">agent deadline → graded on what</text>
+<text x="771.96" y="694.2" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#e5e5e5">was delivered (nothing: unversioned)</text>
+<text x="782.88" y="712.4000000000001" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#e5e5e5">rollout clock → discarded, counts</text>
+<text x="830.2" y="730.6000000000001" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#e5e5e5">run() raises → retry</text>
+<rect x="1052" y="642" width="250" height="150" rx="12" fill="#5c1a1a" fill-opacity="1.0" stroke="#ff8787" stroke-width="1"/>
+<text x="1100.56" y="676.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#e5e5e5">too stale / no policy</text>
+<text x="1107.84" y="694.2" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#e5e5e5">version → discarded</text>
+<rect x="1326" y="642" width="250" height="150" rx="12" fill="#5c1a1a" fill-opacity="1.0" stroke="#ff8787" stroke-width="1"/>
+<text x="1341.8" y="676.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#e5e5e5">grade() raises → retried up to</text>
+<text x="1352.72" y="694.2" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#e5e5e5">grading_retries (default 0)</text>
+<text x="1345.44" y="712.4000000000001" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#e5e5e5">non-finite reward → discarded</text>
+<rect x="1600" y="642" width="250" height="150" rx="12" fill="#5c1a1a" fill-opacity="1.0" stroke="#ff8787" stroke-width="1"/>
+<text x="1641.28" y="676.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#e5e5e5">a failure counts toward</text>
+<text x="1666.76" y="694.2" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#e5e5e5">the cleanup stop</text>
+<rect x="1874" y="642" width="250" height="150" rx="12" fill="#5c1a1a" fill-opacity="1.0" stroke="#ff8787" stroke-width="1"/>
+<text x="1915.28" y="676.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#e5e5e5">too small / no variance</text>
+<text x="1944.4" y="694.2" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#e5e5e5">→ group dropped</text>
+<polyline points="629.0,792 629.0,828 270,828 270,382" fill="none" stroke="#ff8787" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="903.0,792 903.0,828 629.0,828" fill="none" stroke="#ff8787" stroke-width="2" marker-end="url(#h)"/>
+<text x="220" y="855.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#ff8787">retry = a fresh attempt: new Episode, new sandbox, new lease, fresh clocks, back of the admission queue  (max_rollout_retries)</text>
+</svg>

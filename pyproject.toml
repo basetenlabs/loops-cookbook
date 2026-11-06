@@ -1,0 +1,213 @@
+[project]
+name = "baseten-loops-cookbook"
+dynamic = ["version"]
+description = "RL and SFT recipes on Baseten Loops: train your agent on your tasks, or fine-tune on conversations."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = [
+    "baseten-loops>=0.34.0,<0.35",  # 0.x: a minor bump can break the SDK interface
+    "pydantic>=2.7",
+    "typing-extensions>=4.12",   # TypeVar defaults, for the Episode's type parameters
+    "python-dotenv>=1.2",
+    "pyyaml>=6",
+    # Glm5Next processor for GLM-5.3-Flash images; tokenizers otherwise. Bounded: renders
+    # share a tokenizer across threads (llm/render_pool.py), which is safe only while
+    # an encode that asks for no truncation or padding writes nothing to the backend
+    # (tests/unit/llm/test_tokenizer_sharing.py); widen once that test qualifies a minor.
+    "transformers>=5.16,<5.20",
+    # Bounded: llm/renderer_extensions and llm/images.py import Prime's private names,
+    # which any release can change; widen once tests/contracts pass on the next release.
+    "renderers[transformers,multimodal]>=0.2.0,<0.2.1",
+    # Floors past security advisories: the OpenAI gateway serves on aiohttp.web, and
+    # llm/images.py and llm/client.py decode images with Pillow.
+    "aiohttp>=3.14.4",
+    "pillow>=13.0",
+]
+
+[project.optional-dependencies]
+# Harbor while the cookbook overrides its private members: widen only after the
+# compatibility suite qualifies the next minor. Harbor depends on LiteLLM, whose
+# 1.107.0 release is excluded on a security advisory, as are those below 1.100.4.
+harbor = ["harbor>=0.23,<0.24", "litellm>=1.100.4,!=1.107.0"]
+# The Blaxel and Daytona providers reach SDK private members, so each range is
+# bounded. The dependency-ranges workflow checks both ends of each range.
+blaxel = ["blaxel>=0.4.20,<0.5"]
+# The Harbor runtime on Blaxel sandboxes: Harbor's own Blaxel extra and the provider.
+harbor-blaxel = ["harbor[blaxel]>=0.23,<0.24", "blaxel>=0.4.20,<0.5", "litellm>=1.100.4,!=1.107.0"]
+# The Daytona provider reads and sets two private members of the SDK's Image (its
+# Dockerfile and its build context).
+daytona = ["daytona>=0.220.0,<0.227"]
+# The Harbor runtime on Daytona sandboxes: Harbor's own Daytona extra and the provider.
+harbor-daytona = ["harbor[daytona]>=0.23,<0.24", "daytona>=0.220.0,<0.227", "litellm>=1.100.4,!=1.107.0"]
+wandb = ["wandb>=0.16.0"]
+# A live progress region and coloured log lines on a terminal. Optional: without
+# it, and whenever output is redirected, the plain handler is used instead.
+console = ["rich>=13.0"]
+# Image inputs: the model's HF image processor runs on the host and needs torch.
+# Supported hosts: Apple Silicon macOS 14+, Linux x86_64 (glibc >= 2.28), Windows x64.
+vision = ["torch>=2.4", "torchvision>=0.19"]
+# A custom [training] loss: Loops' forward_backward_custom runs it on PyTorch.
+custom-loss = ["baseten-loops[torch]>=0.34.0,<0.35"]
+
+[project.urls]
+Repository = "https://github.com/basetenlabs/loops-cookbook"
+
+[project.scripts]
+loops = "loops_cookbook.command:main"
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+# The version is the git tag: v0.2.0 builds 0.2.0, and a commit after it a .dev version.
+[tool.hatch.version]
+source = "vcs"
+
+# The examples, patterns and tasks ship inside the package, under loops_cookbook/bundled/
+# at their repository paths, so `loops run examples/<name>/train.toml` works from an
+# install (cli.locate_config). Selected files keep .gitignore's exclusions.
+[tool.hatch.build.targets.wheel]
+only-include = ["src/loops_cookbook", "examples", "patterns", "tasks"]
+# An editable install (uv sync in a clone) puts src/ on the path; a clone has the
+# examples at their own paths, so it needs no bundled copy.
+dev-mode-dirs = ["src"]
+
+[tool.hatch.build.targets.wheel.sources]
+"src/loops_cookbook" = "loops_cookbook"
+"examples" = "loops_cookbook/bundled/examples"
+"patterns" = "loops_cookbook/bundled/patterns"
+"tasks" = "loops_cookbook/bundled/tasks"
+
+[tool.hatch.build.targets.sdist]
+only-include = ["src/loops_cookbook", "examples", "patterns", "tasks", "pyproject.toml", "README.md"]
+
+# Platforms the lockfile must resolve for (a vision-extra install elsewhere may fail).
+[tool.uv]
+# Skip releases younger than 7 days; a compromised version is usually yanked within that window.
+exclude-newer = "7 days"
+# Baseten's own packages are exempt: the cookbook moves to their releases on the day they ship.
+exclude-newer-package = { baseten = false, baseten-bdn = false, baseten-loops = false }
+required-environments = [
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
+# Keeps this lock past security advisories in transitive dependencies; installs of
+# the cookbook elsewhere are unaffected.
+constraint-dependencies = [
+    "black>=26.10.1",
+    "certifi>=2026.10.18",
+    "filelock>=4.2.1",
+    "multidict>=6.9.1",
+    "opentelemetry-api>=1.45.1",
+    "pyjwt>=2.15.0",
+    "setuptools>=84.1.0",
+]
+
+# CPU-only torch wheels on Linux for development here. Downstream projects get PyPI's
+# (CUDA-bundled, larger) torch unless they add this index too; see docs/reference/renderers.md.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# Generated from the pinned OpenAI schema; scripts/generate_openai_models.py --check
+# is its gate.
+extend-exclude = ["src/loops_cookbook/model_access/openai/schema/models.py"]
+
+# Source imports are absolute, so the architecture tests, which read imports, see
+# every dependency; tests may import siblings relatively.
+[tool.ruff.lint]
+extend-select = ["TID252"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["TID252"]
+
+[dependency-groups]
+dev = [
+    "datamodel-code-generator==0.81.0",
+    "looptime==0.8",
+    "openai>=2.54",
+    # Pinned, because the dependency-ranges workflow lowers every floor: its errors then
+    # come from the dependencies, not from a different pyright.
+    "pyright==1.1.414",
+    # At pytest 8.2 with pytest-asyncio 0.24, an earlier test leaves a reference to a
+    # step's groups, and the release-memory test in tests/unit/rl/test_run.py fails.
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4",
+    "ruff>=0.12",
+    "tomli-w>=1.0",
+    "wandb>=0.16.0",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "live_blaxel: creates real Blaxel sandboxes",
+    "live_loops: provisions a real billable Loops trainer",
+]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+# The public runtime and model-access contracts are checked strictly, and the rest
+# of the native runtime packages at pyright's standard level.
+[tool.pyright]
+include = [
+    "src/loops_cookbook/rl/aggregation.py",
+    "src/loops_cookbook/rl/slices.py",
+    "src/loops_cookbook/cancellation.py",
+    "src/loops_cookbook/cli.py",
+    "src/loops_cookbook/project.py",
+    "src/loops_cookbook/rl/recipe.py",
+    "src/loops_cookbook/settings.py",
+    "src/loops_cookbook/trainer.py",
+    "src/loops_cookbook/run_record.py",
+    "src/loops_cookbook/sft",
+    "src/loops_cookbook/evidence.py",
+    "src/loops_cookbook/llm/render_pool.py",
+    "src/loops_cookbook/runtime",
+    "src/loops_cookbook/model_access",
+    "src/loops_cookbook/resources",
+    "src/loops_cookbook/providers",
+    "src/loops_cookbook/episodes",
+    # What an Episode's type arguments give its task and options, asserted.
+    "tests/unit/episodes/typed_episode.py",
+    "examples/episode_basics",
+    "examples/sft_toucan",
+    "tests/examples/test_episode_basics.py",
+    "tests/examples/test_hill_climb_episode.py",
+]
+extraPaths = ["src", "examples/episode_basics", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+# baseten-loops, Harbor, and renderers ship no stubs; their values are validated
+# where the cookbook receives them.
+reportMissingTypeStubs = false
+strict = [
+    "src/loops_cookbook/rl/slices.py",
+    "src/loops_cookbook/cancellation.py",
+    "src/loops_cookbook/evidence.py",
+    "src/loops_cookbook/llm/render_pool.py",
+    "src/loops_cookbook/runtime/api.py",
+    "src/loops_cookbook/runtime/__init__.py",
+    "src/loops_cookbook/model_access/api.py",
+    "src/loops_cookbook/model_access/__init__.py",
+    "src/loops_cookbook/resources/api.py",
+    "src/loops_cookbook/resources/__init__.py",
+    "src/loops_cookbook/episodes/api.py",
+    "src/loops_cookbook/episodes/tasks.py",
+    "src/loops_cookbook/episodes/__init__.py",
+    "tests/unit/episodes/typed_episode.py",
+]

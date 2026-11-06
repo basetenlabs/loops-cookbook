@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -20 1960 1100" width="1960" height="1100">
+<defs><marker id="h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<rect x="0" y="-20" width="1960" height="1100" fill="#1e1e2e"/>
+<text x="40" y="54.0" font-family="Helvetica, Arial" font-size="34" font-weight="bold" fill="#e5e5e5">Who owns what</text>
+<text x="40" y="84.0" font-family="Helvetica, Arial" font-size="16" font-weight="normal" fill="#a0a0a0">The line every design decision in the cookbook is drawn against.</text>
+<rect x="40" y="100" width="1880" height="46" rx="12" fill="#4d4417" fill-opacity="1.0" stroke="#fcc419" stroke-width="1"/>
+<text x="58" y="130.0" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#e5e5e5">Mechanics and evidence are the engine&#x27;s. Meaning is user code.</text>
+<rect x="40" y="180" width="580" height="720" rx="12" fill="#1e1e2e" fill-opacity="1.0" stroke="#4dabf7" stroke-width="2"/>
+<rect x="40" y="180" width="580" height="80" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="2"/>
+<text x="244.2" y="216.0" font-family="Helvetica, Arial" font-size="22" font-weight="bold" fill="#e5e5e5">The engine owns</text>
+<text x="252.0" y="243.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#a0a0a0">mechanics + evidence</text>
+<rect x="64" y="284" width="532" height="70" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="1"/>
+<text x="84" y="313.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">Scheduling</text>
+<text x="84" y="338.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#a0a0a0">admission, permits, sync/async</text>
+<rect x="64" y="370" width="532" height="70" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="1"/>
+<text x="84" y="399.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">Every clock and retry</text>
+<text x="84" y="424.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#a0a0a0">setup, rollout, grading, cleanup</text>
+<rect x="64" y="456" width="532" height="70" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="1"/>
+<text x="84" y="485.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">Token capture</text>
+<text x="84" y="510.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#a0a0a0">exact IDs, freshness, delivery</text>
+<rect x="64" y="542" width="532" height="70" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="1"/>
+<text x="84" y="571.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">Sealing the rollout</text>
+<text x="84" y="596.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#a0a0a0">the runtime never hands it over</text>
+<rect x="64" y="628" width="532" height="70" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="1"/>
+<text x="84" y="657.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">Training</text>
+<text x="84" y="682.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#a0a0a0">advantage, loss, publish, checkpoint</text>
+<rect x="64" y="714" width="532" height="70" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="1"/>
+<text x="84" y="743.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">Every billed sandbox</text>
+<text x="84" y="768.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#a0a0a0">journal first; crash recovery</text>
+<rect x="64" y="800" width="532" height="70" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="1"/>
+<text x="84" y="829.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">The run record</text>
+<text x="84" y="854.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#a0a0a0">cause of every discard</text>
+<rect x="690" y="180" width="580" height="720" rx="12" fill="#1e1e2e" fill-opacity="1.0" stroke="#69db7c" stroke-width="2"/>
+<rect x="690" y="180" width="580" height="80" rx="12" fill="#1a4d2e" fill-opacity="1.0" stroke="#69db7c" stroke-width="2"/>
+<text x="859.88" y="216.0" font-family="Helvetica, Arial" font-size="22" font-weight="bold" fill="#e5e5e5">The user must provide</text>
+<text x="874.7" y="243.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#a0a0a0">refused at check if missing</text>
+<rect x="714" y="284" width="532" height="70" rx="12" fill="#1a4d2e" fill-opacity="1.0" stroke="#69db7c" stroke-width="1"/>
+<text x="734" y="313.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">Tasks</text>
+<text x="734" y="338.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#a0a0a0">a typed task model per line</text>
+<rect x="714" y="370" width="532" height="70" rx="12" fill="#1a4d2e" fill-opacity="1.0" stroke="#69db7c" stroke-width="1"/>
+<text x="734" y="399.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">An agent</text>
+<text x="734" y="424.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#a0a0a0">Episode.run() or a Harbor agent</text>
+<rect x="714" y="456" width="532" height="70" rx="12" fill="#1a4d2e" fill-opacity="1.0" stroke="#69db7c" stroke-width="1"/>
+<text x="734" y="485.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">A grader</text>
+<text x="734" y="510.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#a0a0a0">grade() / grade_group() or a verifier</text>
+<rect x="714" y="542" width="532" height="70" rx="12" fill="#1a4d2e" fill-opacity="1.0" stroke="#69db7c" stroke-width="1"/>
+<text x="734" y="571.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">The agent&#x27;s deadline</text>
+<text x="734" y="596.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#a0a0a0">agent_timeout_seconds</text>
+<rect x="714" y="628" width="532" height="70" rx="12" fill="#1a4d2e" fill-opacity="1.0" stroke="#69db7c" stroke-width="1"/>
+<text x="734" y="657.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">How it reaches the model</text>
+<text x="734" y="682.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#a0a0a0">declared once, by the runtime</text>
+<rect x="714" y="714" width="532" height="70" rx="12" fill="#1a4d2e" fill-opacity="1.0" stroke="#69db7c" stroke-width="1"/>
+<text x="734" y="743.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">Credentials</text>
+<text x="734" y="768.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#a0a0a0">environment / .env, never config</text>
+<rect x="1340" y="180" width="580" height="720" rx="12" fill="#1e1e2e" fill-opacity="1.0" stroke="#ffa94d" stroke-width="2"/>
+<rect x="1340" y="180" width="580" height="80" rx="12" fill="#5c3d1a" fill-opacity="1.0" stroke="#ffa94d" stroke-width="2"/>
+<text x="1538.48" y="216.0" font-family="Helvetica, Arial" font-size="22" font-weight="bold" fill="#e5e5e5">The user decides</text>
+<text x="1520.8" y="243.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#a0a0a0">meaning — never the engine&#x27;s</text>
+<rect x="1364" y="284" width="532" height="70" rx="12" fill="#5c3d1a" fill-opacity="1.0" stroke="#ffa94d" stroke-width="1"/>
+<text x="1384" y="313.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">What a reward means</text>
+<text x="1384" y="338.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#a0a0a0">any finite number</text>
+<rect x="1364" y="370" width="532" height="70" rx="12" fill="#5c3d1a" fill-opacity="1.0" stroke="#ffa94d" stroke-width="1"/>
+<text x="1384" y="399.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">What a failure scores</text>
+<text x="1384" y="424.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#a0a0a0">timeout, crash, truncated turn</text>
+<rect x="1364" y="456" width="532" height="70" rx="12" fill="#5c3d1a" fill-opacity="1.0" stroke="#ffa94d" stroke-width="1"/>
+<text x="1384" y="485.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">Raise or return</text>
+<text x="1384" y="510.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#a0a0a0">infrastructure, or an episode</text>
+<rect x="1364" y="542" width="532" height="70" rx="12" fill="#5c3d1a" fill-opacity="1.0" stroke="#ffa94d" stroke-width="1"/>
+<text x="1384" y="571.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">Which generations train</text>
+<text x="1384" y="596.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#a0a0a0">producers; discarding a turn</text>
+<rect x="1364" y="628" width="532" height="70" rx="12" fill="#5c3d1a" fill-opacity="1.0" stroke="#ffa94d" stroke-width="1"/>
+<text x="1384" y="657.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">Batch shape and freshness</text>
+<text x="1384" y="682.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#a0a0a0">group size, off-policy window</text>
+<rect x="1364" y="714" width="532" height="70" rx="12" fill="#5c3d1a" fill-opacity="1.0" stroke="#ffa94d" stroke-width="1"/>
+<text x="1384" y="743.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#e5e5e5">Hyperparameters</text>
+<text x="1384" y="768.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#a0a0a0">learning rate, clip, epsilon</text>
+<rect x="40" y="930" width="1880" height="110" rx="12" fill="#1f3326" fill-opacity="1.0" stroke="#69db7c" stroke-width="2"/>
+<text x="64" y="968.0" font-family="Helvetica, Arial" font-size="20" font-weight="bold" fill="#e5e5e5">The boundary: the runtime contract</text>
+<text x="64" y="1000.0" font-family="Helvetica, Arial" font-size="16" font-weight="normal" fill="#e5e5e5">prepare · sample · grade · finish · abort · close  (runtime/api.py). Across it the engine reads only explicit signals:</text>
+<text x="64" y="1020.0" font-family="Helvetica, Arial" font-size="16" font-weight="normal" fill="#e5e5e5">a reward · an exception (retry, then discard) · Permanent*Failure (don&#x27;t retry) · the generations the agent actually received.</text>
+</svg>

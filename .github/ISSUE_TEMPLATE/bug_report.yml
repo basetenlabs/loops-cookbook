@@ -1,0 +1,32 @@
+name: Bug report
+description: A recipe, example or command does not do what the docs say.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, and what you got.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The command and the config (train.toml), with secrets removed.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The error and the lines before it.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The output of `uv pip show baseten-loops-cookbook baseten-loops`.
+    validations:
+      required: true
