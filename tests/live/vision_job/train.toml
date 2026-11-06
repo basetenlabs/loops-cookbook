@@ -1,0 +1,61 @@
+# The live image check (tests/live/test_images_end_to_end.py): one training step of
+# GLM-5.3-Flash on images returned by tools, through the GLM-5.3 renderer extension.
+
+recipe = "rl"
+
+[runtime]
+factory = "loops_cookbook.harbor:create_runtime"
+has_images = true
+
+[runtime.files]
+job = "job.yaml"
+
+[providers.blaxel]
+# Credentials stay in .env as BL_WORKSPACE and BL_API_KEY. Every sandbox is created in
+# this region; the job does not name one. Every deadline has a default: Harbor's start
+# bound, reconcile + image build + create + attach (60 + 420 + 120 + 30 = 630s), fits
+# the task's build timeout (600s, times the job's environment_build_timeout_multiplier
+# of 1.1).
+region = "us-was-1"
+
+[model]
+base_model = "zai-org/GLM-5.3-Flash"
+renderer = "loops_cookbook.llm.renderer_extensions.glm53:renderer"
+renderer_chat_template_kwargs = { reasoning_effort = "low" }
+lora_rank = 8
+max_seq_len = 8192
+
+[sampling]
+temperature = 1.0
+max_generation_tokens = 768
+max_trajectory_tokens = 7000
+
+[training]
+mode = "sync"
+group_size = 8
+max_group_losses = 1   # a cloud sandbox can fail; its group still trains
+groups_per_step = 1
+max_steps = 1
+max_consecutive_unusable_groups = 20
+learning_rate = 0.0001
+loss_fn = "cispo"
+
+[rollout]
+max_concurrent_rollouts = 4
+max_concurrent_verifiers = 4
+max_rollout_retries = 2   # a failed sandbox or trial gets a fresh attempt
+rollout_timeout_seconds = 900
+setup_timeout_seconds = 900
+
+[rollout.grading]
+timeout_seconds = 900  # > Harbor's own bound: build 660s + verifier 30s
+
+[compute]
+scope = "serverless"
+
+[output]
+trainer_checkpoint_every = 0
+sampler_checkpoint_every = 0
+run_name = "live-images-glm53-flash"
+output_dir = "runs/live-images"
+checkpoint_ttl_seconds = 0

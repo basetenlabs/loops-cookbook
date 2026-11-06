@@ -1,0 +1,53 @@
+# Counting circles: an image prompt, scored on the host. No environment.
+# uv sync --extra vision
+# uv run loops check examples/counting/train.toml
+
+recipe = "rl"
+
+[runtime]
+factory = "loops_cookbook.episodes:create_runtime"
+has_images = true
+
+[runtime.config]
+episode = "count_episode:CountEpisode"
+agent_timeout_seconds = 90   # cut before the reply: unversioned; after it: graded, 0 if no answer was kept
+
+[runtime.files]
+tasks = "tasks.jsonl"   # 512 pictures; written by make_tasks.py
+
+[model]
+base_model = "Qwen/Qwen3.6-35B-A3B"
+lora_rank = 8
+max_seq_len = 1024
+renderer_chat_template_kwargs = { enable_thinking = false }
+
+[sampling]
+max_generation_tokens = 16
+
+[training]
+mode = "sync"
+group_size = 16
+max_group_losses = 0
+groups_per_step = 8   # eight pictures a step: each step trains on new ones
+max_steps = 50
+max_consecutive_unusable_groups = 20   # stop if every group scores alike
+learning_rate = 0.00005
+loss_fn = "cispo"
+
+[rollout]
+max_concurrent_rollouts = 128
+max_concurrent_verifiers = 128
+setup_timeout_seconds = 60
+
+[rollout.grading]
+timeout_seconds = 10
+
+[compute]
+scope = "serverless"
+
+[output]
+run_name = "counting"
+output_dir = "runs/counting"
+trainer_checkpoint_every = 0
+sampler_checkpoint_every = 0
+checkpoint_ttl_seconds = 0

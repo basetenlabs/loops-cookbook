@@ -1,0 +1,49 @@
+# Harbor, in-process, direct, on Docker: direct_agent.py asks the model with llm().
+# uv run loops check patterns/harbor/in_process_direct/train.toml
+
+recipe = "rl"
+
+[runtime]
+factory = "loops_cookbook.harbor:create_runtime"
+
+[runtime.files]
+job = "job.yaml"
+
+[model]
+base_model = "Qwen/Qwen3.6-35B-A3B"
+lora_rank = 8
+max_seq_len = 1024
+renderer_chat_template_kwargs = { enable_thinking = false }
+
+[sampling]
+temperature = 1.2
+max_generation_tokens = 128
+
+[training]
+mode = "sync"
+group_size = 16
+max_group_losses = 0
+groups_per_step = 1
+max_steps = 5
+max_consecutive_unusable_groups = 20
+learning_rate = 0.00002
+loss_fn = "cispo"
+
+[rollout]
+max_concurrent_rollouts = 4
+max_concurrent_verifiers = 4
+rollout_timeout_seconds = 600
+setup_timeout_seconds = 600
+
+[rollout.grading]
+timeout_seconds = 900  # > Harbor's own bound: build 600s + verifier 30s
+
+[compute]
+scope = "serverless"
+
+[output]
+trainer_checkpoint_every = 0
+sampler_checkpoint_every = 0
+run_name = "harbor-direct-docker"
+output_dir = "runs/harbor-direct-docker"
+checkpoint_ttl_seconds = 0

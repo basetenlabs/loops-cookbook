@@ -1,0 +1,11 @@
+# Harbor job for the in-process openai_http pattern on Docker.
+# Paths resolve from the working directory (run from the repository root); the agent
+# module is found next to the training config.
+tasks:
+  - path: tasks/hill_climb
+agents:
+  - import_path: http_agent:HttpAgent
+environment:
+  type: docker
+retry:
+  max_retries: 0

@@ -1,0 +1,68 @@
+# The custom in-process direct pattern on Blaxel sandboxes, scheduled asynchronously:
+# rollouts for the next step are sampled while the current one trains, up to two steps
+# off-policy.
+# uv sync --extra blaxel
+# uv run loops check examples/async_scheduling/train_blaxel.toml
+
+recipe = "rl"
+
+[runtime]
+factory = "loops_cookbook.episodes:create_runtime"
+
+[runtime.config]
+episode = "answer_episode:SandboxAnswerEpisode"
+agent_timeout_seconds = 90   # cut before the reply: unversioned; after it: graded, 0 if no answer was kept
+
+[runtime.files]
+tasks = "../../tasks/hidden_answer_35b.jsonl"   # one hidden answer to learn (tasks/README)
+
+# One Blaxel sandbox per episode, provisioned before setup() and released by the run.
+[runtime.config.sandbox]
+provider = "blaxel"
+image = "blaxel/base-image:latest"
+memory_mb = 2048
+ttl = "1h"         # required: it must outlast one episode
+
+[providers.blaxel]
+# Credentials stay in .env as BL_WORKSPACE and BL_API_KEY.
+region = "us-was-1"
+
+[model]
+base_model = "Qwen/Qwen3.6-35B-A3B"
+lora_rank = 8
+max_seq_len = 1024
+renderer_chat_template_kwargs = { enable_thinking = false }
+
+[sampling]
+max_generation_tokens = 16
+
+[training]
+mode = "async"
+group_size = 16
+max_group_losses = 0
+groups_per_step = 1
+max_steps = 5
+max_consecutive_unusable_groups = 20   # stop if every group scores alike
+learning_rate = 0.00002
+max_steps_off_policy = 2
+max_policy_delta_in_trajectory = 2
+loss_fn = "cispo"
+
+[rollout]
+max_concurrent_rollouts = 8
+max_concurrent_verifiers = 8
+max_rollout_retries = 2   # a failed sandbox gets a fresh attempt
+setup_timeout_seconds = 60
+
+[rollout.grading]
+timeout_seconds = 30
+
+[compute]
+scope = "serverless"
+
+[output]
+run_name = "async-blaxel"
+output_dir = "runs/async-blaxel"
+trainer_checkpoint_every = 0
+sampler_checkpoint_every = 0
+checkpoint_ttl_seconds = 0

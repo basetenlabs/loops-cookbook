@@ -1,0 +1,39 @@
+datasets:
+  - repo: https://github.com/harbor-framework/terminal-bench-2-1@7131e4375048a0e408a8fb404b5f499d726b695b
+    path: tasks
+agents:
+  - import_path: terminal_agent:TerminalAgent
+    kwargs:
+      max_turns: 64
+      command_timeout: 120
+      max_output_bytes: 16384
+# Harbor bounds each sandbox start by the task's build timeout (600s by default) times
+# this. The start has to cover the [providers.blaxel] reconcile, image build, create and
+# attach deadlines (60 + 420 + 120 + 30 = 630s), which check enforces; waiting for a
+# provisioning slot comes on top and is not covered.
+environment_build_timeout_multiplier: 1.1
+environment:
+  import_path: loops_cookbook.harbor.blaxel:BlaxelEnvironment
+  # Optional; this example's choice. A Blaxel sandbox's disk is a tmpfs overlay taken
+  # out of its RAM -- half of it -- so memory is the dial that moves disk and CPU too,
+  # and Blaxel never reads a task's storage_mb. One size for every task: 8 GB (about
+  # 4 GB of disk) fits most; the heaviest, which install torch or large apt trees, can
+  # run out, and then score as Harbor scores them. `loops check` warns about tasks
+  # whose declared storage_mb does not fit.
+  override_memory_mb: 8192
+  kwargs:
+    # How long an abandoned sandbox survives a killed run. It has to clear the
+    # longest single trial -- one sandbox spans build, agent and verifier, and this
+    # dataset's tail is long (p99 4h, longest observed 4.8h, declared ceiling 6.8h
+    # for build-pov-ray) -- and has to grow with timeout_multiplier. Reaping a live
+    # sandbox fails loudly rather than corrupting a reward, but it still costs the
+    # rollout: at 4h it would have taken 49 of the last run's 4,771 trials.
+    ttl: 8h
+retry:
+  # Only separate-verifier regrades use this block: a trial whose sandbox or agent fails
+  # is retried by the run, through [rollout] max_rollout_retries. Terminal-Bench verifies
+  # in the agent's own sandbox, so this applies only if a task's verifier is separate.
+  max_retries: 4
+  min_wait_sec: 5
+  wait_multiplier: 2
+  max_wait_sec: 60

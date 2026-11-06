@@ -1,0 +1,30 @@
+# The live image check: GLM-5.3-Flash reads images a tool returns, over several turns.
+# Paths resolve from the working directory (run from the repository root); the agent
+# module is found next to train.toml.
+tasks:
+  - path: tests/live/vision_job/task
+agents:
+  - import_path: cards_agent:CardsAgent
+    kwargs:
+      max_turns: 6
+# Harbor bounds each sandbox start by the task's build timeout (600s by default) times
+# this. The start has to cover the [providers.blaxel] reconcile, image build, create and
+# attach deadlines (60 + 420 + 120 + 30 = 630s), which check enforces; waiting for a
+# provisioning slot comes on top and is not covered.
+environment_build_timeout_multiplier: 1.1
+environment:
+  # remote sandboxes; needs `uv sync --extra harbor-blaxel` and BL_* in .env
+  import_path: loops_cookbook.harbor.blaxel:BlaxelEnvironment
+  # A Blaxel sandbox's disk is a tmpfs overlay taken out of its RAM, and CPU scales
+  # with memory too, so this is the only dial that moves either. The task itself is
+  # python:3.12-slim plus three small PNGs; 4 GB leaves ~2 GB of disk, which is far
+  # more than the build needs and cheap at this size.
+  override_memory_mb: 4096
+  kwargs:
+    # How long an abandoned sandbox survives a killed run. It has to clear the
+    # longest single trial -- one sandbox spans build, agent and verifier -- which
+    # here is a 300s agent timeout plus a 30s verifier and a small build. An hour is
+    # generous headroom; reaping a live sandbox fails loudly but still costs the rollout.
+    ttl: 1h
+retry:
+  max_retries: 0

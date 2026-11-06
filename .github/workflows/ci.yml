@@ -1,0 +1,83 @@
+name: ci
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+# A new push to a PR cancels its older run; develop and main keep every run.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --locked --extra harbor-blaxel --extra harbor-daytona --extra wandb
+      - run: uv run python scripts/generate_openai_models.py --check
+      - run: uv run ruff check src tests patterns examples tasks scripts
+      - run: uv run ruff format --check src tests patterns examples tasks scripts
+      - run: uv run pyright
+      # The slowest tests, so a slow one is seen when it lands.
+      - run: uv run pytest -q --durations=30
+
+  package:
+    # What PyPI would receive: hatch refuses a git dependency, and twine checks the metadata.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # hatch-vcs reads the version from the tags
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv build
+      - run: uv tool run twine check --strict dist/*
+      # An install, not a clone, runs a bundled example by its repository path; the
+      # pattern reads ../../../tasks, so the tree must keep its layout.
+      - name: The wheel runs an example from an empty directory
+        run: |
+          uv venv /tmp/wheel-venv
+          VIRTUAL_ENV=/tmp/wheel-venv uv pip install dist/*.whl
+          mkdir /tmp/empty && cd /tmp/empty
+          /tmp/wheel-venv/bin/loops check patterns/custom_runtime/in_process_direct/train.toml
+
+  without-harbor:
+    # The core, the Blaxel and Daytona providers, and the custom-runtime patterns: no Harbor.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      # custom-loss brings torch, which the custom loss and aggregation tests need.
+      - run: uv sync --locked --extra blaxel --extra daytona --extra custom-loss
+      - run: uv run python -c "import importlib.util, sys; sys.exit(importlib.util.find_spec('harbor') is not None)"
+      # tests/conftest.py leaves out the tests that need Harbor.
+      - run: uv run pytest -q
+
+  contracts:
+    # Real tokenizers and image processors for the supported vision models.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/huggingface
+          key: hf-contracts-${{ hashFiles('tests/contracts/conftest.py') }}
+      - run: uv sync --locked --extra vision
+      - run: uv run pytest -q tests/contracts
+        env:
+          LOOPS_DOWNLOAD_CONTRACT_MODELS: "1"
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}

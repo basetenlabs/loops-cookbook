@@ -1,0 +1,19 @@
+# Harbor job for the in-process direct pattern on Blaxel sandboxes.
+# Paths resolve from the working directory (run from the repository root); the agent
+# module is found next to the training config.
+tasks:
+  - path: tasks/hill_climb
+agents:
+  - import_path: direct_agent:DirectAgent
+# Harbor bounds each sandbox start by the task's build timeout (600s by default) times
+# this. The start has to cover the [providers.blaxel] reconcile, image build, create and
+# attach deadlines (60 + 420 + 120 + 30 = 630s), which check enforces; waiting for a
+# provisioning slot comes on top and is not covered.
+environment_build_timeout_multiplier: 1.1
+environment:
+  import_path: loops_cookbook.harbor.blaxel:BlaxelEnvironment
+  override_memory_mb: 4096
+  kwargs:
+    ttl: 1h  # longer than one trial: build, agent, and verifier
+retry:
+  max_retries: 0

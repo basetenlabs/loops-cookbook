@@ -1,0 +1,15 @@
+name: Feature request
+description: A recipe, pattern or option the cookbook does not have.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you want to train or do, and what stops you now.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you propose

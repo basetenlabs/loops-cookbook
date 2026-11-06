@@ -1,0 +1,44 @@
+name: trainer normalization contract
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Loops base model for the billable trainer-only numerical check
+        default: Qwen/Qwen3.5-4B
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  normalization:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - name: Check live credentials
+        env:
+          BASETEN_API_KEY: ${{ secrets.BASETEN_API_KEY }}
+        run: |
+          if [[ -z "$BASETEN_API_KEY" ]]; then
+            echo "::error::BASETEN_API_KEY is required for the live trainer normalization contract"
+            exit 1
+          fi
+      - name: Verify trainer normalization
+        env:
+          BASETEN_API_KEY: ${{ secrets.BASETEN_API_KEY }}
+          LOOPS_LIVE_LOOPS: "1"
+          LOOPS_CONTRACT_MODEL: ${{ inputs.model }}
+        run: >-
+          uv run --locked --extra custom-loss pytest -q -s
+          tests/live/test_trainer_normalization.py --basetemp=trainer-contract-results
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trainer-normalization-receipt
+          path: trainer-contract-results/**/normalization-receipt.json
+          if-no-files-found: warn

@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -20 1980 1130" width="1980" height="1130">
+<defs><marker id="h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<rect x="0" y="-20" width="1980" height="1130" fill="#fff"/>
+<text x="40" y="54.0" font-family="Helvetica, Arial" font-size="34" font-weight="bold" fill="#1e1e1e">The training engine</text>
+<text x="40" y="84.0" font-family="Helvetica, Arial" font-size="16" font-weight="normal" fill="#6b7280">Who owns what inside one run. Arrows are calls; the runtime contract is the only boundary user code sits behind.</text>
+<rect x="40" y="100" width="1900" height="46" rx="12" fill="#fff3bf" fill-opacity="1.0" stroke="#f59e0b" stroke-width="1"/>
+<text x="58" y="130.0" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">Runtimes run episodes; the engine owns scheduling, clocks, evidence, training and every billed resource.</text>
+<rect x="1440" y="30" width="24" height="18" rx="0" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="1472" y="45.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#6b7280">cookbook</text>
+<rect x="1610" y="30" width="24" height="18" rx="0" fill="#b2f2bb" fill-opacity="1.0" stroke="#2f9e44" stroke-width="2"/>
+<text x="1642" y="45.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#6b7280">user code</text>
+<rect x="1780" y="30" width="24" height="18" rx="0" fill="#ffd8a8" fill-opacity="1.0" stroke="#e8590c" stroke-width="2"/>
+<text x="1812" y="45.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#6b7280">external</text>
+<rect x="40" y="190" width="420" height="120" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="235.96" y="217.2" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">Run</text>
+<text x="109.6" y="243.6" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">rl/recipe.py assembles it: trainer ·</text>
+<text x="117.4" y="261.15" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">runtime factory · renderer factory</text>
+<text x="125.2" y="278.7" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">rl/run.py: preflight · gateway ·</text>
+<text x="152.5" y="296.25" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">registry · shutdown order</text>
+<rect x="1180" y="190" width="380" height="120" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="1337.24" y="234.75" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">Trainer</text>
+<text x="1319.3" y="261.15" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">rl/trainer.py</text>
+<text x="1245.2" y="278.7" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">accumulate · commit · checkpoint</text>
+<rect x="40" y="380" width="420" height="120" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="212.56" y="415.975" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">Pipeline</text>
+<text x="195.4" y="442.375" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">rl/pipeline.py</text>
+<text x="148.60000000000002" y="459.925" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">tasks → groups · workers ·</text>
+<text x="144.7" y="477.475" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">sync/async gating · batches</text>
+<rect x="40" y="570" width="320" height="120" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="148.51999999999998" y="605.975" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">RunCapacity</text>
+<text x="125.9" y="632.375" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">runtime/capacity.py</text>
+<text x="90.8" y="649.925" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">admission · pre-start places</text>
+<text x="98.60000000000001" y="667.4749999999999" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">sampling + grading permits</text>
+<rect x="460" y="570" width="420" height="120" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="609.16" y="605.975" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">AttemptDriver</text>
+<text x="603.7" y="632.375" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">runtime/driver.py</text>
+<text x="556.9" y="649.925" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">one attempt: hooks · clocks ·</text>
+<text x="576.4" y="667.4749999999999" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">retries · seal · cleanup</text>
+<rect x="1180" y="570" width="380" height="120" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="1313.84" y="605.975" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">Model access</text>
+<text x="1292.0" y="632.375" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">model_access/ + llm/</text>
+<text x="1268.6" y="649.925" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">attempt lease · renderer ·</text>
+<text x="1256.9" y="667.4749999999999" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">direct client or HTTP gateway</text>
+<rect x="40" y="760" width="1100" height="310" rx="12" fill="#d3f9d8" fill-opacity="0.7" stroke="#6b7280" stroke-width="1"/>
+<text x="54" y="786.0" font-family="Helvetica, Arial" font-size="16" font-weight="bold" fill="#6b7280">Runtime contract  (runtime/api.py): prepare · sample · grade · finish · abort · close</text>
+<rect x="80" y="820" width="460" height="100" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="244.48000000000002" y="863.525" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">EpisodeRuntime</text>
+<text x="204.7" y="889.925" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">episodes/  (custom runtime)</text>
+<rect x="620" y="820" width="460" height="100" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="789.16" y="863.525" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">HarborRuntime</text>
+<text x="752.5" y="889.925" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">harbor/  (optional extra)</text>
+<rect x="80" y="950" width="460" height="90" rx="12" fill="#b2f2bb" fill-opacity="1.0" stroke="#2f9e44" stroke-width="2"/>
+<text x="226.8" y="987.825" font-family="Helvetica, Arial" font-size="16" font-weight="bold" fill="#1e1e1e">user&#x27;s Episode class</text>
+<text x="235.9" y="1013.625" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">run() · grade() · …</text>
+<rect x="620" y="950" width="460" height="90" rx="12" fill="#b2f2bb" fill-opacity="1.0" stroke="#2f9e44" stroke-width="2"/>
+<text x="746.0" y="987.825" font-family="Helvetica, Arial" font-size="16" font-weight="bold" fill="#1e1e1e">Harbor job + user&#x27;s agent</text>
+<text x="768.1" y="1013.625" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">LoopsAgent · verifier</text>
+<polyline points="310,920 310,950" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="850,920 850,950" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<rect x="1180" y="820" width="380" height="120" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="1295.12" y="855.975" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">ResourceRegistry</text>
+<text x="1280.3" y="882.375" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">resources/ + providers/</text>
+<text x="1272.5" y="899.925" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">journal first · release ·</text>
+<text x="1315.4" y="917.4749999999999" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">crash recovery</text>
+<rect x="1640" y="190" width="300" height="120" rx="12" fill="#ffd8a8" fill-opacity="1.0" stroke="#e8590c" stroke-width="2"/>
+<text x="1729.16" y="243.525" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">Loops trainer</text>
+<text x="1758.8" y="269.925" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">external</text>
+<rect x="1640" y="570" width="300" height="120" rx="12" fill="#ffd8a8" fill-opacity="1.0" stroke="#e8590c" stroke-width="2"/>
+<text x="1729.16" y="623.525" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">Loops sampler</text>
+<text x="1758.8" y="649.925" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">external</text>
+<rect x="1640" y="820" width="300" height="120" rx="12" fill="#ffd8a8" fill-opacity="1.0" stroke="#e8590c" stroke-width="2"/>
+<text x="1715.12" y="873.525" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">Blaxel · Daytona</text>
+<text x="1758.8" y="899.925" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">external</text>
+<polyline points="250,310 250,380" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<rect x="283.68" y="333.0" width="102.64" height="21.5" rx="0" fill="#ffffff" fill-opacity="1.0" stroke="none" stroke-width="0"/>
+<text x="287.68" y="349.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e">takes batches</text>
+<polyline points="460,250 1180,250" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<rect x="666.76" y="228.0" width="306.48" height="21.5" rx="0" fill="#ffffff" fill-opacity="1.0" stroke="none" stroke-width="0"/>
+<text x="670.76" y="244.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e">a batch: accumulate → commit → checkpoint</text>
+<polyline points="1560,250 1640,250" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="1790,310 1790,570" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#h)"/>
+<rect x="1713.2" y="428.0" width="153.6" height="21.5" rx="0" fill="#ffffff" fill-opacity="1.0" stroke="none" stroke-width="0"/>
+<text x="1717.2" y="444.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#e8590c">publish (every step)</text>
+<polyline points="460,440 670,440 670,570" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<rect x="600.48" y="418.0" width="139.04" height="21.5" rx="0" fill="#ffffff" fill-opacity="1.0" stroke="none" stroke-width="0"/>
+<text x="604.48" y="434.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e">sample() / grade()</text>
+<polyline points="460,630 360,630" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<text x="368" y="616.0" font-family="Helvetica, Arial" font-size="12" font-weight="normal" fill="#6b7280">admit · hold</text>
+<polyline points="880,630 1180,630" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<rect x="964.12" y="608.0" width="131.76" height="21.5" rx="0" fill="#ffffff" fill-opacity="1.0" stroke="none" stroke-width="0"/>
+<text x="968.12" y="624.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e">open lease · seal</text>
+<polyline points="1560,630 1640,630" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="670,690 670,760" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<rect x="682.8" y="713.0" width="44.4" height="21.5" rx="0" fill="#ffffff" fill-opacity="1.0" stroke="none" stroke-width="0"/>
+<text x="686.8" y="729.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e">hooks</text>
+<polyline points="1080,1000 1150,1000 1150,660 1180,660" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#h)"/>
+<text x="1090" y="1059.0" font-family="Helvetica, Arial" font-size="13" font-weight="normal" fill="#2f9e44">model calls: direct or HTTP</text>
+<polyline points="1140,880 1180,880" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="1560,880 1640,880" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#h)"/>
+</svg>

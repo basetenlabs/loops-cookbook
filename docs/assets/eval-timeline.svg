@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 580" width="1600" height="580">
+<rect x="0" y="0" width="1600" height="580" fill="#fff"/>
+<text x="40" y="50" font-family="Helvetica, Arial" font-size="30" font-weight="bold" fill="#1e1e1e" text-anchor="start">When evals run</text>
+<text x="40" y="80" font-family="Helvetica, Arial" font-size="16" font-weight="normal" fill="#6b7280" text-anchor="start">every_steps = 2, max_steps = 6, one eval set. Training never waits for an eval; on dedicated Loops a set runs one eval at a time, on serverless its evals overlap. Durations are illustrative.</text>
+<text x="40" y="152" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e" text-anchor="start">Training</text>
+<rect x="250.0" y="130" width="111.0" height="34" rx="6" fill="#e9ecef" stroke="#868e96" stroke-width="1.5"/>
+<text x="305.5" y="152.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e" text-anchor="middle">update 0</text>
+<rect x="361.0" y="130" width="111.0" height="34" rx="6" fill="#e9ecef" stroke="#868e96" stroke-width="1.5"/>
+<text x="416.5" y="152.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e" text-anchor="middle">update 1</text>
+<rect x="460.9" y="130" width="11.1" height="34" rx="6" fill="#fff3bf" stroke="#f59e0b" stroke-width="1.5"/>
+<rect x="472.0" y="130" width="111.0" height="34" rx="6" fill="#e9ecef" stroke="#868e96" stroke-width="1.5"/>
+<text x="527.5" y="152.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e" text-anchor="middle">update 2</text>
+<rect x="583.0" y="130" width="111.0" height="34" rx="6" fill="#e9ecef" stroke="#868e96" stroke-width="1.5"/>
+<text x="638.5" y="152.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e" text-anchor="middle">update 3</text>
+<rect x="682.9" y="130" width="11.1" height="34" rx="6" fill="#fff3bf" stroke="#f59e0b" stroke-width="1.5"/>
+<rect x="694.0" y="130" width="111.0" height="34" rx="6" fill="#e9ecef" stroke="#868e96" stroke-width="1.5"/>
+<text x="749.5" y="152.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e" text-anchor="middle">update 4</text>
+<rect x="805.0" y="130" width="111.0" height="34" rx="6" fill="#e9ecef" stroke="#868e96" stroke-width="1.5"/>
+<text x="860.5" y="152.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e" text-anchor="middle">update 5</text>
+<rect x="904.9" y="130" width="11.1" height="34" rx="6" fill="#fff3bf" stroke="#f59e0b" stroke-width="1.5"/>
+<text x="926.0" y="152" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#6b7280" text-anchor="start">last update</text>
+<text x="40" y="252" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e" text-anchor="start">Eval, dedicated</text>
+<text x="40" y="274" font-family="Helvetica, Arial" font-size="13" font-weight="normal" fill="#6b7280" text-anchor="start">a deployment per eval</text>
+<rect x="250.0" y="230" width="129.5" height="34" rx="6" fill="#ffe3e3" stroke="#e03131" stroke-width="1.5"/>
+<text x="314.75" y="252.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e" text-anchor="middle">sampler start</text>
+<rect x="379.5" y="230" width="240.5" height="34" rx="6" fill="#a5d8ff" stroke="#1971c2" stroke-width="1.5"/>
+<text x="499.75" y="252.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e" text-anchor="middle">base</text>
+<rect x="694.0" y="230" width="129.5" height="34" rx="6" fill="#ffe3e3" stroke="#e03131" stroke-width="1.5"/>
+<text x="758.75" y="252.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e" text-anchor="middle">sampler start</text>
+<rect x="823.5" y="230" width="240.5" height="34" rx="6" fill="#a5d8ff" stroke="#1971c2" stroke-width="1.5"/>
+<text x="943.75" y="252.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e" text-anchor="middle">step 3</text>
+<rect x="1064.0" y="230" width="129.5" height="34" rx="6" fill="#ffe3e3" stroke="#e03131" stroke-width="1.5"/>
+<text x="1128.75" y="252.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e" text-anchor="middle">sampler start</text>
+<rect x="1193.5" y="230" width="240.5" height="34" rx="6" fill="#a5d8ff" stroke="#1971c2" stroke-width="1.5"/>
+<text x="1313.75" y="252.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e" text-anchor="middle">step 5 (final)</text>
+<line x1="472.0" x2="472.0" y1="222" y2="272" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="4 4"/>
+<text x="472.0" y="290" font-family="Helvetica, Arial" font-size="13" font-weight="normal" fill="#6b7280" text-anchor="middle">step 1 skipped, weights kept</text>
+<line x1="916.0" x2="916.0" y1="222" y2="272" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="4 4"/>
+<text x="916.0" y="290" font-family="Helvetica, Arial" font-size="13" font-weight="normal" fill="#6b7280" text-anchor="middle">step 5 due: waits for step 3</text>
+<line x1="1434.0" x2="1434.0" y1="222" y2="272" stroke="#1e1e1e" stroke-width="2"/>
+<text x="1442.0" y="252" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e" text-anchor="start">run ends</text>
+<text x="40" y="392" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e" text-anchor="start">Eval, serverless</text>
+<text x="40" y="414" font-family="Helvetica, Arial" font-size="13" font-weight="normal" fill="#6b7280" text-anchor="start">ready at once, overlapping</text>
+<rect x="250.0" y="370" width="240.5" height="34" rx="6" fill="#a5d8ff" stroke="#1971c2" stroke-width="1.5"/>
+<text x="370.25" y="392.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e" text-anchor="middle">base</text>
+<rect x="472.0" y="410" width="240.5" height="34" rx="6" fill="#a5d8ff" stroke="#1971c2" stroke-width="1.5"/>
+<text x="592.25" y="432.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e" text-anchor="middle">step 1</text>
+<rect x="694.0" y="370" width="240.5" height="34" rx="6" fill="#a5d8ff" stroke="#1971c2" stroke-width="1.5"/>
+<text x="814.25" y="392.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e" text-anchor="middle">step 3</text>
+<rect x="916.0" y="410" width="240.5" height="34" rx="6" fill="#a5d8ff" stroke="#1971c2" stroke-width="1.5"/>
+<text x="1036.25" y="432.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e" text-anchor="middle">step 5 (final)</text>
+<line x1="1156.5" x2="1156.5" y1="362" y2="412" stroke="#1e1e1e" stroke-width="2"/>
+<text x="1164.5" y="392" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#1e1e1e" text-anchor="start">run ends</text>
+<rect x="40" y="500" width="28" height="20" rx="4" fill="#e9ecef" stroke="#868e96" stroke-width="1.5"/>
+<text x="80" y="515" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#1e1e1e" text-anchor="start">an update</text>
+<rect x="600" y="500" width="28" height="20" rx="4" fill="#fff3bf" stroke="#f59e0b" stroke-width="1.5"/>
+<text x="640" y="515" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#1e1e1e" text-anchor="start">weights kept for an eval, in the step's checkpoint time</text>
+<rect x="40" y="534" width="28" height="20" rx="4" fill="#ffe3e3" stroke="#e03131" stroke-width="1.5"/>
+<text x="80" y="549" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#1e1e1e" text-anchor="start">eval sampler starting</text>
+<rect x="600" y="534" width="28" height="20" rx="4" fill="#a5d8ff" stroke="#1971c2" stroke-width="1.5"/>
+<text x="640" y="549" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#1e1e1e" text-anchor="start">eval rollouts, then the sampler is deactivated</text>
+</svg>

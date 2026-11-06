@@ -1,0 +1,169 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -20 2183.4 1080" width="2183.4" height="1080">
+<defs><marker id="h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<rect x="0" y="-20" width="2183.4" height="1080" fill="#fff"/>
+<text x="40" y="54.0" font-family="Helvetica, Arial" font-size="34" font-weight="bold" fill="#1e1e1e">The six patterns: only four things change</text>
+<text x="40" y="84.0" font-family="Helvetica, Arial" font-size="16" font-weight="normal" fill="#6b7280">runtime (custom = your Episode, harbor = Harbor dataset + agent) × placement × model access</text>
+<rect x="40" y="100" width="2000" height="46" rx="12" fill="#fff3bf" fill-opacity="1.0" stroke="#f59e0b" stroke-width="1"/>
+<text x="58" y="130.0" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">Everything else — driver, lease, clocks, trainer — is identical in all six.</text>
+<rect x="1520" y="30" width="24" height="18" rx="0" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="1552" y="45.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#6b7280">cookbook</text>
+<rect x="1690" y="30" width="24" height="18" rx="0" fill="#b2f2bb" fill-opacity="1.0" stroke="#2f9e44" stroke-width="2"/>
+<text x="1722" y="45.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#6b7280">user code</text>
+<rect x="1860" y="30" width="24" height="18" rx="0" fill="#ffd8a8" fill-opacity="1.0" stroke="#e8590c" stroke-width="2"/>
+<text x="1892" y="45.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#6b7280">external</text>
+<rect x="40" y="180" width="640" height="400" rx="12" fill="#ffffff" fill-opacity="1.0" stroke="#6b7280" stroke-width="2"/>
+<text x="56" y="212.0" font-family="Menlo, monospace" font-size="20" font-weight="bold" fill="#1e1e1e">custom · in_process_direct</text>
+<rect x="56" y="230" width="380" height="230" rx="12" fill="#dbe4ff" fill-opacity="0.7" stroke="#6b7280" stroke-width="1"/>
+<text x="70" y="254.0" font-family="Helvetica, Arial" font-size="14" font-weight="bold" fill="#6b7280">training process</text>
+<rect x="76" y="264" width="150" height="70" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="119.8" y="294.5" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">driver +</text>
+<text x="131.5" y="314.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">lease</text>
+<rect x="266" y="264" width="150" height="70" rx="12" fill="#ffffff" fill-opacity="1.0" stroke="#dee2e6" stroke-width="2"/>
+<text x="313.7" y="304.25" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">gateway</text>
+<rect x="76" y="366" width="340" height="76" rx="12" fill="#b2f2bb" fill-opacity="1.0" stroke="#2f9e44" stroke-width="2"/>
+<text x="195.3" y="409.25" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">Episode.run()</text>
+<polyline points="150,366 150,334" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="416,408 456,408" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#h)"/>
+<rect x="456" y="356" width="208" height="104" rx="12" fill="#ffd8a8" fill-opacity="1.0" stroke="#e8590c" stroke-width="2"/>
+<text x="532.7" y="382.925" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">sandbox</text>
+<text x="544.4" y="408.425" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">none</text>
+<text x="524.9" y="425.975" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">or Blaxel</text>
+<text x="485.9" y="443.52500000000003" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">(train_blaxel.toml)</text>
+<text x="56" y="491.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#6b7280">agent</text>
+<text x="136" y="491.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#1e1e1e">Episode.run()</text>
+<text x="56" y="523.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#6b7280">model</text>
+<text x="136" y="523.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#1e1e1e">model.llm()  (Python call)</text>
+<text x="56" y="555.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#6b7280">grading</text>
+<text x="136" y="555.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#1e1e1e">grade() in the training process</text>
+<rect x="720" y="180" width="640" height="400" rx="12" fill="#ffffff" fill-opacity="1.0" stroke="#6b7280" stroke-width="2"/>
+<text x="736" y="212.0" font-family="Menlo, monospace" font-size="20" font-weight="bold" fill="#1e1e1e">custom · in_process_openai_http</text>
+<rect x="736" y="230" width="380" height="230" rx="12" fill="#dbe4ff" fill-opacity="0.7" stroke="#6b7280" stroke-width="1"/>
+<text x="750" y="254.0" font-family="Helvetica, Arial" font-size="14" font-weight="bold" fill="#6b7280">training process</text>
+<rect x="756" y="264" width="150" height="70" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="799.8" y="294.5" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">driver +</text>
+<text x="811.5" y="314.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">lease</text>
+<rect x="946" y="264" width="150" height="70" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="993.7" y="304.25" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">gateway</text>
+<rect x="756" y="366" width="340" height="76" rx="12" fill="#b2f2bb" fill-opacity="1.0" stroke="#2f9e44" stroke-width="2"/>
+<text x="875.3" y="409.25" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">Episode.run()</text>
+<polyline points="1020,366 1020,334" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="946,299 906,299" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="1096,408 1136,408" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#h)"/>
+<rect x="1136" y="356" width="208" height="104" rx="12" fill="#ffd8a8" fill-opacity="1.0" stroke="#e8590c" stroke-width="2"/>
+<text x="1212.7" y="382.925" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">sandbox</text>
+<text x="1224.4" y="408.425" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">none</text>
+<text x="1204.9" y="425.975" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">or Blaxel</text>
+<text x="1165.9" y="443.52500000000003" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">(train_blaxel.toml)</text>
+<text x="736" y="491.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#6b7280">agent</text>
+<text x="816" y="491.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#1e1e1e">Episode.run()</text>
+<text x="736" y="523.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#6b7280">model</text>
+<text x="816" y="523.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#1e1e1e">HTTP → local gateway 127.0.0.1</text>
+<text x="736" y="555.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#6b7280">grading</text>
+<text x="816" y="555.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#1e1e1e">grade() in the training process</text>
+<rect x="1400" y="180" width="640" height="400" rx="12" fill="#ffffff" fill-opacity="1.0" stroke="#6b7280" stroke-width="2"/>
+<text x="1416" y="212.0" font-family="Menlo, monospace" font-size="20" font-weight="bold" fill="#1e1e1e">custom · local</text>
+<rect x="1416" y="230" width="380" height="230" rx="12" fill="#dbe4ff" fill-opacity="0.7" stroke="#6b7280" stroke-width="1"/>
+<text x="1430" y="254.0" font-family="Helvetica, Arial" font-size="14" font-weight="bold" fill="#6b7280">training process</text>
+<rect x="1436" y="264" width="150" height="70" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="1479.8" y="294.5" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">driver +</text>
+<text x="1491.5" y="314.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">lease</text>
+<rect x="1626" y="264" width="150" height="70" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="1673.7" y="304.25" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">gateway</text>
+<rect x="1816" y="230" width="208" height="110" rx="12" fill="#d3f9d8" fill-opacity="0.7" stroke="#6b7280" stroke-width="1"/>
+<text x="1830" y="254.0" font-family="Helvetica, Arial" font-size="14" font-weight="bold" fill="#6b7280">subprocess</text>
+<rect x="1828" y="258" width="184" height="72" rx="12" fill="#b2f2bb" fill-opacity="1.0" stroke="#2f9e44" stroke-width="2"/>
+<text x="1865.92" y="290.1" font-family="Helvetica, Arial" font-size="13" font-weight="bold" fill="#1e1e1e">agent_program.py</text>
+<text x="1849.02" y="307.0" font-family="Helvetica, Arial" font-size="13" font-weight="bold" fill="#1e1e1e">(phase.processes.run)</text>
+<polyline points="1828,294 1776,294" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="1920,330 1920,356" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="1626,312 1586,312" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<text x="1569.6" y="400.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#6b7280">agent runs</text>
+<text x="1533.2" y="418.2" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#6b7280">outside this process</text>
+<rect x="1816" y="356" width="208" height="104" rx="12" fill="#ffd8a8" fill-opacity="1.0" stroke="#e8590c" stroke-width="2"/>
+<text x="1892.7" y="391.7" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">sandbox</text>
+<text x="1830.3" y="417.2" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">your LocalSandboxes dir</text>
+<text x="1884.9" y="434.75" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">or Blaxel</text>
+<text x="1416" y="491.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#6b7280">agent</text>
+<text x="1480.4" y="491.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#1e1e1e">agent_program.py (phase.processes.run)</text>
+<text x="1416" y="523.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#6b7280">model</text>
+<text x="1496" y="523.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#1e1e1e">HTTP → gateway  (OPENAI_* env)</text>
+<text x="1416" y="555.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#6b7280">grading</text>
+<text x="1496" y="555.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#1e1e1e">grade() runs verifier.py as a second subprocess</text>
+<rect x="40" y="620" width="640" height="400" rx="12" fill="#ffffff" fill-opacity="1.0" stroke="#6b7280" stroke-width="2"/>
+<text x="56" y="652.0" font-family="Menlo, monospace" font-size="20" font-weight="bold" fill="#1e1e1e">harbor · in_process_direct</text>
+<rect x="56" y="670" width="380" height="230" rx="12" fill="#dbe4ff" fill-opacity="0.7" stroke="#6b7280" stroke-width="1"/>
+<text x="70" y="694.0" font-family="Helvetica, Arial" font-size="14" font-weight="bold" fill="#6b7280">training process</text>
+<rect x="76" y="704" width="150" height="70" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="119.8" y="734.5" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">driver +</text>
+<text x="131.5" y="754.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">lease</text>
+<rect x="266" y="704" width="150" height="70" rx="12" fill="#ffffff" fill-opacity="1.0" stroke="#dee2e6" stroke-width="2"/>
+<text x="313.7" y="744.25" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">gateway</text>
+<rect x="76" y="806" width="340" height="76" rx="12" fill="#b2f2bb" fill-opacity="1.0" stroke="#2f9e44" stroke-width="2"/>
+<text x="183.6" y="839.5" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">LoopsAgent.run()</text>
+<text x="144.6" y="859.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">(Harbor trial on our loop)</text>
+<polyline points="150,806 150,774" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="416,848 456,848" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#h)"/>
+<rect x="456" y="796" width="208" height="104" rx="12" fill="#ffd8a8" fill-opacity="1.0" stroke="#e8590c" stroke-width="2"/>
+<text x="532.7" y="831.7" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">sandbox</text>
+<text x="485.9" y="857.2" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">Docker (train.toml)</text>
+<text x="524.9" y="874.75" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">or Blaxel</text>
+<text x="56" y="931.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#6b7280">agent</text>
+<text x="136" y="931.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#1e1e1e">LoopsAgent.run() (Harbor trial on our loop)</text>
+<text x="56" y="963.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#6b7280">model</text>
+<text x="136" y="963.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#1e1e1e">self.llm()  (Python call)</text>
+<text x="56" y="995.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#6b7280">grading</text>
+<text x="136" y="995.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#1e1e1e">Harbor verifier: same sandbox, or a 2nd if the task says separate (hill_climb does)</text>
+<rect x="720" y="620" width="640" height="400" rx="12" fill="#ffffff" fill-opacity="1.0" stroke="#6b7280" stroke-width="2"/>
+<text x="736" y="652.0" font-family="Menlo, monospace" font-size="20" font-weight="bold" fill="#1e1e1e">harbor · in_process_openai_http</text>
+<rect x="736" y="670" width="380" height="230" rx="12" fill="#dbe4ff" fill-opacity="0.7" stroke="#6b7280" stroke-width="1"/>
+<text x="750" y="694.0" font-family="Helvetica, Arial" font-size="14" font-weight="bold" fill="#6b7280">training process</text>
+<rect x="756" y="704" width="150" height="70" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="799.8" y="734.5" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">driver +</text>
+<text x="811.5" y="754.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">lease</text>
+<rect x="946" y="704" width="150" height="70" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="993.7" y="744.25" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">gateway</text>
+<rect x="756" y="806" width="340" height="76" rx="12" fill="#b2f2bb" fill-opacity="1.0" stroke="#2f9e44" stroke-width="2"/>
+<text x="863.6" y="839.5" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">LoopsAgent.run()</text>
+<text x="824.6" y="859.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">(Harbor trial on our loop)</text>
+<polyline points="1020,806 1020,774" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="946,739 906,739" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="1096,848 1136,848" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#h)"/>
+<rect x="1136" y="796" width="208" height="104" rx="12" fill="#ffd8a8" fill-opacity="1.0" stroke="#e8590c" stroke-width="2"/>
+<text x="1212.7" y="831.7" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">sandbox</text>
+<text x="1165.9" y="857.2" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">Docker (train.toml)</text>
+<text x="1204.9" y="874.75" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">or Blaxel</text>
+<text x="736" y="931.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#6b7280">agent</text>
+<text x="816" y="931.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#1e1e1e">LoopsAgent.run() (Harbor trial on our loop)</text>
+<text x="736" y="963.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#6b7280">model</text>
+<text x="816" y="963.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#1e1e1e">HTTP → local gateway 127.0.0.1</text>
+<text x="736" y="995.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#6b7280">grading</text>
+<text x="816" y="995.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#1e1e1e">Harbor verifier: same sandbox, or a 2nd if the task says separate (hill_climb does)</text>
+<rect x="1400" y="620" width="640" height="400" rx="12" fill="#ffffff" fill-opacity="1.0" stroke="#6b7280" stroke-width="2"/>
+<text x="1416" y="652.0" font-family="Menlo, monospace" font-size="20" font-weight="bold" fill="#1e1e1e">harbor · local</text>
+<rect x="1416" y="670" width="380" height="230" rx="12" fill="#dbe4ff" fill-opacity="0.7" stroke="#6b7280" stroke-width="1"/>
+<text x="1430" y="694.0" font-family="Helvetica, Arial" font-size="14" font-weight="bold" fill="#6b7280">training process</text>
+<rect x="1436" y="704" width="150" height="70" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="1479.8" y="734.5" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">driver +</text>
+<text x="1491.5" y="754.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">lease</text>
+<rect x="1626" y="704" width="150" height="70" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
+<text x="1673.7" y="744.25" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">gateway</text>
+<rect x="1816" y="670" width="208" height="110" rx="12" fill="#d3f9d8" fill-opacity="0.7" stroke="#6b7280" stroke-width="1"/>
+<text x="1830" y="694.0" font-family="Helvetica, Arial" font-size="14" font-weight="bold" fill="#6b7280">subprocess</text>
+<rect x="1828" y="698" width="184" height="72" rx="12" fill="#b2f2bb" fill-opacity="1.0" stroke="#2f9e44" stroke-width="2"/>
+<text x="1859.16" y="730.1" font-family="Helvetica, Arial" font-size="13" font-weight="bold" fill="#1e1e1e">program spawned by</text>
+<text x="1832.12" y="747.0" font-family="Helvetica, Arial" font-size="13" font-weight="bold" fill="#1e1e1e">LocalAgent (processes.run)</text>
+<polyline points="1828,734 1776,734" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="1920,770 1920,796" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#h)"/>
+<polyline points="1626,752 1586,752" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
+<text x="1569.6" y="840.0" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#6b7280">agent runs</text>
+<text x="1533.2" y="858.2" font-family="Helvetica, Arial" font-size="14" font-weight="normal" fill="#6b7280">outside this process</text>
+<rect x="1816" y="796" width="208" height="104" rx="12" fill="#ffd8a8" fill-opacity="1.0" stroke="#e8590c" stroke-width="2"/>
+<text x="1892.7" y="840.475" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#1e1e1e">sandbox</text>
+<text x="1830.3" y="865.975" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">Blaxel only  (BL_* env)</text>
+<text x="1416" y="931.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#6b7280">agent</text>
+<text x="1496" y="931.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#1e1e1e">program spawned by LocalAgent (processes.run)</text>
+<text x="1416" y="963.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#6b7280">model</text>
+<text x="1496" y="963.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#1e1e1e">HTTP → gateway</text>
+<text x="1416" y="995.0" font-family="Helvetica, Arial" font-size="15" font-weight="bold" fill="#6b7280">grading</text>
+<text x="1496" y="995.0" font-family="Helvetica, Arial" font-size="15" font-weight="normal" fill="#1e1e1e">Harbor verifier: same sandbox, or a 2nd if the task says separate (hill_climb does)</text>
+</svg>

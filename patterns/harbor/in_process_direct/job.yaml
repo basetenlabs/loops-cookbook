@@ -1,0 +1,11 @@
+# Harbor job for the in-process direct pattern on Docker.
+# Paths resolve from the working directory (run from the repository root); the agent
+# module is found next to the training config.
+tasks:
+  - path: tasks/hill_climb
+agents:
+  - import_path: direct_agent:DirectAgent
+environment:
+  type: docker
+retry:
+  max_retries: 0

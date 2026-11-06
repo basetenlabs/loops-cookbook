@@ -1,0 +1,186 @@
+name: release
+# Two ways in:
+# - a release PR ("Release vX.Y.Z") merged into main: tag its merge commit and publish;
+# - a vX.Y.Z-alpha.N tag on a commit on main or develop: publish a pre-release.
+# A tag pushed with the workflow token starts no other workflow, so tagging and
+# publishing happen in this one workflow: build tests and builds, pypi uploads
+# through trusted publishing, and github-release pushes the tag and attaches the
+# build. Only pypi can get a PyPI token, and it runs no project code.
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  dependency-ranges:
+    if: github.event_name == 'push' || github.event.pull_request.merged
+    uses: ./.github/workflows/dependency-ranges.yml
+    with:
+      ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+
+  build:
+    needs: dependency-ranges
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      previous: ${{ steps.tag.outputs.previous }}
+      prerelease: ${{ steps.tag.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Name the release
+        id: tag
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            VERSION=$(python3 scripts/release_version.py title "$TITLE")
+            TAG="v$VERSION"
+            # Tagged here so the build reads its version from it; github-release pushes it.
+            git tag "$TAG"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]; then
+            TAG="$GITHUB_REF_NAME"
+            # A tag can name any commit, and a PyPI upload is permanent: publish only
+            # reviewed code, that is, a commit on main or develop.
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main &&
+               ! git merge-base --is-ancestor "$GITHUB_SHA" origin/develop; then
+              echo "::error::$TAG names $GITHUB_SHA, which is not on main or develop; tag a commit on one of them"
+              exit 1
+            fi
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::$GITHUB_REF_NAME: a release vX.Y.Z is made by merging a \"Release vX.Y.Z\" PR into main, not by pushing its tag; pushed tags are vX.Y.Z-alpha.N"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          # The notes cover every change since the last release, not the last pre-release.
+          PREVIOUS=$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -vx "$TAG" | sort -V | tail -1 || true)
+          echo "previous=$PREVIOUS" >> "$GITHUB_OUTPUT"
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - run: uv sync --locked --extra harbor-blaxel --extra harbor-daytona --extra wandb
+      - run: uv run ruff check src tests patterns examples tasks scripts
+      - run: uv run pyright
+      - run: uv run pytest -q
+      - run: uv build
+
+      # The release states the versions it was tested with: the lock, and both ends of
+      # its ranges on the day (dependency-ranges.yml).
+      - run: >-
+          uv export --locked --no-hashes --no-emit-project
+          --extra harbor-blaxel --extra harbor-daytona --extra wandb
+          --output-file tested/dependencies-lock.txt
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dependencies-*
+          merge-multiple: true
+          path: tested
+
+      # The version comes from the tag (hatch-vcs); a dirty or mis-fetched checkout
+      # would build a .dev version instead.
+      - name: Built version must match the tag
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          uv run --no-project --with packaging python - "$TAG" <<'PY'
+          import pathlib, sys
+          from packaging.version import Version
+          tag = sys.argv[1]
+          for wheel in pathlib.Path("dist").glob("*.whl"):
+              built = wheel.name.split("-")[1]
+              if Version(built) != Version(tag[1:]):
+                  sys.exit(f"::error::{wheel.name} built version {built}, not the tag {tag}")
+          PY
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tested
+          path: tested/
+          if-no-files-found: error
+
+  pypi:
+    # Before the tag is pushed: a failed upload leaves no tag to clean up. A rerun
+    # after a later job fails skips the files PyPI already has.
+    # Set up the pypi environment with required reviewers before the first release.
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/baseten-loops-cookbook
+    permissions:
+      id-token: write  # PyPI trusted publishing
+    steps:
+      # Pinned by commit, as the publish action is: this job can get a PyPI token.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # v1.14.3
+        with:
+          # Only a rerun uploads the same dist artifact again. On a first attempt, a
+          # version that PyPI already has came from another build, so the upload fails.
+          skip-existing: ${{ github.run_attempt != '1' }}
+
+  github-release:
+    needs: [build, pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - uses: actions/download-artifact@v8
+        with:
+          name: tested
+          path: tested/
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.tag }}
+          PREVIOUS: ${{ needs.build.outputs.previous }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            # A rerun after the push and before the release finds the tag already
+            # fetched: reuse it if it names this commit, so the release can still be made.
+            if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+              if [[ "$(git rev-parse "$TAG^{commit}")" != "$(git rev-parse HEAD)" ]]; then
+                echo "::error::$TAG already exists at another commit"
+                exit 1
+              fi
+            else
+              git tag "$TAG"
+              git push origin "$TAG"
+            fi
+          fi
+          FLAGS=(--generate-notes --title "$TAG")
+          if [[ -n "$PREVIOUS" ]]; then FLAGS+=(--notes-start-tag "$PREVIOUS"); fi
+          if [[ "$PRERELEASE" == "true" ]]; then FLAGS+=(--prerelease); fi
+          gh release create "$TAG" dist/* tested/* "${FLAGS[@]}"
