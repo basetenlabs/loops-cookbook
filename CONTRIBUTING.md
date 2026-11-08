@@ -8,15 +8,17 @@ Open pull requests (PRs) against `develop`. CI must pass before a PR merges.
 title as a [Conventional Commit](https://www.conventionalcommits.org/):
 
 ```text
-type(scope): summary
+type: summary
 ```
 
 - `type` is one of `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`,
   `deps`, `chore` or `revert`.
-- `scope` is optional. Use the area you changed, such as `rl`, `sft`, `gateway` or
-  `examples`.
+- Leave out the scope. Most changes touch more than one area, and the summary can name
+  the area when it matters.
+- Write the summary in the imperative mood, as an instruction to the code, such as
+  `fix: read GLM-5.3 tool arguments as the chat template wrote them`.
 - Start the summary with a letter or a digit. Don't end it with a period.
-- Mark a breaking change with `!`, such as `feat(rl)!: rename max_steps`.
+- Mark a breaking change with `!`, such as `feat!: rename max_steps`.
 
 The **pr-title** check warns about a title in any other form, but it doesn't block the
 merge. PRs into `main` are releases, and they keep the `Release vX.Y.Z` title. See
