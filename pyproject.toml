@@ -41,12 +41,14 @@ harbor = ["harbor>=0.23,<0.24", "litellm>=1.100.4,!=1.107.0"]
 # The Blaxel and Daytona providers reach SDK private members, so each range is
 # bounded. The dependency-ranges workflow checks both ends of each range.
 blaxel = ["blaxel>=0.4.20,<0.5"]
-# The Harbor runtime on Blaxel sandboxes: Harbor's own Blaxel extra and the provider.
+# The Harbor rollout runtime on Blaxel sandboxes. It needs Harbor's own Blaxel extra and
+# the provider.
 harbor-blaxel = ["harbor[blaxel]>=0.23,<0.24", "blaxel>=0.4.20,<0.5", "litellm>=1.100.4,!=1.107.0"]
 # The Daytona provider reads and sets two private members of the SDK's Image (its
 # Dockerfile and its build context).
 daytona = ["daytona>=0.220.0,<0.227"]
-# The Harbor runtime on Daytona sandboxes: Harbor's own Daytona extra and the provider.
+# The Harbor rollout runtime on Daytona sandboxes. It needs Harbor's own Daytona extra
+# and the provider.
 harbor-daytona = ["harbor[daytona]>=0.23,<0.24", "daytona>=0.220.0,<0.227", "litellm>=1.100.4,!=1.107.0"]
 wandb = ["wandb>=0.16.0"]
 # A live progress region and coloured log lines on a terminal. Optional: without

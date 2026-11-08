@@ -1,6 +1,6 @@
-"""The cookbook's Daytona environment class on a local directory, for Harbor runtime tests.
+"""The cookbook's Daytona environment class on a local directory, for Harbor rollout runtime tests.
 
-Harbor constructs it through ``import_path``, so the runtime treats the job as
+Harbor constructs it through ``import_path``, so the rollout runtime treats the job as
 Daytona-backed and the environment reads the attempt as the real one does; every
 command runs locally.
 """

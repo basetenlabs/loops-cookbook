@@ -314,7 +314,7 @@ async def test_rollout_clock_expiries_between_real_failures_count_toward_the_sto
         max_consecutive_failures=4,
     )
     outcomes = [await r.driver.sample(TASK, "g", f"g-r{i}") for i in range(3)]
-    # a runtime's own timeout is a rollout failure; only the clock is an agent timeout
+    # a rollout runtime's own timeout is a rollout failure; only the clock is an agent timeout
     assert outcomes == [Discard.ROLLOUT_FAILED, Discard.AGENT_TIMEOUT, Discard.ROLLOUT_FAILED]
     assert not r.systemic
     assert await r.driver.sample(TASK, "g", "g-r3") is Discard.AGENT_TIMEOUT
@@ -732,7 +732,7 @@ async def test_a_sample_that_ignores_cancellation_is_discarded_and_the_run_goes_
 
 
 def kept_for_g_r1(release, phase):
-    """A runtime whose g-r1 ignores cancellation in the hook that holds ``phase``."""
+    """A rollout runtime whose g-r1 ignores cancellation in the hook that holds ``phase``."""
     hold_out = stubborn_until(release)
 
     async def sample(attempt):
@@ -902,7 +902,7 @@ async def test_a_kept_hook_is_not_collected_while_it_runs(monkeypatch):
 
 @pytest.mark.parametrize("kept", [True, False], ids=["kept", "cancelled"])
 async def test_a_slot_granted_after_its_hook_ended_is_given_back(kept):
-    # A runtime task the cancellation did not reach waits for the only verification
+    # A rollout runtime task the cancellation did not reach waits for the only verification
     # slot while a healthy holder has it; by the time it is free the hook is over.
     release, waiting = asyncio.Event(), asyncio.Event()
     late: list[asyncio.Task[None]] = []
@@ -1558,7 +1558,7 @@ async def test_a_contract_error_in_sample_still_lets_abort_unwind():
     ids=["propagated", "replaced", "replaced-permanent", "returned"],
 )
 async def test_a_poisoned_leases_cause_decides_the_failure_and_is_never_retried(caplog, raised):
-    """Whatever the runtime raises instead, or if it returns, the lost generation's cause wins."""
+    """Whatever the rollout runtime raises instead, or if it returns, the lost generation's cause wins."""
 
     async def broken(prompt, **kwargs):
         raise ConnectionError("down")
@@ -1841,11 +1841,11 @@ async def test_sealing_quiesces_the_attempts_model_access_first():
 
 
 class SandboxLost(RuntimeError):
-    """A runtime's own failure type, named by its type."""
+    """A rollout runtime's own failure type, named by its type."""
 
 
 class Named(NamedFailure):
-    """A runtime's own failure, named by the runtime (Harbor names Harbor's exception)."""
+    """A rollout runtime's own failure, named by the rollout runtime (Harbor names Harbor's exception)."""
 
     def __init__(self, message: str) -> None:
         super().__init__(message, name="VerifierTimeoutError")

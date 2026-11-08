@@ -1,12 +1,12 @@
-"""Immutable identities and sampling evidence shared by every cookbook layer.
+"""Immutable identities and sampling evidence that every cookbook layer shares.
 
-These are the values a runtime can read but never author: the cookbook captures
-``Sample`` evidence, and the attempt driver alone constructs a ``Rollout``.
+A rollout runtime can read these values but never author them. The cookbook captures
+``Sample`` evidence, and only the attempt driver constructs a ``Rollout``.
 """
 
 from __future__ import annotations
 
-# baseten-loops ships no stubs; Sample validates every value it takes from it.
+# baseten-loops ships no stubs, so Sample validates every value it takes from it.
 # pyright: reportMissingTypeStubs=false
 import re
 from array import array
@@ -33,22 +33,22 @@ _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
 
 class TrajectoryError(ValueError):
-    """Sampling evidence cannot safely be trained."""
+    """Raised when sampling evidence cannot safely be trained."""
 
 
 class StaleRolloutError(TrajectoryError):
-    """The oldest contributing generation exceeds the freshness budget."""
+    """Raised when the oldest contributing generation exceeds the freshness budget."""
 
 
 class InternalPolicyDeltaError(TrajectoryError):
-    """Contributing generations span too many policy versions."""
+    """Raised when the contributing generations span too many policy versions."""
 
 
 def json_value(value: object, *, where: str = "value") -> JsonValue:
-    """A private, plain-JSON copy of ``value``; anything else is rejected.
+    """Return a private, plain-JSON copy of ``value``, and reject anything that is not JSON.
 
-    Tuples become lists, as they would through any JSON encoder. Numbers must be
-    finite, because no JSON document can carry the others.
+    Tuples become lists, as they would through any JSON encoder. Numbers must be finite,
+    because no JSON document can carry the others.
     """
     if value is None or isinstance(value, (bool, str)):
         return value
@@ -73,7 +73,7 @@ def json_value(value: object, *, where: str = "value") -> JsonValue:
 
 
 def json_mapping(value: Mapping[str, object], *, where: str) -> Mapping[str, JsonValue]:
-    """A read-only JSON copy of a string-keyed mapping."""
+    """Return a read-only JSON copy of a string-keyed mapping."""
     copied = json_value(value, where=where)
     if not isinstance(copied, dict):
         raise TrajectoryError(f"{where} must be a mapping")
@@ -85,7 +85,8 @@ def _identity(value: object, name: str) -> None:
         raise TrajectoryError(f"{name} must be a nonempty string")
 
 
-# Unsigned and at least 32 bits: every token ID a renderer produces fits.
+# The type code is unsigned and at least 32 bits, so every token ID a renderer
+# produces fits.
 _TOKEN_CODE = "I" if array("I").itemsize >= 4 else "L"
 
 
@@ -93,15 +94,15 @@ _TOKEN_CODE = "I" if array("I").itemsize >= 4 else "L"
 class TokenSpan(Sequence[int]):
     """A read-only run of an append-only token buffer that behaves as a tuple of ints.
 
-    A conversation's prompts extend one another, so one buffer holds every token of
-    the chain and each generation's prompt is a span of it: the attempt retains its
-    tokens once, at four bytes each, instead of once per generation that saw them.
-    The buffer only ever grows, so a span never changes after it is made.
+    A conversation's prompts extend one another, so one buffer holds every token of the
+    chain, and each generation's prompt is a span of it. The attempt keeps its tokens
+    once, at four bytes each, instead of once per generation that saw them. The buffer
+    only ever grows, so a span never changes after it is made.
 
-    It compares, hashes, slices, concatenates and prints exactly as the tuple of its
-    tokens does: equal to that tuple and to any span with the same tokens, never to
-    a list. Concatenation materializes a tuple. JSON encoders do not know the type,
-    so writers convert it with ``tuple()``.
+    A span compares, hashes, slices, concatenates and prints exactly as the tuple of its
+    tokens does. It equals that tuple and any span with the same tokens, but never a
+    list. Concatenation materializes a tuple. JSON encoders do not know the type, so
+    writers convert it with ``tuple()``.
     """
 
     __slots__ = ("_buffer", "_start", "_stop")
@@ -111,10 +112,10 @@ class TokenSpan(Sequence[int]):
     _stop: int
 
     def __init__(self, ids: Sequence[int] = ()) -> None:
-        """A span over a private copy of ``ids``; no caller can change it afterwards.
+        """Make a span over a private copy of ``ids``, which no caller can change afterwards.
 
-        Only exact nonnegative ints are accepted: ``array`` would otherwise coerce a
-        ``bool`` or any ``__index__`` object to a token the tuple path rejects.
+        Only exact nonnegative ints are accepted. Otherwise ``array`` would coerce a
+        ``bool`` or any ``__index__`` object to a token that the tuple path rejects.
         """
         buffer = _packed(ids)
         if buffer is None:
@@ -123,7 +124,7 @@ class TokenSpan(Sequence[int]):
 
     @classmethod
     def _view(cls, buffer: array[int], start: int, stop: int) -> TokenSpan:
-        """A zero-copy view, only over a buffer this module owns and only appends to."""
+        """Make a zero-copy view, only over a buffer that this module owns and only appends to."""
         if not 0 <= start <= stop <= len(buffer):
             raise ValueError("a token span must lie inside its buffer")
         span = cls.__new__(cls)
@@ -131,19 +132,19 @@ class TokenSpan(Sequence[int]):
         return span
 
     def _tokens(self) -> array[int]:
-        """These tokens, to compare: the buffer itself when the span covers all of it.
+        """Return these tokens for comparison, as the buffer itself when the span covers all of it.
 
-        Read only; a caller that keeps or changes the result copies it first.
+        The result is read only. A caller that keeps or changes it copies it first.
         """
         if self._start == 0 and self._stop == len(self._buffer):
             return self._buffer
         return self._buffer[self._start : self._stop]
 
     def same_tokens(self, values: Sequence[int]) -> bool:
-        """Whether ``values`` are these tokens, as ``self == tuple(values)`` says.
+        """Return whether ``values`` are these tokens, as ``self == tuple(values)`` says.
 
-        Without building that tuple: a list of exact ints, such as a sampler's echo of
-        the prompt, is packed and compared as a buffer.
+        This avoids building that tuple. A list of exact ints, such as a sampler's echo
+        of the prompt, is packed and compared as a buffer.
         """
         if isinstance(values, TokenSpan):
             return self == values
@@ -155,11 +156,12 @@ class TokenSpan(Sequence[int]):
         return self._tokens() == packed
 
     def startswith(self, *parts: Sequence[int]) -> bool:
-        """Whether these tokens begin with ``parts``, one after another.
+        """Return whether these tokens begin with ``parts``, one after another.
 
-        What ``self[:n] == tuple(chain(*parts))`` says, compared part by part as
-        buffers instead of through a tuple of every token: the check that a prompt
-        extends the sampled prefix, on every turn of a long conversation.
+        The answer is what ``self[:n] == tuple(chain(*parts))`` says. The parts are
+        compared one by one as buffers, instead of through a tuple of every token. This
+        is the check that a prompt extends the sampled prefix, which runs on every turn
+        of a long conversation.
         """
         offset = 0
         for part in parts:
@@ -173,7 +175,7 @@ class TokenSpan(Sequence[int]):
         return True
 
     def tolist(self) -> list[int]:
-        """These tokens as a new list, copied in one step from the buffer."""
+        """Return these tokens as a new list, copied in one step from the buffer."""
         return self._buffer[self._start : self._stop].tolist()
 
     def __len__(self) -> int:
@@ -213,11 +215,12 @@ class TokenSpan(Sequence[int]):
             if len(self) != len(items):
                 return False
             if not _exact_ints(items):
-                # Element by element, as tuple equality is: never coerced via __index__.
+                # Compare element by element, as tuple equality does, and never coerce
+                # through __index__.
                 return tuple(self) == items
             try:
                 packed = array(_TOKEN_CODE, cast("tuple[int, ...]", items))
-            except OverflowError:  # a negative or oversized int is no token of a span
+            except OverflowError:  # A negative or oversized int is never a span's token.
                 return False
             return self._tokens() == packed
         return NotImplemented
@@ -256,14 +259,15 @@ class TokenSpan(Sequence[int]):
 class Logprobs(Sequence[float]):
     """Behavior logprobs, packed at eight bytes each, that behave as a tuple of floats.
 
-    A tuple holds a pointer and a float object per completion token -- 32 bytes --
-    for every graded rollout waiting to train. Packed as C doubles they are the same
-    values bit for bit, read back as equal floats: a float is a C double.
+    A tuple holds a pointer and a float object for each completion token, which is 32
+    bytes, for every graded rollout waiting to train. Packed as C doubles, they are the
+    same values bit for bit, and they read back as equal floats, because a Python float
+    is a C double.
 
-    It compares, hashes, indexes and prints exactly as the tuple of its values does:
-    equal to that tuple and to any ``Logprobs`` with the same values, never to a list.
-    Slicing and concatenation materialize tuples. JSON encoders do not know the type,
-    so writers convert it with ``tuple()``.
+    ``Logprobs`` compares, hashes, indexes and prints exactly as the tuple of its values
+    does. It equals that tuple and any ``Logprobs`` with the same values, but never a
+    list. Slicing and concatenation materialize tuples. JSON encoders do not know the
+    type, so writers convert it with ``tuple()``.
     """
 
     __slots__ = ("_values",)
@@ -271,10 +275,10 @@ class Logprobs(Sequence[float]):
     _values: array[float]
 
     def __init__(self, values: Sequence[float] = ()) -> None:
-        """A private packed copy of ``values``; only exact floats are accepted.
+        """Make a private packed copy of ``values``. Only exact floats are accepted.
 
-        ``array`` would otherwise turn an int, a bool or any ``__float__`` object into
-        a float the tuple it stands for would not hold.
+        Otherwise ``array`` would turn an int, a bool or any ``__float__`` object into a
+        float that the tuple it stands for would not hold.
         """
         packed = _packed_floats(values)
         if packed is None:
@@ -283,13 +287,13 @@ class Logprobs(Sequence[float]):
 
     @classmethod
     def _of(cls, packed: array[float]) -> Logprobs:
-        """Over ``packed`` itself, a buffer of doubles no one else holds."""
+        """Wrap ``packed`` itself, a buffer of doubles that no one else holds."""
         logprobs = cls.__new__(cls)
         logprobs._values = packed
         return logprobs
 
     def tolist(self) -> list[float]:
-        """These values as a new list, copied in one step."""
+        """Return these values as a new list, copied in one step."""
         return self._values.tolist()
 
     def __len__(self) -> int:
@@ -349,8 +353,10 @@ class Logprobs(Sequence[float]):
 
 
 def _packed_floats(values: Sequence[float]) -> array[float] | None:
-    """``values`` as a new buffer of doubles, or ``None`` unless every one is exactly a
-    ``float``. A ``Logprobs`` is copied as it is."""
+    """Return ``values`` as a new buffer of doubles, or ``None`` unless each is exactly a ``float``.
+
+    A ``Logprobs`` is copied as it is.
+    """
     if isinstance(values, Logprobs):
         return values._values[:]  # pyright: ignore[reportPrivateUsage]
     items = values if isinstance(values, (tuple, list)) else tuple(values)
@@ -361,16 +367,16 @@ def _packed_floats(values: Sequence[float]) -> array[float] | None:
 
 @final
 class PromptChunks:
-    """A prompt's chunk structure without its tokens: a sample's ``ModelInput``, compact.
+    """A prompt's chunk structure without its tokens, which is a compact form of a sample's ``ModelInput``.
 
-    A text chunk whose tokens are the prompt's own tokens at its positions -- every
-    text chunk a renderer makes -- is kept as its length alone, and read back from
-    the prompt's ``TokenSpan``. Any other chunk (an image, with its bytes) is kept by
-    reference, never copied. So a sample's prompt costs a few entries on top of the
-    span it already holds, where a ``ModelInput`` holds a Python int per token.
+    A text chunk whose tokens are the prompt's own tokens at its positions is kept as
+    its length alone, and read back from the prompt's ``TokenSpan``. Every text chunk a
+    renderer makes is like that. Any other chunk, such as an image with its bytes, is
+    kept by reference and never copied. So a sample's prompt costs a few entries on top
+    of the span it already holds, while a ``ModelInput`` holds a Python int per token.
 
-    ``model_input(ids)`` builds the ``ModelInput`` it was made from, chunk for chunk;
-    it is built when a boundary needs one and not kept.
+    ``model_input(ids)`` builds the ``ModelInput`` that the chunks were made from, chunk
+    for chunk. It is built when a boundary needs one, and it is not kept.
     """
 
     __slots__ = ("_entries", "_length")
@@ -379,7 +385,7 @@ class PromptChunks:
     _length: int
 
     def __init__(self, entries: Sequence[int | PromptChunk]) -> None:
-        """Entries in order: a text run's length over the prompt, or a chunk itself."""
+        """Take the entries in order, each a text run's length over the prompt or a chunk itself."""
         length = 0
         for entry in entries:
             if type(entry) is int:
@@ -399,9 +405,9 @@ class PromptChunks:
         ids: Sequence[int],
         shared: dict[tuple[str, int, bytes], ImageChunk] | None = None,
     ) -> PromptChunks:
-        """The chunk structure of ``model_input``, a prompt whose tokens are ``ids``.
+        """Return the chunk structure of ``model_input``, a prompt whose tokens are ``ids``.
 
-        ``shared`` maps images already held to their chunk, so a prompt re-rendered
+        ``shared`` maps images already held to their chunk. So a prompt rendered again
         with the same image refers to the chunk it held before.
         """
         entries: list[int | PromptChunk] = []
@@ -419,7 +425,7 @@ class PromptChunks:
 
     @property
     def length(self) -> int:
-        """The positions these chunks cover, as ``ModelInput.length`` counts them."""
+        """The number of positions these chunks cover, as ``ModelInput.length`` counts them."""
         return self._length
 
     @property
@@ -428,10 +434,10 @@ class PromptChunks:
         return all(isinstance(entry, (int, EncodedTextChunk)) for entry in self._entries)
 
     def model_input(self, ids: Sequence[int]) -> ModelInput:
-        """The ``ModelInput`` these chunks describe over ``ids``: new lists, new chunks.
+        """Build the ``ModelInput`` that these chunks describe over ``ids``, from new lists and chunks.
 
-        A chunk kept by reference is shallow-copied, so a caller that changes the
-        result changes nothing kept; image bytes are immutable and shared.
+        A chunk kept by reference is shallow-copied, so a caller that changes the result
+        changes nothing kept. Image bytes are immutable and shared.
         """
         chunks: list[PromptChunk] = []
         offset = 0
@@ -439,7 +445,8 @@ class PromptChunks:
             if isinstance(entry, int):
                 run = ids[offset : offset + entry]
                 if isinstance(run, TokenSpan):
-                    # A span holds only exact nonnegative ints: nothing to validate again.
+                    # A span holds only exact nonnegative ints, so there is nothing to
+                    # validate again.
                     chunks.append(EncodedTextChunk.model_construct(tokens=run.tolist()))
                 else:
                     chunks.append(EncodedTextChunk(tokens=list(run)))
@@ -449,7 +456,7 @@ class PromptChunks:
                 offset += entry.length
         return ModelInput(chunks=chunks)
 
-    # Defining __eq__ leaves it unhashable, as the ModelInput it stands for is.
+    # Defining __eq__ leaves the class unhashable, like the ModelInput it stands for.
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, PromptChunks):
             return NotImplemented
@@ -473,7 +480,7 @@ class PromptChunks:
 
 
 def _same_run(ids: Sequence[int], start: int, tokens: Sequence[int]) -> bool:
-    """Whether ``tokens`` are ``ids`` from ``start`` on, compared as buffers for a span."""
+    """Return whether ``tokens`` are ``ids`` from ``start`` on, compared as buffers for a span."""
     stop = start + len(tokens)
     if stop > len(ids):
         return False
@@ -486,14 +493,14 @@ def _same_run(ids: Sequence[int], start: int, tokens: Sequence[int]) -> bool:
 class TokenBuffers:
     """One attempt's append-only token buffers, so its prompts share their prefixes.
 
-    ``span`` returns the prompt as a span of a buffer that already holds it, or that
-    it extends, appending only the new tokens. A prompt that diverges from every
-    buffer it is tried against -- a fork, a re-render that tokenizes history
-    differently, a retry after a discard -- starts a buffer of its own: a buffer is
-    never written below its end, so no earlier span can change.
+    ``span`` returns the prompt as a span of a buffer that already holds it, or of a
+    buffer that it extends, appending only the new tokens. A prompt that diverges from
+    every buffer it is tried against starts a buffer of its own. A fork, a render that
+    tokenizes history differently, or a retry after a discard can each diverge. A
+    buffer is never written below its end, so no earlier span can change.
 
-    Single writer: ``span`` runs to completion without awaiting, on the attempt's
-    event loop, so no two calls interleave.
+    There is a single writer. ``span`` runs to completion without awaiting, on the
+    attempt's event loop, so no two calls interleave.
     """
 
     def __init__(self) -> None:
@@ -502,10 +509,10 @@ class TokenBuffers:
         self._images: dict[tuple[str, int, bytes], ImageChunk] = {}
 
     def span(self, key: str, ids: Sequence[int]) -> TokenSpan | tuple[int, ...]:
-        """``ids`` stored once per chain; a plain tuple if they do not fit a buffer.
+        """Store ``ids`` once per chain, or return a plain tuple if they do not fit a buffer.
 
-        Anything but exact nonnegative ints stays the tuple it was, so ``Sample``
-        validates it exactly as before.
+        Anything other than exact nonnegative ints stays the tuple it was, so ``Sample``
+        validates it in the usual way.
         """
         fresh = _packed(ids)
         if fresh is None:
@@ -521,24 +528,24 @@ class TokenBuffers:
         return TokenSpan._view(chosen, 0, len(fresh))  # pyright: ignore[reportPrivateUsage]
 
     def chunks(self, ids: Sequence[int], model_input: ModelInput) -> PromptChunks:
-        """``model_input``'s chunks over ``ids``, a span ``span`` returned.
+        """Return ``model_input``'s chunks over ``ids``, a span that ``span`` returned.
 
-        Its text is read back from ``ids``, and an image this attempt already holds,
-        by bytes, format and placeholder count, is the chunk already held.
+        The text is read back from ``ids``. An image that this attempt already holds,
+        matched by bytes, format and placeholder count, reuses the chunk already held.
         """
         return PromptChunks.of(model_input, ids, self._images)
 
 
 def _exact_ints(values: Sequence[object]) -> bool:
-    """Whether every value is exactly an ``int``: not a ``bool``, not an ``__index__`` object."""
+    """Return whether every value is exactly an ``int``, and not a ``bool`` or an ``__index__`` object."""
     return set(map(type, values)) <= {int}
 
 
 def _packed(ids: Sequence[int]) -> array[int] | None:
-    """``ids`` as a new token buffer, or ``None`` unless every one is an exact nonnegative
-    int that fits: ``array`` alone would coerce ``bool`` and ``__index__`` objects.
+    """Return ``ids`` as a new token buffer, or ``None`` unless each is an exact nonnegative int that fits.
 
-    A span is copied as it is, already checked; a list or tuple is read in place.
+    ``array`` alone would coerce ``bool`` and ``__index__`` objects. A span is copied as
+    it is, because it is already checked. A list or tuple is read in place.
     """
     if isinstance(ids, TokenSpan):
         return ids._buffer[ids._start : ids._stop]  # pyright: ignore[reportPrivateUsage]
@@ -552,7 +559,7 @@ def _packed(ids: Sequence[int]) -> array[int] | None:
 
 
 def compact_ids(ids: Sequence[int]) -> TokenSpan | tuple[int, ...]:
-    """``ids`` packed in a span of their own, or the tuple of them if they do not pack."""
+    """Return ``ids`` packed in a span of their own, or as a tuple if they do not pack."""
     if isinstance(ids, TokenSpan):
         return ids
     values = ids if isinstance(ids, (tuple, list)) else tuple(ids)
@@ -563,7 +570,7 @@ def compact_ids(ids: Sequence[int]) -> TokenSpan | tuple[int, ...]:
 
 
 def compact_logprobs(values: Sequence[float]) -> Logprobs | tuple[float, ...]:
-    """``values`` packed, or the tuple of them unless every one is exactly a float."""
+    """Return ``values`` packed, or as a tuple unless every one is exactly a float."""
     if isinstance(values, Logprobs):
         return values
     items = values if isinstance(values, (tuple, list)) else tuple(values)
@@ -574,7 +581,10 @@ def compact_logprobs(values: Sequence[float]) -> Logprobs | tuple[float, ...]:
 
 
 def _holds_or_extends(buffer: array[int], ids: array[int]) -> bool:
-    """Whether ``buffer`` begins with ``ids``, or ``ids`` with it, which it then appends."""
+    """Return whether ``buffer`` begins with ``ids``, or ``ids`` with ``buffer``.
+
+    In the second case, the rest of ``ids`` is appended to ``buffer``.
+    """
     if len(buffer) >= len(ids):
         return buffer[: len(ids)] == ids
     if buffer != ids[: len(buffer)]:
@@ -584,20 +594,20 @@ def _holds_or_extends(buffer: array[int], ids: array[int]) -> bool:
 
 
 def _continues(ids: tuple[int, ...] | TokenSpan, previous: Sample) -> bool:
-    """Whether ``ids`` begins with ``previous``'s prompt and then its completion.
+    """Return whether ``ids`` begins with ``previous``'s prompt and then its completion.
 
-    Length first, then the completion (short, so a fork is rejected cheaply), then
-    the prompt. The parts are compared in place rather than joined, and a span
-    compares as a buffer: a prompt captured into the same buffer as ``previous``'s
-    compares in constant time, and nothing the length of the conversation is copied
-    per candidate.
+    The length is checked first, then the completion, then the prompt. The completion
+    is short, so a fork is rejected cheaply. The parts are compared in place rather than
+    joined, and a span compares as a buffer. A prompt captured into the same buffer as
+    ``previous``'s compares in constant time, and nothing the length of the
+    conversation is copied for each candidate.
     """
     split = len(previous.prompt_ids)
     end = split + len(previous.completion_ids)
     if len(ids) < end:
         return False
     if isinstance(ids, TokenSpan):
-        # Both comparisons are packed buffers: the completion's slice is a view.
+        # Both comparisons use packed buffers, because the completion's slice is a view.
         return ids[split:end] == previous.completion_ids and ids.startswith(previous.prompt_ids)
     return ids[split:end] == previous.completion_ids and ids[:split] == previous.prompt_ids
 
@@ -605,7 +615,7 @@ def _continues(ids: tuple[int, ...] | TokenSpan, previous: Sample) -> bool:
 @dataclass(frozen=True, slots=True)
 class TaskRef:
     id: str
-    digest: str  # exactly sha256:<64 lowercase hex characters>
+    digest: str  # Exactly sha256:<64 lowercase hex characters>.
 
     def __post_init__(self) -> None:
         _identity(self.id, "task id")
@@ -631,38 +641,42 @@ class Sample:
     producer: str
     conversation_id: str
     trainable: bool
-    prompt_ids: tuple[int, ...] | TokenSpan  # a span when captured: see TokenSpan
-    # Packed when they can be (always, from a sampler): see TokenSpan and Logprobs.
+    prompt_ids: tuple[int, ...] | TokenSpan  # A span when captured, as TokenSpan explains.
+    # These are packed whenever they can be, which is always from a sampler. TokenSpan and
+    # Logprobs explain the packing.
     completion_ids: tuple[int, ...] | TokenSpan
     logprobs: tuple[float, ...] | Logprobs
     policy_version: int
-    prompt_chunks: PromptChunks  # text and image chunks covering exactly prompt_ids
+    prompt_chunks: PromptChunks  # The text and image chunks that cover exactly prompt_ids.
     stop_reason: str | None = None
     sequence_id: str | None = None
-    """The sampler's record of this generation, when it recorded one: what token
-    provenance names to replay its routing."""
+    """The sampler's record of this generation, when it recorded one.
+
+    Token provenance names this record to replay the generation's routing."""
     max_tokens: int | None = None
-    """The completion limit the sampler was given; ``None`` when it was given none."""
+    """The completion limit the sampler was given, or ``None`` when it was given none."""
     clamped_from: int | None = None
-    """The ``max_tokens`` the caller asked for, when the trajectory budget lowered it to
-    ``max_tokens``: a generation that then stops on ``"length"`` reached the budget."""
+    """The ``max_tokens`` the caller asked for, when the trajectory budget lowered it to ``max_tokens``.
+
+    A generation that then stops on ``"length"`` reached the budget."""
 
     @property
     def prompt_input(self) -> ModelInput:
-        """The prompt as the Loops SDK takes it: text and image chunks.
+        """Build the prompt as the Loops SDK takes it, as text and image chunks.
 
-        Built from ``prompt_ids`` and ``prompt_chunks`` on every read and never kept,
-        because a ``ModelInput`` holds a Python int per token: read it at the boundary
-        that needs it -- a training row, a run record -- not to hold.
+        The prompt is built from ``prompt_ids`` and ``prompt_chunks`` on every read and
+        never kept, because a ``ModelInput`` holds a Python int per token. Read it at the
+        boundary that needs it, such as a training row or a run record, and do not hold
+        it.
         """
         return self.prompt_chunks.model_input(self.prompt_ids)
 
     def __post_init__(self) -> None:
         if not isinstance(self.prompt_ids, TokenSpan):
             object.__setattr__(self, "prompt_ids", tuple(self.prompt_ids))
-        # A graded rollout waits for training holding these: packed, they cost 4 and 8
-        # bytes a token instead of 36 and 32. Anything that does not pack stays the
-        # tuple it was, and is validated, or refused, exactly as before.
+        # A graded rollout holds these while it waits for training. Packed, they cost 4
+        # and 8 bytes a token instead of 36 and 32. Anything that does not pack stays the
+        # tuple it was, and it is validated or refused in the usual way.
         object.__setattr__(self, "completion_ids", compact_ids(self.completion_ids))
         object.__setattr__(self, "logprobs", compact_logprobs(self.logprobs))
         for name in ("sample_id", "producer", "conversation_id"):
@@ -671,7 +685,8 @@ class Sample:
             raise TrajectoryError("trainable must be a boolean")
         if not self.prompt_ids or not self.completion_ids:
             raise TrajectoryError("sampling evidence requires prompt and completion tokens")
-        # A span holds only exact nonnegative ints by construction; a tuple is checked.
+        # A span holds only exact nonnegative ints by construction, so only a tuple is
+        # checked.
         tokens = [
             ids for ids in (self.prompt_ids, self.completion_ids) if not isinstance(ids, TokenSpan)
         ]
@@ -694,8 +709,8 @@ class Sample:
         if self.max_tokens is not None:
             if type(self.max_tokens) is not int or self.max_tokens < 1:
                 raise TrajectoryError("max_tokens must be a positive integer")
-            # The trajectory budget holds only if the sampler stops at its limit; a
-            # longer completion could make a chain the trainer refuses.
+            # The trajectory budget holds only if the sampler stops at its limit. A
+            # longer completion could make a chain that the trainer refuses.
             if len(self.completion_ids) > self.max_tokens:
                 raise TrajectoryError(
                     f"{len(self.completion_ids)} completion tokens, over the max_tokens "
@@ -714,13 +729,14 @@ class Rollout:
     identity: AttemptIdentity
     task: TaskRef
     samples: tuple[Sample, ...]
-    reward: float | None  # None until grade() returns; the committed reward after
+    reward: float | None  # None until grade() returns, then the committed reward.
     metadata: Mapping[str, JsonValue] = field(compare=False, hash=False)
-    """The runtime's own report about its episode, verbatim; never interpreted."""
+    """The rollout runtime's own report about its episode, kept verbatim and never interpreted."""
     discarded_versions: tuple[int, ...] = ()
-    """Policy versions of the trainable generations the agent discarded. They train
-    nothing, but date a rollout whose every generation was discarded, which is still
-    graded and still counts in its group's baseline."""
+    """The policy versions of the trainable generations that the agent discarded.
+
+    They train nothing, but they date a rollout whose every generation was discarded.
+    Such a rollout is still graded, and it still counts in its group's baseline."""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "samples", tuple(self.samples))
@@ -741,13 +757,16 @@ class Rollout:
 
     @property
     def minimum_policy_version(self) -> int | None:
-        """The oldest policy the rollout trains on, or, when it trains on none, the
-        oldest it sampled from before discarding."""
+        """The oldest policy the rollout trains on.
+
+        When it trains on none, this is the oldest policy it sampled from before
+        discarding.
+        """
         return min(self.policy_versions or self.discarded_versions, default=None)
 
     @property
     def trains(self) -> bool:
-        """Whether any generation of it trains."""
+        """Whether any of the rollout's generations trains."""
         return bool(self.policy_versions)
 
     @property

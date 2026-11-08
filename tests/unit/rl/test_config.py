@@ -197,7 +197,7 @@ def test_the_old_producer_settings_are_gone(old):
 
 
 def test_model_access_is_unset_direct_or_openai_http():
-    assert make_config().rollout_runtime.model_access is None  # the runtime declares it
+    assert make_config().rollout_runtime.model_access is None  # the rollout runtime declares it
     assert make_config(model_access="openai_http").rollout_runtime.model_access == "openai_http"
     with pytest.raises(ValidationError, match="model_access"):
         make_config(model_access="grpc")
@@ -589,7 +589,7 @@ def test_sync_refuses_a_staleness_limit_and_says_to_remove_it(limit, value):
         make_config(mode="sync", **{limit: value})
 
 
-# The rollout clock is required only of a runtime that derives none, which check decides.
+# The rollout clock is required only of a rollout runtime that derives none, which check decides.
 @pytest.mark.parametrize("path", sorted(set(REQUIRED) - {"rollout.rollout_timeout_seconds"}))
 def test_every_required_setting_is_refused_when_missing(path):
     values = config_values()

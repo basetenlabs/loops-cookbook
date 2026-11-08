@@ -18,7 +18,7 @@ CLOSED: list[str] = []
 
 
 class FileRuntime:
-    """A runtime whose tasks are its file's lines; the file's ``mode`` line, when there
+    """A rollout runtime whose tasks are its file's lines; the file's ``mode`` line, when there
     is one, is the model access it declares, and a ``broken`` file fails prepare()."""
 
     def __init__(self, path: Path) -> None:

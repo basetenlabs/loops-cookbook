@@ -1,9 +1,10 @@
-"""The provider-neutral resource contracts: requests, identities, adapters, and reports.
+"""Define the resource contracts that every provider shares.
 
-A runtime asks for a resource with a ``ResourceRequest``; the scoped service turns
-it into an immutable ``ResourceIntent`` that the registry journals before any
-provider call, and a ``ResourceAdapter`` performs the provider I/O. Nothing here
-knows any provider.
+The contracts cover requests, identities, adapters and reports. A rollout runtime asks
+for a resource with a ``ResourceRequest``. The scoped service turns it into an
+immutable ``ResourceIntent``, which the registry journals before any provider call. A
+``ResourceAdapter`` then performs the provider's input and output. Nothing here knows
+about any particular provider.
 """
 
 from __future__ import annotations
@@ -33,8 +34,10 @@ class ResourceRequest:
     specification: Mapping[str, JsonValue] = field(default_factory=dict[str, JsonValue])
     depends_on: tuple[str, ...] = ()
     labels: Mapping[str, str] = field(default_factory=dict[str, str])
-    release_after_create: bool = False  # transient helpers, such as image builders
-    # What makes two requests for one key the same resource; unset, the whole specification.
+    # True for transient helpers, such as image builders.
+    release_after_create: bool = False
+    # What makes two requests for one key the same resource. When it is unset, the whole
+    # specification does.
     identity: Mapping[str, JsonValue] | None = None
 
     def __post_init__(self) -> None:
@@ -42,7 +45,7 @@ class ResourceRequest:
             raise ValueError("a resource request needs a provider, a kind, and a logical_key")
         object.__setattr__(self, "depends_on", tuple(self.depends_on))
         object.__setattr__(self, "labels", MappingProxyType(dict(self.labels)))
-        # A private copy: nothing the caller does later can change what was digested.
+        # Keep a private copy, so nothing the caller does later can change what was digested.
         specification = MappingProxyType(copy.deepcopy(dict(self.specification)))
         object.__setattr__(self, "specification", specification)
         if self.identity is not None:
@@ -53,11 +56,11 @@ class ResourceRequest:
 
 @dataclass(frozen=True, slots=True)
 class ProviderDeadlines:
-    """Every provider operation's bound, in seconds.
+    """Hold the deadline, in seconds, for every provider operation.
 
-    Each is the bound on one call, except ``list_seconds``, which bounds each page of a
-    listing: a listing's total grows with the provider's account, not with the run, so
-    it has no bound of its own.
+    Each deadline bounds one call, except ``list_seconds``, which bounds each page of a
+    listing. A whole listing grows with the provider's account, not with the run, so it
+    has no deadline of its own.
     """
 
     create_seconds: float
@@ -135,18 +138,18 @@ class ReconcileStatus(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class ReconcileResult:
-    """What a provider lookup proved. Only ``FOUND`` carries a resource.
+    """Record what a provider lookup proved. Only ``FOUND`` carries a resource.
 
-    ``PROVEN_ABSENT`` needs authoritative negative evidence tied to the immutable
-    name and ownership identity; a negative or empty eventually consistent list is
-    ``UNKNOWN``.
+    ``PROVEN_ABSENT`` needs authoritative negative evidence, tied to the immutable name
+    and ownership identity. A negative or empty answer from an eventually consistent
+    listing is ``UNKNOWN``.
     """
 
     status: ReconcileStatus
     resource: ProviderResource | None = None
     evidence: str | None = None
-    # FOUND and owned, but not usable, such as a sandbox that deployed dead: a
-    # provision fails, and a release still releases it.
+    # Set when the resource is FOUND and owned but not usable, such as a sandbox that
+    # deployed dead. A provision then fails, and a release still releases it.
     unusable: str | None = None
 
     def __post_init__(self) -> None:
@@ -167,7 +170,7 @@ class CleanupResult:
 
 @dataclass(frozen=True, slots=True)
 class CleanupReport:
-    scope: ResourceScope | None  # None for a report that spans scopes
+    scope: ResourceScope | None  # None for a report that spans scopes.
     owner_id: str | None
     results: tuple[CleanupResult, ...]
 
@@ -180,7 +183,7 @@ class CleanupReport:
 
     @property
     def unresolved(self) -> tuple[CleanupResult, ...]:
-        """Every result whose resource may still exist, with its exact identity."""
+        """Return every result whose resource may still exist, with its exact identity."""
         return tuple(
             result
             for result in self.results
@@ -189,10 +192,11 @@ class CleanupReport:
 
 
 class ProvisioningFailure(RuntimeError):
-    """A resource could not be provided; says whether the provider may hold one anyway.
+    """Raised when a resource could not be provided.
 
-    ``refused``: the provider turned the create away for now, as a rate limit does. It
-    left nothing, so the registry sends it again after a wait.
+    ``disposition`` says whether the provider may hold one anyway. ``refused`` means the
+    provider turned the create away for now, as a rate limit does. Such a create left
+    nothing, so the registry sends it again after a wait.
     """
 
     def __init__(
@@ -212,7 +216,10 @@ class ProvisioningFailure(RuntimeError):
 
 
 class CleanupIncomplete(RuntimeError):
-    """Cleanup could not prove every resource gone; the report names each one left."""
+    """Raised when cleanup could not prove every resource gone.
+
+    The report names each resource that may be left.
+    """
 
     def __init__(self, report: CleanupReport) -> None:
         names = ", ".join(f"{r.resource_id} ({r.status.value})" for r in report.unresolved)
@@ -221,7 +228,7 @@ class CleanupIncomplete(RuntimeError):
 
 
 class ResourceLease(Protocol):
-    """A borrowed run resource, held until closed or until the borrowing scope ends."""
+    """A borrowed run resource, held until it is closed or the borrowing scope ends."""
 
     @property
     def handle(self) -> ResourceHandle: ...
@@ -244,10 +251,10 @@ class ResourceAdapter(Protocol):
     async def reconcile_create(
         self, intent: ResourceIntent, *, settled: bool = False
     ) -> ReconcileResult:
-        """Find ``intent``'s resource by identity; never issue a second create.
+        """Find ``intent``'s resource by identity, and never issue a second create.
 
-        ``settled`` means the create cannot still be in flight and any that landed
-        is visible, so a not-found answer may be returned as ``PROVEN_ABSENT``.
+        ``settled`` means the create cannot still be in flight, and a create that landed
+        is visible. A not-found answer may then be returned as ``PROVEN_ABSENT``.
         """
         ...
 
@@ -259,8 +266,11 @@ class ResourceAdapter(Protocol):
     def list_owned(
         self, labels: Mapping[str, str]
     ) -> AsyncGenerator[Sequence[ProviderResource], None]:
-        """Every resource carrying all of ``labels``, one page at a time; the caller
-        bounds each page by ``deadlines.list_seconds``, never the whole listing."""
+        """Yield every resource that carries all of ``labels``, one page at a time.
+
+        The caller puts the ``deadlines.list_seconds`` deadline on each page, never on
+        the whole listing.
+        """
         ...
 
     def usage_environment(self, resource: ProviderResource) -> Mapping[str, str | SecretStr]: ...
@@ -269,8 +279,11 @@ class ResourceAdapter(Protocol):
 
 @runtime_checkable
 class RegionalProvider(Protocol):
-    """A ``ResourceAdapter`` that creates everything in one region, which a runtime may
-    need to hold what it describes to (a Harbor task's image build, say)."""
+    """A ``ResourceAdapter`` that creates everything in one region.
+
+    A rollout runtime may need to hold what it describes to that region, such as a
+    Harbor task's image build.
+    """
 
     @property
     def region(self) -> str: ...
@@ -278,18 +291,27 @@ class RegionalProvider(Protocol):
 
 @runtime_checkable
 class ImageProvider(Protocol):
-    """A ``ResourceAdapter`` that holds images a sandbox can start from, so a runtime can
-    refuse a task naming one it does not hold before the run, not on every trial."""
+    """A ``ResourceAdapter`` that holds images a sandbox can start from.
+
+    A rollout runtime can then refuse, before the run, a task that names an image the
+    provider does not hold, instead of failing on every trial.
+    """
 
     async def image_tags(self, name: str) -> frozenset[str] | None:
-        """The tags of the provider's image ``name``, or ``None`` when it holds none by
-        that name. Raises when it cannot tell."""
+        """Return the tags of the provider's image ``name``.
+
+        It returns ``None`` when the provider holds no image by that name, and raises
+        when it cannot tell.
+        """
         ...
 
 
 @dataclass(frozen=True, slots=True)
 class SandboxResources:
-    """A sandbox's size, or a limit on sizes: vCPUs and GiB; ``None`` where unknown."""
+    """A sandbox's size, or a limit on sizes, in vCPUs and GiB.
+
+    A dimension is ``None`` where it is unknown.
+    """
 
     cpu: float | None = None
     memory_gib: float | None = None
@@ -298,8 +320,10 @@ class SandboxResources:
 
 @dataclass(frozen=True, slots=True)
 class SandboxCapacity:
-    """How big a provider's sandbox is when a request names no size, and the most one
-    sandbox may have, as far as it was told."""
+    """The size of a provider's sandbox when a request names none, and the most one may have.
+
+    The limits are only those that the provider's table declares.
+    """
 
     defaults: SandboxResources
     per_sandbox: SandboxResources = field(default_factory=SandboxResources)
@@ -307,8 +331,11 @@ class SandboxCapacity:
 
 @runtime_checkable
 class CapacityProvider(Protocol):
-    """A ``ResourceAdapter`` that sizes CPU, memory, and disk independently and can say
-    how big one sandbox may be, so a runtime can refuse a larger one before the run."""
+    """A ``ResourceAdapter`` that sizes CPU, memory and disk independently.
+
+    It can say how big one sandbox may be, so a rollout runtime can refuse a larger one
+    before the run.
+    """
 
     @property
     def capacity(self) -> SandboxCapacity: ...
@@ -316,9 +343,11 @@ class CapacityProvider(Protocol):
 
 @runtime_checkable
 class ConfiguredProvider(Protocol):
-    """A ``ResourceAdapter`` that shares its validated ``[providers.<name>]`` table, so
-    that provider's own code elsewhere, such as its Harbor environment, reads the
-    settings the adapter was built from."""
+    """A ``ResourceAdapter`` that shares its validated ``[providers.<name>]`` table.
+
+    The provider's own code elsewhere, such as its Harbor environment, then reads the
+    settings that the adapter was built from.
+    """
 
     @property
     def settings(self) -> BaseModel: ...
@@ -328,13 +357,16 @@ class ConfiguredProvider(Protocol):
 class SandboxProvider[ClientT](Protocol):
     """A ``ResourceAdapter`` whose resources can back an Episode's sandbox.
 
-    ``sandbox_kind`` is the ``SandboxKind`` its sandboxes are, and so the Episodes it
-    can back: those written for that kind or a base of it. ``client`` is the
-    provider's own client for a live resource; the registry bounds it by the attach
-    deadline, and a client the call had opened before it failed or was cancelled is
-    the adapter's to close. ``close_client`` closes one ``client`` returned. ``alive``
-    is the provider's fact of whether the resource is still usable: ``False`` for one
-    that is gone, raising only when it cannot tell.
+    ``sandbox_kind`` is the ``SandboxKind`` of its sandboxes. It decides which Episodes
+    the provider can back, which are those written for that kind or a base of it.
+
+    ``client`` returns the provider's own client for a live resource. The registry puts
+    the attach deadline on it. If the call fails or is cancelled after opening a
+    client, the adapter closes that client. ``close_client`` closes one client that
+    ``client`` returned.
+
+    ``alive`` reports the provider's fact of whether the resource is still usable. It
+    returns ``False`` for a resource that is gone, and raises only when it cannot tell.
     """
 
     @property
@@ -346,22 +378,22 @@ class SandboxProvider[ClientT](Protocol):
 
 
 class SandboxSession(Protocol):
-    """An attempt's hold on its sandbox: its one client, and its provider's liveness fact."""
+    """An attempt's hold on its sandbox, which gives its one client and its liveness."""
 
     async def client(self) -> object: ...
     async def alive(self) -> bool: ...
 
 
 class SandboxSpec(BaseModel):
-    """``[rollout_runtime.config.sandbox]`` beside its ``provider``: the sandbox, as its kind types it.
+    """The ``[rollout_runtime.config.sandbox]`` table, typed by the sandbox's kind.
 
-    A kind's spec declares its keys flat, each with its default or required, and
-    forbids any other, so ``loops check`` refuses a misspelt key. It validates
-    strictly, so a value of another type is refused rather than converted (``true``
-    is no memory size); a choice is a ``Literal``, which a TOML string validates as,
-    not an ``Enum``, which it does not. Each attempt's
-    sandbox is provisioned as a ``resource_kind`` resource with ``specification()``,
-    which is the provider's own request format.
+    The table sits beside its ``provider`` key. A kind's spec declares its keys flat,
+    each with a default or marked required. It forbids any other key, so ``loops check``
+    refuses a misspelt key. It validates strictly, so a value of another type is refused
+    rather than converted. For example, ``true`` is not a memory size. Declare a choice
+    as a ``Literal``, because a TOML string validates as a ``Literal`` but not as an
+    ``Enum``. Each attempt's sandbox is provisioned as a ``resource_kind`` resource
+    with ``specification()``, which returns the provider's own request format.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False, strict=True)
@@ -373,9 +405,9 @@ class SandboxSpec(BaseModel):
 
 
 class SandboxGone(RuntimeError):
-    """The sandbox went away, so what is missing from it proves nothing.
+    """Raised when the sandbox went away, so what is missing from it proves nothing.
 
-    Raised from ``grade()``, it fails that grading try, which is tried again only
+    Raised from ``grade()``, it fails that grading try. The grading is tried again only
     within the episode's ``grading_retries``.
     """
 
@@ -387,15 +419,17 @@ class SandboxKind[ClientT]:
     """An Episode's sandbox from one provider, whose client is a ``ClientT``.
 
     Each provider ships one subclass that names it, such as
-    ``class Blaxel(SandboxKind[SandboxInstance]): provider = "blaxel"``; an Episode names
-    that subclass as its third type argument, and its adapter declares it as its
-    ``sandbox_kind``; ``ctx.sandbox`` is one of the kind the adapter provides. The run
-    owns the sandbox and releases it with the attempt, after ``close()``.
+    ``class Blaxel(SandboxKind[SandboxInstance]): provider = "blaxel"``. An Episode names
+    that subclass as its third type argument, and the provider's adapter declares it as
+    its ``sandbox_kind``. ``ctx.sandbox`` is an instance of the kind that the adapter
+    provides. The run owns the sandbox, and releases it with the attempt after
+    ``close()``.
     """
 
-    # The provider this kind's sandboxes come from, as a message names it.
+    # The provider that this kind's sandboxes come from, as a message names it.
     provider: ClassVar[str]
-    # What [rollout_runtime.config.sandbox] says beside provider; by default, nothing.
+    # The model for what [rollout_runtime.config.sandbox] holds beside provider. By
+    # default it holds nothing.
     spec: ClassVar[type[SandboxSpec]] = SandboxSpec
 
     def __init__(
@@ -410,36 +444,38 @@ class SandboxKind[ClientT]:
 
     @property
     def name(self) -> str:
-        """The sandbox's own name at its provider."""
+        """Return the sandbox's own name at its provider."""
         return self._name
 
     @property
     def environment(self) -> Mapping[str, str | SecretStr]:
-        """What an agent process needs to reach the sandbox."""
+        """Return what an agent process needs to reach the sandbox."""
         return self._environment
 
     async def client(self) -> ClientT:
-        """The provider's own client, attached within its attach deadline on the first call.
+        """Return the provider's own client, attached within the attach deadline on the first call.
 
-        The same object on every call; the cookbook closes it after ``close()``.
+        Every call returns the same object. The cookbook closes it after ``close()``.
         """
-        # The provider's SandboxProvider gives this kind's client; check matched them.
+        # The provider's SandboxProvider gives this kind's client, because check matched
+        # the two.
         return cast(ClientT, await self._session.client())
 
     async def alive(self) -> bool:
-        """The provider's fact of whether the sandbox is still usable; for Blaxel, DEPLOYED.
+        """Return the provider's fact of whether the sandbox is still usable.
 
-        A ``grade()`` that finds its answer missing asks this after the read, through
-        ``ensure_alive()``.
+        For Blaxel, usable means DEPLOYED. A ``grade()`` that finds its answer missing
+        asks this after the read, through ``ensure_alive()``.
         """
         return await self._session.alive()
 
     async def ensure_alive(self) -> None:
-        """Return while the sandbox is usable; raise ``SandboxGone`` once it went away.
+        """Return while the sandbox is usable, and raise ``SandboxGone`` once it went away.
 
-        A ``grade()`` that finds its answer missing calls this after the read. A
-        sandbox alive then was there when the read missed, since one that is gone
-        never comes back, so the answer is missing. One that is gone proves nothing.
+        A ``grade()`` that finds its answer missing calls this after the read. A sandbox
+        that is gone never comes back. A sandbox alive at this check was therefore there
+        when the read missed, so the answer really is missing. A sandbox that is gone
+        proves nothing.
         """
         if not await self.alive():
             raise SandboxGone(self.name)

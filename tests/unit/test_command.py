@@ -238,7 +238,7 @@ def test_help_lists_every_recipes_settings_and_needs_no_config(capsys):
     output = " ".join(capsys.readouterr().out.split())
     # A setting only one recipe has says so, and a required one says so.
     assert "--rollout_runtime.factory TEXT (RL)" in output and "--data.train TEXT (SFT)" in output
-    assert "Adam learning rate; under SFT's lr_schedule, its peak. Required." in output
+    assert "Under SFT's lr_schedule, this is the peak learning rate. Required." in output
     assert "(default: auto)" in output  # console: both recipes agree
     # The file's recipe key chooses the recipe, so it is no flag.
     assert "--recipe" not in output
@@ -374,7 +374,7 @@ def test_resume_and_resume_from_together_are_refused(tmp_path, resumed, capsys):
     with pytest.raises(SystemExit) as exited:
         command.main(["run", str(path), "--resume", "--training.resume_from", "elsewhere"])
     assert exited.value.code == 2
-    assert "give one or the other" in capsys.readouterr().err
+    assert "Give one or the other" in capsys.readouterr().err
     assert resumed == []
 
 

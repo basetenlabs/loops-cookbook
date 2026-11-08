@@ -207,7 +207,7 @@ async def test_rows_the_workers_could_not_render_render_in_this_process(
     here = await plan(config, ChatRenderer())
     parallel_render(3)
     planned = await plan(config, ParentOnlyChatRenderer())
-    assert "rendering the other 7 rows in this process" in caplog.text
+    assert "this process is now rendering the other 7 rows" in caplog.text
     assert planned.digest == here.digest
 
 

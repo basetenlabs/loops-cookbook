@@ -2,9 +2,9 @@
 
 A tool call the renderer reports as broken is the model's output: it reaches the
 agent and trains. Every other failure to read a completion is the cookbook's: the
-attempt fails whatever the runtime does with the error, is retried as a fresh
+attempt fails whatever the rollout runtime does with the error, is retried as a fresh
 attempt, and nothing of it trains or is graded. The driver, lease, gateway and
-official client are the real ones; only the runtime, sampler and renderer are fakes.
+official client are the real ones; only the rollout runtime, sampler and renderer are fakes.
 """
 
 import contextlib

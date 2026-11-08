@@ -92,7 +92,7 @@ def test_every_name_is_exported_by_exactly_one_package():
     """A name's one import path is its defining package; a re-export is a second.
 
     Two packages may each export a name they define themselves -- each recipe has a
-    ``Config`` and a ``Run``, each runtime a ``create_runtime`` -- since those are
+    ``Config`` and a ``Run``, each rollout runtime a ``create_runtime`` -- since those are
     different objects, not two spellings of one.
     """
     exporters: dict[str, list[str]] = {}

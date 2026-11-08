@@ -6,7 +6,7 @@ inside, the rules the code keeps, and why. To use the cookbook, read the
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/engine-overview-dark.svg">
-  <img alt="The training engine. Run drives the Pipeline and the Trainer. The Pipeline calls the AttemptDriver's sample and grade. The AttemptDriver takes permits from RunCapacity, opens and seals the attempt's model-access lease, and calls the runtime's hooks. Two runtimes sit behind the runtime contract: EpisodeRuntime over your Episode class, and HarborRuntime over a Harbor job and your agent. Agents call Model access, which samples from the Loops sampler. The runtime provisions sandboxes through the ResourceRegistry, which creates them at Blaxel or Daytona. The Trainer runs forward/backward and the optimizer on the Loops trainer, which publishes new weights to the sampler every step." src="assets/engine-overview.svg">
+  <img alt="The training engine. Run drives the Pipeline and the Trainer. The Pipeline calls the AttemptDriver's sample and grade. The AttemptDriver takes permits from RunCapacity, opens and seals the attempt's model-access lease, and calls the rollout runtime's hooks. Two rollout runtimes sit behind the rollout runtime contract: EpisodeRuntime over your Episode class, and HarborRuntime over a Harbor job and your agent. Agents call Model access, which samples from the Loops sampler. The rollout runtime provisions sandboxes through the ResourceRegistry, which creates them at Blaxel or Daytona. The Trainer runs forward/backward and the optimizer on the Loops trainer, which publishes new weights to the sampler every step." src="assets/engine-overview.svg">
 </picture>
 
 ## The idea

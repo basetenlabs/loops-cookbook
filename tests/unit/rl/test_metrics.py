@@ -238,7 +238,7 @@ async def test_a_logging_failure_never_reaches_the_run(config, fake_wandb, caplo
     await metrics.start()
     metrics.log({"reward/mean": 0.5}, 0, {"reward/mean"})
     await metrics.close()
-    assert "local metrics are intact" in caplog.text
+    assert "Local metrics are intact" in caplog.text
 
 
 async def test_heartbeat_and_update_are_committed_without_waiting_for_next_update(

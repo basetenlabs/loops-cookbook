@@ -54,7 +54,7 @@ The [examples index](examples/README.md) lists the model that each example train
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/core-loop-dark.svg">
-  <img alt="The core loop as seven numbered steps: the run schedules episodes on the runtime; the runtime runs your agent in its environment; model calls go through the model client to the sampler; the client records the exact tokens; rewards come back through the runtime; the run sends training batches to the LoRA trainer; the trainer publishes the new policy to the sampler." src="docs/assets/core-loop.svg">
+  <img alt="The core loop as seven numbered steps: the run schedules episodes on the rollout runtime; the rollout runtime runs your agent in its environment; model calls go through the model client to the sampler; the client records the exact tokens; rewards come back through the rollout runtime; the run sends training batches to the LoRA trainer; the trainer publishes the new policy to the sampler." src="docs/assets/core-loop.svg">
 </picture>
 
 An episode is one attempt by your agent at one task. An RL run repeats these steps:

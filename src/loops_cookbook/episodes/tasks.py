@@ -1,14 +1,14 @@
-"""Tasks as data: one JSON object per line of ``[rollout_runtime.files] tasks``.
+"""Load tasks as data, one JSON object per line of ``[rollout_runtime.files] tasks``.
 
-The cookbook loads the file once, when the runtime is built, and digests each task
-by its canonical JSON, so the run record names exactly the data every rollout ran
-on. A line's ``id`` names its task; a line without one is named by its position
-among the file's tasks, counting from 0.
+The cookbook loads the file once, when it builds the rollout runtime. It digests each
+task by its canonical JSON, so the run record names exactly the data every rollout ran
+on. A line's ``id`` names its task. A line without one is named by its position among
+the file's tasks, counting from 0.
 
-An episode that declares a task model has every line but its ``id`` validated with
-it at load. The task's data, and so its digest, is then the validated model's JSON
-dump with the line's ``id`` kept: defaults the model fills in are part of what ran,
-and of what the record names.
+If the episode declares a task model, the cookbook validates every line except its
+``id`` with that model at load. The task's data, and so its digest, is then the
+validated model's JSON dump with the line's ``id`` kept. Defaults that the model fills
+in are part of what ran, so the record names them too.
 """
 
 from __future__ import annotations
@@ -29,10 +29,10 @@ from loops_cookbook.runtime.context import RuntimeConfigurationError
 
 @dataclass(frozen=True, slots=True)
 class Task[TaskT: BaseModel | None]:
-    """One task: its ID and its line's data, a private read-only copy per attempt.
+    """One task, holding its ID and its line's data.
 
-    ``value`` is the line as the episode's task model validated it, or ``None`` for
-    an episode that declares none.
+    Each attempt gets its own read-only copy. ``value`` is the line as the episode's
+    task model validated it, or ``None`` when the episode declares no task model.
     """
 
     id: str
@@ -40,7 +40,7 @@ class Task[TaskT: BaseModel | None]:
     value: TaskT
 
     def copy(self) -> Task[TaskT]:
-        """A copy no other attempt shares, its value included."""
+        """Return a copy that no other attempt shares, including its value."""
         value = self.value
         return Task(
             self.id,
@@ -50,19 +50,22 @@ class Task[TaskT: BaseModel | None]:
 
 
 def task_digest(data: Mapping[str, JsonValue]) -> str:
-    """``sha256:`` of the task's canonical JSON: sorted keys, no whitespace."""
+    """Return ``sha256:`` and the hash of the task's canonical JSON.
+
+    Canonical JSON has sorted keys and no whitespace.
+    """
     canonical = json.dumps(dict(data), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return f"sha256:{sha256(canonical.encode()).hexdigest()}"
 
 
 def validated_dump(value: BaseModel, *, where: str) -> dict[str, JsonValue]:
-    """The validated model's JSON dump, refused unless it is of the model's field types.
+    """Return the validated model's JSON dump, and refuse one that doesn't match its field types.
 
-    It is the model's schema serializer's dump, so a ``model_dump`` the model
-    overrides is never what is digested. A validator may return what the field's
-    type is not; its dump would then not be what the model's types say (a
-    ``SecretStr`` dumps as asterisks, so different values would share a digest), and
-    is refused rather than digested.
+    The dump comes from the model's schema serializer, so a ``model_dump`` override is
+    never what gets digested. A validator may return a value that isn't of the field's
+    type. Its dump would then not be what the model's types say. For example, a
+    ``SecretStr`` dumps as asterisks, so different values would share a digest. Such a
+    dump is refused rather than digested.
     """
     try:
         return type(value).__pydantic_serializer__.to_python(value, mode="json", warnings="error")
@@ -74,10 +77,10 @@ def validated_dump(value: BaseModel, *, where: str) -> dict[str, JsonValue]:
 
 
 def load_tasks(path: Path, model: type[BaseModel] | None = None) -> list[Task[Any]]:
-    """Every task in the JSONL file at ``path``, validated with ``model`` if one is given.
+    """Load every task in the JSONL file at ``path``, validated with ``model`` if one is given.
 
-    Blank lines are skipped. The ``id`` names the line, so it is the cookbook's and
-    never the model's: the model validates the rest of the line.
+    Blank lines are skipped. The ``id`` names the line, so it belongs to the cookbook
+    and never to the model. The model validates the rest of the line.
     """
     tasks: list[Task[Any]] = []
     seen: set[str] = set()
@@ -87,7 +90,8 @@ def load_tasks(path: Path, model: type[BaseModel] | None = None) -> list[Task[An
         where = f"{path}:{number}"
         try:
             data = json_mapping(json.loads(line), where=where)
-        except ValueError as error:  # not JSON, or not an object of finite JSON values
+        # The line is not JSON, or not an object of finite JSON values.
+        except ValueError as error:
             raise RuntimeConfigurationError(
                 f"{where}: a task must be one JSON object: {error}"
             ) from None

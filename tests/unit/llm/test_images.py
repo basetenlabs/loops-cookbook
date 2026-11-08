@@ -648,8 +648,8 @@ class _NeedsTorch:
         (
             _NeedsTorch(),
             (
-                "unavailable (ImportError: Qwen3VLVideoProcessor requires the PyTorch library); "
-                "text-only training works, run `uv sync --extra vision` for image inputs"
+                "unavailable (ImportError: Qwen3VLVideoProcessor requires the PyTorch library). "
+                "Text-only training works. Run `uv sync --extra vision` for image inputs."
             ),
         ),
     ],

@@ -1,4 +1,4 @@
-"""Harbor jobs, tasks and runtimes for the Harbor runtime tests.
+"""Harbor jobs, tasks and rollout runtimes for the Harbor rollout runtime tests.
 
 Every job runs its trials in the offline directory-backed environment from
 tests/fixtures/offline, with an agent from ``harbor_test_agents``. Nothing reaches a
@@ -33,7 +33,7 @@ LIMITS = {
     "process_kill_grace_seconds": 5,
 }
 
-# What each runtime reported to its run's metrics, kept beside it rather than on it.
+# What each rollout runtime reported to its run's metrics, kept beside it rather than on it.
 _METRICS: weakref.WeakKeyDictionary[Any, MetricsSink] = weakref.WeakKeyDictionary()
 
 
@@ -129,7 +129,7 @@ def runtime_for(
     provider_images=None,
     **config,
 ):
-    """A Harbor runtime of ``job_path``; ``limits`` changes the run's limits by name."""
+    """A Harbor rollout runtime of ``job_path``; ``limits`` changes the run's limits by name."""
     metrics = MetricsSink()
     context = RuntimeContext(
         work_dir=work,
@@ -154,9 +154,9 @@ def runtime_for(
 
 
 async def harbor(tmp_path, task, agent="AnswerAgent", **options):
-    """``(rig, runtime, task)``: a prepared runtime of ``task`` under the real driver.
+    """``(rig, runtime, task)``: a prepared rollout runtime of ``task`` under the real driver.
 
-    ``job`` changes the job, ``config`` the runtime, and every other option the rig."""
+    ``job`` changes the job, ``config`` the rollout runtime, and every other option the rig."""
     runtime = runtime_for(
         job(tmp_path, task, agent, **options.pop("job", {})),
         tmp_path / "work",

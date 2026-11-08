@@ -430,8 +430,8 @@
       "updated": 1790308766631,
       "link": null,
       "locked": false,
-      "text": "Runtime:\nHarbor, or custom",
-      "originalText": "Runtime:\nHarbor, or custom",
+      "text": "Rollout runtime:\nHarbor, or custom",
+      "originalText": "Rollout runtime:\nHarbor, or custom",
       "fontSize": 20,
       "fontFamily": 5,
       "textAlign": "center",
@@ -1874,7 +1874,7 @@
         ],
         [
           -104.06406441311185,
-          -5.479419087350834e-7
+          -5.479419087350834e-07
         ],
         [
           -104.06406441311185,
@@ -2748,7 +2748,7 @@
       "type": "text",
       "x": 20,
       "y": 870,
-      "width": 982.8,
+      "width": 972.9,
       "height": 22.5,
       "angle": 0,
       "strokeColor": "#6b7280",
@@ -2769,8 +2769,8 @@
       "updated": 1790308766631,
       "link": null,
       "locked": false,
-      "text": "The run asks the runtime for episodes. The runtime sets up each one's environment, your agent acts in it,",
-      "originalText": "The run asks the runtime for episodes. The runtime sets up each one's environment, your agent acts in it,",
+      "text": "The run asks the rollout runtime for episodes. It sets up each one's environment, your agent acts in it,",
+      "originalText": "The run asks the rollout runtime for episodes. It sets up each one's environment, your agent acts in it,",
       "fontSize": 18,
       "fontFamily": 5,
       "textAlign": "left",

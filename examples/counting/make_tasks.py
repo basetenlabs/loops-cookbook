@@ -1,7 +1,8 @@
-"""Write tasks.jsonl: ``TASKS`` pictures to count, each with a count the episode accepts.
+"""Write tasks.jsonl, with ``TASKS`` pictures to count.
 
-Deterministic, so the file beside it is what this produces. A task holds only the
-count and the seed; the episode draws the picture from them. Run it from anywhere:
+Each picture has a count the episode accepts. The script is deterministic, so the file
+beside it is what it produces. A task holds only the count and the seed, and the
+episode draws the picture from them. Run it from any directory with
 ``uv run python examples/counting/make_tasks.py``.
 """
 

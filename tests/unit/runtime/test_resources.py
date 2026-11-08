@@ -1,4 +1,4 @@
-"""Episode resources through the real driver, for a runtime that is not Harbor.
+"""Episode resources through the real driver, for a rollout runtime that is not Harbor.
 
 The scripted runtime provisions, borrows, and releases through
 ``attempt.services.resources`` against ``FakeProvider``: the same contracts the
@@ -269,7 +269,7 @@ async def test_incomplete_episode_cleanup_counts_and_keeps_every_identity(tmp_pa
 
 
 async def test_resource_contracts_hold_without_a_model_call(tmp_path):
-    """A runtime may use resources in grading too; the attempt still owns them."""
+    """A rollout runtime may use resources in grading too; the attempt still owns them."""
     provider = FakeProvider()
 
     async def grade(attempt, rollout):

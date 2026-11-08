@@ -1,9 +1,9 @@
-"""One attempt's model-access lease: admission, attribution, capture, and sealing.
+"""One attempt's model access lease, which admits, attributes, captures and seals its generations.
 
-Every generation is admitted under a cookbook request ID bound to the attempt,
-producer, and conversation, captured when the sampler returns, and settled when
-the result reaches the caller. Attribution uses identities only; no prompt,
-response, or tool-call content is ever inspected.
+Every generation is admitted under a cookbook request ID bound to the attempt, the
+producer and the conversation. It is captured when the sampler returns, and settled
+when the result reaches the caller. Attribution uses identities only. The lease never
+inspects prompt, response or tool-call content.
 
 Lease lifecycle::
 
@@ -15,26 +15,30 @@ Request lifecycle::
     ADMITTED --capture--> SAMPLED --delivered--> DELIVERED
     ADMITTED | SAMPLED --failure--> ABORTED
 
-A direct generation is delivered when it returns to its caller. An HTTP one stays
-``SAMPLED`` until its transport writes the whole response, which a keyed retry
-replaying it may still do after the first write failed.
+A direct generation is delivered when it returns to its caller. An HTTP generation
+stays ``SAMPLED`` until its transport writes the whole response. A keyed retry that
+replays it may still do that after the first write failed.
 
-Only delivered generations train. Whatever else was sampled when the attempt seals
-(cut mid-write, abandoned by a client that timed out and retried, cut by a deadline,
-or still running) is dropped from the evidence, and the rest of the episode trains. A
-dropped generation the agent never received is a branch the episode never took; one
-it may have partly seen only loses its own training signal, since its text reaches
-later prompts as context either way. A cancelled generation is simply not evidence.
+Only delivered generations train. When the attempt seals, every other sampled
+generation is dropped from the evidence, and the rest of the episode trains. Such a
+generation may have been cut mid-write, abandoned by a client that timed out and
+retried, cut by a deadline, or still running. A dropped generation the agent never
+received is a branch the episode never took. One the agent may have partly seen loses
+only its own training signal, because its text reaches later prompts as context
+either way. A cancelled generation is not evidence.
 
 A generation that fails after admission poisons the lease, and the attempt's failure
-keeps its cause: later requests and sealing raise ``ModelTransportFailure`` for a
-transport or HTTP-status error, ``SamplingFailure`` for a sampler timeout,
-termination, or unusable response (a completion longer than the ``max_tokens`` it
-was sampled with among them), ``RendererFailure`` for a completion the renderer
-could not read, and ``CaptureIntegrityFailure`` for anything else.
+keeps its cause. Later requests and sealing raise one of these:
+
+- ``ModelTransportFailure`` for a transport or HTTP status error.
+- ``SamplingFailure`` for a sampler timeout, a termination or an unusable response.
+  A completion longer than the ``max_tokens`` it was sampled with is unusable.
+- ``RendererFailure`` for a completion the renderer could not read.
+- ``CaptureIntegrityFailure`` for anything else.
+
 The Loops SDK has already retried what it treats as transient. A generation that
-would exceed the freshness limits marks the lease stale instead, which the driver
-turns into a discard whether or not the runtime propagates the error.
+would exceed the freshness limits marks the lease stale instead. The driver turns a
+stale lease into a discard whether or not the rollout runtime propagates the error.
 """
 
 from __future__ import annotations
@@ -86,9 +90,12 @@ logger = logging.getLogger(__name__)
 
 
 def affinity_key(namespace: str, identity: AttemptIdentity) -> str:
-    """The sampler affinity key of ``identity``'s rollout, the same for each of its
-    attempts: ``namespace`` (one per run) and a digest of the rollout ID. The rollout
-    ID carries its task's ID, which is the user's and may not fit in a header."""
+    """Return the sampler affinity key of ``identity``'s rollout.
+
+    Every attempt at the rollout gets the same key. It is ``namespace``, which is one
+    per run, and a digest of the rollout ID. The digest is used because the rollout ID
+    carries the task's ID, which the user chooses and which may not fit in a header.
+    """
     return f"{namespace}:{hashlib.sha256(identity.rollout_id.encode()).hexdigest()[:32]}"
 
 
@@ -105,7 +112,8 @@ class LeaseState(str, Enum):
     REVOKED = "revoked"
 
 
-# Told of a sample whose reply raised instead of reaching the agent, so its turn names it.
+# Called with a sample whose reply raised instead of reaching the agent, so that its
+# turn names the sample.
 type FailedReply = Callable[[Sample, Exception], None]
 
 
@@ -129,11 +137,11 @@ class Freshness:
 
 @dataclass(frozen=True, slots=True)
 class LeaseWiring:
-    """Run-scoped collaborators every attempt lease shares."""
+    """Holds the run-scoped collaborators that every attempt lease shares."""
 
     sampler: Callable[[], SamplingClient]
     policy_version: Callable[[], int]
-    # Decides how often an attempt reads ``sampler``; see ``AttemptLease._handle``.
+    # The capacity sets how often an attempt reads ``sampler``. See ``AttemptLease._handle``.
     capacity: Capacity
     producers: ProducerSettings
     freshness: Freshness
@@ -143,13 +151,13 @@ class LeaseWiring:
     on_discard: Callable[[AttemptIdentity, Sample], None]
     # Sealing dropped a generation that was sampled but never delivered.
     on_undelivered: Callable[[AttemptIdentity, Sample], None]
-    # Record each attempt's transcript; its seal returns it.
+    # Whether to record each attempt's transcript. The attempt's seal returns it.
     records_transcripts: bool = False
-    # Also hand each sealed transcript here, before the seal settles anything else.
+    # Receives each sealed transcript too, before the seal settles anything else.
     on_transcript: Callable[[AttemptIdentity, SealedTranscript], Awaitable[None]] | None = None
-    # The policy version the handle ``sampler`` returns was published at.
+    # Returns the policy version at which the handle from ``sampler`` was published.
     sampler_version: Callable[[], int | None] = lambda: None
-    # The sampler records every generation, for router replay; it records text only.
+    # Whether the sampler records every generation for router replay. It records text only.
     records_generations: bool = False
     # A prompt with images reached a sampler that records generations.
     on_unrecordable_prompt: Callable[[], None] = lambda: None
@@ -161,10 +169,10 @@ class LeaseWiring:
 
 @dataclass(frozen=True, slots=True)
 class Sealed:
-    """What a seal returns: the attempt's evidence, and its transcript when recorded.
+    """Holds what a seal returns, which is the attempt's evidence and its transcript when recorded.
 
     ``discarded_versions`` are the policy versions of the trainable generations the
-    agent took back: none of them trains, but they say which policy the attempt ran.
+    agent took back. None of them trains, but they say which policy the attempt ran.
     """
 
     samples: tuple[Sample, ...]
@@ -177,14 +185,14 @@ _ECHO_EDGE = 64
 
 
 def _echo_matches(returned: Sequence[int], ids: TokenSpan, has_images: bool) -> bool:
-    """Whether the prompt the sampler reports is the one submitted.
+    """Return whether the prompt the sampler reports is the one submitted.
 
-    An image prompt is compared token by token, packed rather than as a tuple: the
-    sampler expands each ImageChunk itself, and this is the guard that its expansion
+    An image prompt is compared token by token, packed rather than as a tuple. The
+    sampler expands each ImageChunk itself, and this check guards that its expansion
     matches the renderer's placeholders. A text prompt reaches the sampler as exactly
-    these IDs, and the SDK reports its own request IDs when the sampler echoes none,
-    so the length and both ends suffice. Comparing all of it would walk a prompt of
-    100k+ tokens on the event loop at every generation.
+    these IDs, and the SDK reports its own request IDs when the sampler echoes none.
+    So for text, the length and both ends suffice. Comparing all of it would walk a
+    prompt of over 100k tokens on the event loop at every generation.
     """
     if has_images:
         return ids.same_tokens(returned)
@@ -247,7 +255,7 @@ class AttemptLease:
     def failure(
         self,
     ) -> SamplingFailure | ModelTransportFailure | RendererFailure | CaptureIntegrityFailure | None:
-        """Why this attempt can no longer train, keeping the lost generation's cause."""
+        """Return why this attempt can no longer train, keeping the lost generation's cause."""
         if self._poison is None:
             return None
         if isinstance(self._poison, (SamplingFailure, ModelTransportFailure, RendererFailure)):
@@ -259,8 +267,11 @@ class AttemptLease:
 
     @property
     def fatal(self) -> FuturePolicyVersion | UndeclaredProducer | None:
-        """What proves the run itself inconsistent or misconfigured, if anything: a
-        capture from an unpublished policy, or a call naming an undeclared producer."""
+        """Return what proves the run itself inconsistent or misconfigured, if anything.
+
+        That is a capture from an unpublished policy, or a call that names an undeclared
+        producer.
+        """
         return self._fatal
 
     @property
@@ -269,12 +280,15 @@ class AttemptLease:
 
     @property
     def transcript(self) -> TranscriptRecorder | None:
-        """Where model access records this attempt's turns, when the run records them."""
+        """Return where model access records this attempt's turns, when the run records them."""
         return self._transcript
 
     def producer(self, producer: str | None) -> str:
-        """The declared producer a call names; an undeclared one is fatal to the run,
-        whatever the runtime does with the refusal."""
+        """Return the declared producer a call names.
+
+        An undeclared producer is fatal to the run, whatever the rollout runtime does
+        with the refusal.
+        """
         try:
             return self._wiring.producers.resolve(producer)
         except UndeclaredProducer as error:
@@ -282,7 +296,7 @@ class AttemptLease:
             raise
 
     def captured(self) -> tuple[Sample, ...]:
-        """Evidence captured so far, in capture-return order, before sealing."""
+        """Return the evidence captured so far, in the order captures returned, before sealing."""
         self._raise_unusable()
         return self._live_samples()
 
@@ -306,7 +320,8 @@ class AttemptLease:
         if self._state is not LeaseState.OPEN:
             raise CaptureIntegrityFailure(f"model access for this attempt is {self._state.value}")
         self._raise_unusable()
-        self.producer(producer)  # an undeclared producer never samples
+        # An undeclared producer never samples.
+        self.producer(producer)
         request = _Request(uuid4().hex, producer, conversation_id)
         self._requests[request.request_id] = request
         return request
@@ -321,7 +336,7 @@ class AttemptLease:
         clamped_from: int | None = None,
         on_failed_reply: FailedReply | None = None,
     ) -> Sample:
-        """Sample for a direct caller; returning the sample is its delivery."""
+        """Sample for a direct caller. Returning the sample counts as its delivery."""
         request = self._admit(producer, conversation_id)
         sample = await self._capture(
             request, prompt, sampling_params, clamped_from, on_failed_reply
@@ -344,9 +359,9 @@ class AttemptLease:
         return await self._capture(request, prompt, sampling_params, clamped_from, on_failed_reply)
 
     def delivered(self, sample_id: str) -> None:
-        """The transport wrote the whole response, including a stream's termination.
+        """Mark that the transport wrote the whole response, including a stream's termination.
 
-        Does nothing once the lease has closed or the generation was aborted.
+        It does nothing once the lease has closed or the generation was aborted.
         """
         request = self._requests.get(sample_id)
         if request is None or request.sample is None:
@@ -376,7 +391,8 @@ class AttemptLease:
             request.state = RequestState.ABORTED
             self._stale = self._stale or error
             if request.sample is not None and on_failed_reply is not None:
-                # Sampled, its row written, then found stale: its turn names it.
+                # The sample was taken and its row written before it was found stale,
+                # so its turn names it.
                 on_failed_reply(request.sample, error)
             raise
         except FuturePolicyVersion as error:
@@ -384,7 +400,8 @@ class AttemptLease:
             self._fatal = error
             raise
         except asyncio.CancelledError:
-            # Whoever awaited it gave up on it: it is not evidence, and not a failure.
+            # Whoever awaited the generation gave up on it. It is neither evidence nor
+            # a failure.
             request.state = RequestState.ABORTED
             raise
         except BaseException as error:
@@ -395,19 +412,19 @@ class AttemptLease:
         return sample
 
     def _handle(self) -> tuple[SamplingClient, int | None]:
-        """The sampler handle a generation uses, and the version it was published at.
+        """Return the sampler handle a generation uses, and the version it was published at.
 
-        Every generation is served by the newest weights, by each capacity's means.
-        A dedicated handle is bound once, at the attempt's first generation: its
-        paired sampler hot-swaps to each publication and serves whatever live adapter
-        meets the handle's ``min_policy_version`` floor, so later generations get new
-        weights through it. A newer handle would raise the floor to a version no
-        replica may have loaded yet, and park the generation until one has.
+        Every generation is served by the newest weights, by different means for each
+        capacity. A dedicated handle is bound once, at the attempt's first generation.
+        Its paired sampler hot-swaps to each publication and serves whatever live
+        adapter meets the handle's ``min_policy_version`` floor, so later generations
+        get new weights through the same handle. A newer handle would raise the floor to
+        a version no replica may have loaded yet, and park the generation until one has.
 
-        A serverless handle names one publication's adapter, which serves as soon as
-        it is named, so it is read at every generation. Its version is read with it:
-        the trainer swaps both with no await between them, and a publication while a
-        request is in flight does not relabel what that handle served.
+        A serverless handle names one publication's adapter, which serves as soon as it
+        is named, so it is read at every generation. Its version is read with it. The
+        trainer swaps both with no await between them, so a publication while a request
+        is in flight does not relabel what that handle served.
         """
         if self._wiring.capacity is Capacity.SERVERLESS:
             return self._wiring.sampler(), self._wiring.sampler_version()
@@ -429,7 +446,8 @@ class AttemptLease:
             self._wiring.on_unrecordable_prompt()
             raise SamplingFailure(
                 "this prompt has images, and Loops cannot record an image prompt for router "
-                "replay: set [rollout_runtime] has_images = true and [training] router_replay = false"
+                "replay. Set [rollout_runtime] has_images = true and [training] "
+                "router_replay = false"
             )
         try:
             response = await sampler.sample_async(
@@ -437,10 +455,11 @@ class AttemptLease:
                 num_samples=1,
                 sampling_params=sampling_params,
                 affinity_key=self._affinity_key,
-                # Loops traces it; the run's samples and transcript are filed under it.
+                # Loops traces the request by this ID, and the run files its samples
+                # and transcript under it.
                 rollout_id=self.identity.attempt_id,
-                # A recorded generation carries its routes, for router replay; any
-                # other generation is told not to capture them.
+                # A recorded generation carries its routes for router replay. Every
+                # other generation tells the sampler not to capture them.
                 include_routed_experts=self._wiring.records_generations,
             )
         except (SampleTimeoutError, SamplerTerminatedError) as error:
@@ -458,8 +477,8 @@ class AttemptLease:
             raise SamplingFailure("expected exactly one sampled sequence")
         version = response.policy_version
         if version is None:
-            # A pinned (serverless) sampler reports no version of its own; the one
-            # its handle was published at is exactly the weights that served it.
+            # A pinned serverless sampler reports no version of its own. The version
+            # its handle was published at names exactly the weights that served it.
             version = sampler_version
         if version is None:
             raise SamplingFailure("the sampler reported no policy version")
@@ -479,17 +498,18 @@ class AttemptLease:
                 conversation_id=request.conversation_id,
                 trainable=self._wiring.producers.trainable(request.producer),
                 prompt_ids=prompt_ids,
-                # Packed straight from the SDK's lists, never a tuple of them: a
-                # graded rollout waits for training holding these.
+                # Pack these straight from the SDK's lists, never as tuples, because a
+                # graded rollout holds them while it waits for training.
                 completion_ids=compact_ids(sequence.tokens),
                 logprobs=compact_logprobs(sequence.logprobs),
                 policy_version=version,
                 # The evidence keeps the prompt's chunk structure, not the request's
-                # ModelInput: its text is read back from the shared span when needed.
+                # ModelInput. Its text is read back from the shared span when needed.
                 prompt_chunks=self._tokens.chunks(prompt_ids, prompt.prompt_input),
                 stop_reason=sequence.stop_reason,
                 sequence_id=sequence.sequence_id,
-                # Checked against the completion: one past it is not evidence.
+                # The completion is checked against this. A completion longer than it
+                # is not evidence.
                 max_tokens=sampling_params.max_tokens,
                 clamped_from=clamped_from,
             )
@@ -507,7 +527,7 @@ class AttemptLease:
             raise StaleRolloutError("rollout exceeds policy freshness limit")
 
     def reply_failed(self, sample_id: str, failure: RendererFailure) -> None:
-        """The renderer could not read this generation's completion: the attempt fails.
+        """Fail the attempt because the renderer could not read this generation's completion.
 
         The sample is no longer delivered, and sealing raises ``failure``.
         """
@@ -537,20 +557,21 @@ class AttemptLease:
         self._wiring.on_discard(self.identity, request.sample)
 
     async def seal(self) -> Sealed:
-        """Close model access and return the attempt's evidence: its delivered generations.
+        """Close model access and return the attempt's evidence, which is its delivered generations.
 
-        Raises the attempt's freshness violation or capture failure instead when
-        there is one, once the transcript the run keeps is handed to it as far as the
-        attempt got, and a ``CaptureIntegrityFailure`` when the generations and the
-        recorded turns disagree. Every other sampled generation is dropped from the
-        evidence, and reported only once the seal has succeeded.
+        If the attempt has a freshness violation or a capture failure, the seal raises
+        it instead. It first hands the run the transcript as far as the attempt got,
+        when the run keeps transcripts. The seal raises ``CaptureIntegrityFailure`` when
+        the generations and the recorded turns disagree. Every other sampled generation
+        is dropped from the evidence, and reported only once the seal has succeeded.
 
-        Keeping the transcript is awaited here, not left to run: a seal that returns
-        has handed it over. Access is closed before the first await, so nothing is
-        sampled meanwhile. A seal cancelled while it keeps the transcript still settles
-        -- the write, in a thread, lands either way -- and then passes the cancellation
-        on. A transcript that cannot be written is logged, never the attempt's failure:
-        how an attempt is recorded does not decide whether it trains.
+        The seal awaits keeping the transcript rather than leaving it to run, so a seal
+        that returns has handed the transcript over. Access closes before the first
+        await, so nothing is sampled meanwhile. A seal cancelled while it keeps the
+        transcript still settles, because the write runs in a thread and lands either
+        way. It then passes the cancellation on. A transcript that cannot be written is
+        logged and never fails the attempt, because how an attempt is recorded does not
+        decide whether it trains.
         """
         if self._state is not LeaseState.OPEN:
             raise CaptureIntegrityFailure(f"model access for this attempt is {self._state.value}")
@@ -584,7 +605,8 @@ class AttemptLease:
         waited = await self._hand_over(transcript)
         self._report_undelivered(dropped)
         if waited.interrupted:
-            # The cancellation aborts the attempt, so what it leaves must not say it sealed.
+            # The cancellation aborts the attempt, so the transcript it leaves must not
+            # say it sealed.
             unsealed = replace(
                 transcript,
                 turns=tuple(replace(turn, trainable=False) for turn in transcript.turns),
@@ -595,16 +617,20 @@ class AttemptLease:
         return Sealed(evidence, transcript, versions)
 
     async def keep_unsealed(self) -> None:
-        """Hand the run the transcript of an attempt revoked before it sealed, as far as
-        it got; a no-op for a sealed attempt, whose seal kept it either way, and after
-        the first call. Raises only a cancellation, once the write has settled: the attempt
-        has already failed."""
+        """Hand the run the transcript of an attempt revoked before it sealed, as far as it got.
+
+        It does nothing for a sealed attempt, whose seal kept the transcript either way,
+        and nothing after the first call. It raises only a cancellation, once the write
+        has settled, because the attempt has already failed.
+        """
         if self._state is LeaseState.REVOKED and self._keeps_unsealed():
             await self._keep_unsealed(*self._settle())
 
     def _settle(self) -> tuple[set[str], list[Sample]]:
-        """What the agent discarded, and each generation sampled but never delivered,
-        which this drops from the evidence."""
+        """Return what the agent discarded, and each generation sampled but never delivered.
+
+        It drops the undelivered generations from the evidence.
+        """
         discarded = {key for key, request in self._requests.items() if request.discarded}
         dropped: list[Sample] = []
         for request in self._requests.values():
@@ -644,8 +670,11 @@ class AttemptLease:
         (await self._hand_over(transcript)).propagate()
 
     async def _hand_over(self, transcript: SealedTranscript) -> Waited:
-        """Hand ``transcript`` to the run if it keeps transcripts, waiting out a
-        cancellation of the caller, which the caller raises with ``propagate()``."""
+        """Hand ``transcript`` to the run if it keeps transcripts.
+
+        It waits out a cancellation of the caller, which the caller then raises with
+        ``propagate()``.
+        """
         if self._wiring.on_transcript is None:
             return Waited(settled=True, interrupted=False)
         writing = asyncio.ensure_future(self._wiring.on_transcript(self.identity, transcript))
@@ -663,7 +692,10 @@ class AttemptLease:
             self._wiring.on_undelivered(self.identity, sample)
 
     def revoke(self) -> None:
-        """End model access without evidence; idempotent, and a no-op once sealed."""
+        """End model access without evidence.
+
+        Calling it again does nothing, and so does calling it once the lease is sealed.
+        """
         if self._state is LeaseState.OPEN:
             self._close(LeaseState.REVOKED)
 
@@ -715,7 +747,7 @@ class _Channel:
 
 
 class DirectModelAccess:
-    """``ModelAccess`` for ``model_access = "direct"``: producer-locked ``LoopsLLM``s."""
+    """The ``ModelAccess`` for ``model_access = "direct"``, with one ``LoopsLLM`` per producer."""
 
     def __init__(self, lease: AttemptLease, renderers: Renderers) -> None:
         self._lease = lease
@@ -728,12 +760,12 @@ class DirectModelAccess:
 
     async def http_connection(self, producer: str | None = None) -> ModelConnection:
         raise ModelAccessError(
-            "the runtime declares direct model access, which llm() serves; "
-            "http_connection() serves only a runtime that declares openai_http"
+            "the rollout runtime declares direct model access, which llm() serves. "
+            "http_connection() serves only a rollout runtime that declares openai_http"
         )
 
     async def quiesce(self, grace_seconds: float) -> None:
-        """Nothing to settle: a direct generation is delivered when it returns."""
+        """Settle nothing, because a direct generation is delivered when it returns."""
 
     def llm(self, producer: str | None = None) -> LoopsLLM:
         name = self._lease.producer(producer)

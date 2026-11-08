@@ -1,5 +1,9 @@
-"""Renderer selection: an explicit ``module:callable``, the cookbook's for the models it
-renders, otherwise Prime auto-detection."""
+"""Select and build the run's renderer.
+
+The renderer is the ``module:callable`` that ``[model] renderer`` names, when it is
+set. Otherwise a model the cookbook renders gets the cookbook's renderer, and any other
+model gets the renderer that Prime auto-detects.
+"""
 
 from __future__ import annotations
 
@@ -24,9 +28,9 @@ _ULTRA = f"{_EXTENSIONS}.nemotron:ultra"
 _SUPER_VL = f"{_EXTENSIONS}.nemotron:super_vl"
 _MUSE_SPARK = f"{_EXTENSIONS}.muse_spark:renderer"
 
-# The cookbook's renderer for these models, by tokenizer name as Prime matches them,
-# selected without a [model] renderer setting. Each is tested against the model's own
-# template (renderer_extensions/README.md).
+# The cookbook's renderer for each of these models, keyed by tokenizer name as Prime
+# matches them. It is selected when [model] renderer is not set. Each renderer is
+# tested against the model's own template, as renderer_extensions/README.md describes.
 COOKBOOK_RENDERERS: dict[str, str] = {
     "zai-org/GLM-5.3": _GLM53,
     "zai-org/GLM-5.3-BF16": _GLM53,
@@ -43,17 +47,18 @@ _BY_FOLDED_NAME = {name.casefold(): path for name, path in COOKBOOK_RENDERERS.it
 
 
 def cookbook_renderer(tokenizer_name: str) -> str | None:
-    """The cookbook's renderer for a tokenizer name, ignoring case as the Hub does."""
+    """Return the cookbook's renderer for a tokenizer name, ignoring case as the Hub does."""
     return _BY_FOLDED_NAME.get(tokenizer_name.casefold())
 
 
-# Prime renderers that do not match their model's template. Auto-detection that picks
-# one for a model missing above is refused, naming the cookbook renderer to set.
+# Prime renderers that do not match their model's template. When auto-detection picks
+# one for a model not listed above, the cookbook refuses it and names the cookbook
+# renderer to set.
 _REFUSED_PRIME_RENDERERS: dict[type, str] = {GLM53Renderer: _GLM53}
 
 
 def renderer_source(tokenizer_name: str, renderer: str | None) -> str:
-    """Where the renderer for a tokenizer comes from, as ``check`` and the run log say."""
+    """Return where the renderer for a tokenizer comes from, as ``check`` and the run log say it."""
     if renderer:
         return renderer
     if (selected := cookbook_renderer(tokenizer_name)) is not None:
@@ -71,19 +76,20 @@ def default_renderer(tokenizer, chat_template_kwargs: Mapping[str, JsonValue]) -
 
 
 def load_tokenizer(source: str) -> object:
-    """The Hugging Face tokenizer at ``source``, a repo id or a local directory.
+    """Load the Hugging Face tokenizer at ``source``, a repo ID or a local directory.
 
     A private or gated repo authenticates with ``HF_TOKEN`` from the environment. A
-    repo id is refused when a directory of that name is beside the shell, since
-    Hugging Face would load the directory, and which one loads would depend on where
-    the command runs; a directory is named by a path (``is_local_path``).
+    repo ID is refused when a directory of that name is in the current directory.
+    Hugging Face would load the directory, so which one loads would depend on where the
+    command runs. Name a directory with a path, as ``is_local_path`` defines one.
     """
     if not is_local_path(source) and Path(source).is_dir():
         raise ValueError(
             f"tokenizer {source} names a Hugging Face repo, but a directory of that name "
-            f"is here too; write ./{source} for the directory"
+            f"is here too. To use the directory, write ./{source}."
         )
-    # Deferred: transformers takes seconds to import, and not every caller needs it.
+    # Import this late, because transformers takes seconds to import and not every
+    # caller needs it.
     from transformers import AutoTokenizer
 
     return AutoTokenizer.from_pretrained(source)
@@ -100,16 +106,18 @@ def create_renderer(
 ) -> Renderer:
     """Build the renderer for ``model_name``.
 
-    The tokenizer is ``tokenizer`` when given, otherwise ``load(tokenizer_source)``,
-    and ``tokenizer_source`` defaults to ``model_name`` (the ``[model] tokenizer``
-    setting, for a model whose tokenizer is published under another name).
+    The tokenizer is ``tokenizer`` when given, and ``load(tokenizer_source)``
+    otherwise. ``tokenizer_source`` defaults to ``model_name``. It comes from the
+    ``[model] tokenizer`` setting, for a model whose tokenizer is published under
+    another name.
 
-    ``renderer`` is a ``module:callable`` import path (the ``[model] renderer``
-    setting) to a factory ``(tokenizer, chat_template_kwargs) -> Renderer``. Without
-    it, a model in ``COOKBOOK_RENDERERS`` gets the cookbook's renderer, and Prime
-    auto-detects any other from the tokenizer. Either way the selected
-    renderer and where its tokenizer came from are logged; check that line when
-    trying a new model.
+    ``renderer`` comes from the ``[model] renderer`` setting. It is a
+    ``module:callable`` import path to a factory
+    ``(tokenizer, chat_template_kwargs) -> Renderer``. Without it, a model in
+    ``COOKBOOK_RENDERERS`` gets the cookbook's renderer, and Prime auto-detects a
+    renderer for any other model from the tokenizer. Either way, the function logs the
+    selected renderer and where its tokenizer came from. Check that line when you try
+    a new model.
     """
     if tokenizer is None:
         origin = tokenizer_source or model_name
@@ -125,10 +133,10 @@ def create_renderer(
         )
         if isinstance(inner, renderers.DefaultRenderer):
             raise ValueError(
-                "Prime-RL's renderer auto-detection fell back to DefaultRenderer. "
-                f"Configure {model_name} renderer explicitly if the model requires a custom "
-                "format, or explicitly select DefaultRenderer if the generic format is intended. "
-                "See docs/reference/renderers.md"
+                "Prime-RL's renderer auto-detection fell back to DefaultRenderer for "
+                f"{model_name}. Set [model] renderer if the model needs a custom format, or "
+                "select DefaultRenderer there if you want the generic format. "
+                "See docs/reference/renderers.md."
             )
         replacement = next(
             (path for cls, path in _REFUSED_PRIME_RENDERERS.items() if isinstance(inner, cls)), None
@@ -137,7 +145,7 @@ def create_renderer(
             raise ValueError(
                 f"Prime-RL's renderer auto-detection picked {type(inner).__name__} for "
                 f"{model_name}, which does not match the model's reference template. "
-                f'Set [model] renderer = "{replacement}". See docs/reference/renderers.md'
+                f'Set [model] renderer = "{replacement}". See docs/reference/renderers.md.'
             )
         built = PrimeRenderer(inner)
     else:
@@ -157,7 +165,7 @@ def create_renderer(
 
 
 def describe(renderer: object) -> str:
-    """Human-readable renderer identity, unwrapping the Prime adapter."""
+    """Return the renderer's class name, looking through the Prime adapter."""
     inner = getattr(renderer, "_renderer", None)
     return type(inner).__name__ if inner is not None else type(renderer).__name__
 
@@ -166,7 +174,7 @@ def _import_factory(path: str) -> Callable[[object, Mapping[str, JsonValue]], Re
     """Import the ``module:callable`` named by ``[model] renderer``."""
     module_name, _, attribute = path.partition(":")
     if not module_name or not attribute:
-        raise RenderingError(f"renderer must be 'module:callable', got {path!r}")
+        raise RenderingError(f"renderer must be 'module:callable', not {path!r}")
     try:
         module = importlib.import_module(module_name)
     except ImportError as error:

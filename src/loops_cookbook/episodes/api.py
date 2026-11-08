@@ -1,22 +1,25 @@
-"""What an episode author writes, and what the cookbook hands it.
+"""The classes an episode author writes, and the objects the cookbook hands them.
 
 An ``Episode`` is one object per attempt. The cookbook builds it with the attempt's
-``Task`` and validated options, awaits ``setup(setup)``, then ``run(sample)`` under the
-agent deadline, then ``grade(grading)`` once the rollout is sealed, and finally
-``close(closing)``, exactly once, however the attempt ended -- except when ``__init__``
-raised or never ran, so there is no episode to close, or when ``setup()``,
-``run()`` or ``grade()`` ignored cancellation past its grace, so the attempt is
-kept live and reported instead. A retry is a fresh attempt: a new ``Episode``, a new sandbox, and
-the agent runs again.
+``Task`` and validated options. It then awaits ``setup(setup)``, then ``run(sample)``
+under the agent's deadline, then ``grade(grading)`` once the rollout is sealed. Last,
+it awaits ``close(closing)`` exactly once, however the attempt ended.
 
-The policy is in scope only inside ``run()``: the ``Model`` is in its Sampling argument, and
-refuses once ``run()`` has ended. ``grade()`` never gets the policy; an LLM judge
-brings its own client.
+``close()`` is skipped in two cases. If ``__init__`` raised or never ran, there is no
+episode to close. If ``setup()``, ``run()`` or ``grade()`` ignored cancellation past
+its grace period, the cookbook keeps the attempt live and reports it instead.
 
-An episode class may also score a whole group at once: the classmethod
-``grade_group()`` gets each member's recorded evidence as a ``GroupMember`` once the
-group is complete, with the episode's options, and gives every member its final
-reward.
+A retry is a fresh attempt. It gets a new ``Episode`` and a new sandbox, and the agent
+runs again.
+
+The policy is in scope only inside ``run()``. The ``Model`` arrives in the ``Sampling``
+argument, and it refuses every call once ``run()`` has ended. ``grade()`` never gets
+the policy, so an LLM judge brings its own client.
+
+An episode class may also score a whole group at once with the classmethod
+``grade_group()``. Once the group is complete, ``grade_group()`` gets each member's
+recorded evidence as a ``GroupMember``, together with the episode's options. It
+returns every member's final reward.
 """
 
 from __future__ import annotations
@@ -58,11 +61,12 @@ from loops_cookbook.runtime.api import (
 
 
 class AgentTurn:
-    """The one span in which the policy is in scope: ``run()``, under the agent deadline.
+    """The one span in which the policy is in scope, which is ``run()`` under the agent's deadline.
 
-    When the deadline expires, ``run()`` is cancelled and the episode is still an
-    episode: it is sealed with what was delivered, and graded. Once the deadline has
-    cut ``run()``, how ``run()`` then ends is not the outcome, unless it returns.
+    When the deadline expires, the cookbook cancels ``run()``. The episode still counts.
+    It is sealed with the generations delivered so far, and then graded. An exception
+    that ``run()`` raises after the cut is ignored. If ``run()`` catches the
+    cancellation and returns, the cookbook keeps what it returned.
     """
 
     def __init__(self, seconds: float) -> None:
@@ -79,7 +83,7 @@ class AgentTurn:
         return self._timed_out
 
     async def run[T](self, call: Callable[[], Awaitable[T]]) -> T | None:
-        """``call()`` until it returns or the deadline cuts it; ``None`` if cut before returning."""
+        """Await ``call()`` under the deadline, and return ``None`` if the deadline cut it first."""
         deadline = asyncio.timeout(self._seconds)
         self._open = True
         try:
@@ -93,18 +97,19 @@ class AgentTurn:
             return None
         finally:
             self._open = False
-        self._timed_out = deadline.expired()  # run() caught the cancellation and returned
+        # run() may have caught the deadline's cancellation and returned anyway.
+        self._timed_out = deadline.expired()
         return result
 
 
 class Model:
-    """The policy, for this attempt, only inside ``run()``.
+    """The policy for this attempt, usable only inside ``run()``.
 
-    ``conversation()`` and ``llm()`` serve ``model_access = "direct"``; ``http_connection()`` serves
-    ``"openai_http"``; each names an optional producer from ``[rollout.producers]``.
-    Once ``run()`` has ended all refuse, and the attempt's own model access refuses
-    whatever was taken from them: a direct client once the attempt is sealed, and an
-    HTTP credential, which is revoked then.
+    ``conversation()`` and ``llm()`` serve ``model_access = "direct"``.
+    ``http_connection()`` serves ``"openai_http"``. Each takes an optional producer name
+    from ``[rollout.producers]``. Once ``run()`` has ended, all three refuse. The
+    attempt's model access also refuses whatever was taken from them. A direct client
+    refuses once the attempt is sealed, and an HTTP credential is revoked at that point.
     """
 
     def __init__(self, access: ModelAccess, turn: AgentTurn) -> None:
@@ -118,10 +123,10 @@ class Model:
     def conversation(
         self, *, producer: str | None = None, conversation_id: str | None = None
     ) -> Conversation:
-        """Start a direct generation session; supply history on each generate() call.
+        """Start a direct generation session, and pass the history on each generate() call.
 
-        The session records against this attempt and producer, and its model access
-        ends when the attempt seals, just like a session taken through llm().
+        The session records against this attempt and producer. Its model access ends
+        when the attempt seals, as for a session taken through llm().
         """
         return self.llm(producer).conversation(conversation_id=conversation_id)
 
@@ -135,10 +140,11 @@ class Model:
 
 
 class SandboxAttachment:
-    """The layer's side of an attempt's sandbox: its one client, closed after ``close()``.
+    """Holds the one client for an attempt's sandbox, on the rollout runtime's side.
 
-    The client is attached on first use and the same object is given from then on.
-    Once the layer has closed it, the sandbox gives no client again.
+    The client is attached on first use, and the same object is returned from then on.
+    The rollout runtime closes it after the episode's ``close()``. After that, the
+    sandbox gives no client again.
     """
 
     def __init__(self, resource_id: str, resources: EpisodeResources) -> None:
@@ -156,8 +162,8 @@ class SandboxAttachment:
                     "the attempt's sandbox access has ended, and its sandbox's client is closed"
                 )
             if not self._attached:
-                # Kept in the same step as the call returns, so no cancellation can
-                # land between them and leave a client nobody closes.
+                # Store the client in the same step as the call returns. Otherwise a
+                # cancellation could land in between and leave a client nobody closes.
                 self._client = await self._resources.sandbox_client(self._resource_id)
                 self._attached = True
             return self._client
@@ -171,7 +177,7 @@ class SandboxAttachment:
             return await self._resources.sandbox_alive(self._resource_id)
 
     async def close(self) -> None:
-        """Close the client, if one was attached; the sandbox gives none after this."""
+        """Close the client, if one was attached. The sandbox gives no client after this."""
         async with self._lock:
             self._closed = True
             if self._attached:
@@ -179,10 +185,10 @@ class SandboxAttachment:
                 self._attached = False
 
     async def release(self, attempt_id: str) -> None:
-        """Close the attachment, then require proof of the registered resource's release.
+        """Close the attachment, then require proof that the registered resource was released.
 
-        A failure leaves final attempt cleanup and journal recovery responsible for
-        retrying. Client access stays closed even when release cannot be proven.
+        If the release fails, final attempt cleanup and journal recovery retry it.
+        Client access stays closed even when the release cannot be proven.
         """
         await self.close()
         result = await self._resources.release(self._resource_id)
@@ -193,7 +199,10 @@ class SandboxAttachment:
 
 @dataclass(frozen=True, slots=True)
 class GroupMember[TaskT: BaseModel | None]:
-    """Recorded evidence for one member of a complete group; never a live attempt."""
+    """Holds the recorded evidence for one member of a complete group.
+
+    A group member is never a live attempt.
+    """
 
     task: Task[TaskT]
     transcript: SealedTranscript
@@ -202,7 +211,10 @@ class GroupMember[TaskT: BaseModel | None]:
 
 
 class Processes:
-    """Supervised local processes, defaulting to this attempt's working directory."""
+    """Runs supervised local processes for this attempt.
+
+    A process runs in the attempt's working directory unless ``cwd`` names another.
+    """
 
     def __init__(self, processes: AttemptProcesses, work_dir: Path) -> None:
         self._processes = processes
@@ -241,34 +253,44 @@ class _Phase:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Setup(_Phase):
-    """Before sampling: execution resources and host services, without model access."""
+    """The phase record that ``setup()`` receives before sampling.
+
+    It gives the execution sandbox and host services. It gives no model access.
+    """
 
     sandbox: SandboxKind[Any] | None
 
     def require_sandbox[KindT: SandboxKind[Any]](self, kind: type[KindT]) -> KindT:
-        """Return the execution sandbox as kind, or raise if absent or incompatible."""
+        """Return the execution sandbox as ``kind``, or raise if it is absent or another kind."""
         return self._require_sandbox(self.sandbox, kind, "sandbox")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Sampling(_Phase):
-    """Inside sampling capacity and the agent deadline; model access ends with run()."""
+    """The phase record that ``run()`` receives, inside sampling capacity and the agent's deadline.
+
+    Its model access ends when ``run()`` does.
+    """
 
     model: Model
     sandbox: SandboxKind[Any] | None
-    # The run's trajectory budget (``RunLimits.trajectory_tokens``): a call's max_tokens
-    # is lowered to the room its prompt leaves, and a prompt that leaves no room is
-    # refused. None: no run-level budget.
+    # The run's trajectory budget, from ``RunLimits.trajectory_tokens``. A call's
+    # max_tokens is lowered to the room its prompt leaves, and a prompt that leaves no
+    # room is refused. None means the run sets no budget.
     trajectory_tokens: int | None = None
 
     def require_sandbox[KindT: SandboxKind[Any]](self, kind: type[KindT]) -> KindT:
-        """Return the execution sandbox as kind, or raise if absent or incompatible."""
+        """Return the execution sandbox as ``kind``, or raise if it is absent or another kind."""
         return self._require_sandbox(self.sandbox, kind, "sandbox")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Grading(_Phase):
-    """Sealed rollout and resources available for this grading try; no policy model."""
+    """The phase record that ``grade()`` receives for one grading try.
+
+    It holds the sealed rollout and the sandboxes still available. It gives no policy
+    model. ``timed_out`` is true when the agent's deadline cut ``run()``.
+    """
 
     rollout: Rollout
     timed_out: bool
@@ -276,37 +298,45 @@ class Grading(_Phase):
     grading_sandbox: SandboxKind[Any] | None
 
     def require_execution_sandbox[KindT: SandboxKind[Any]](self, kind: type[KindT]) -> KindT:
-        """Return the execution sandbox; unavailable after a sampling-only lifetime."""
+        """Return the execution sandbox as ``kind``, or raise if it is unavailable.
+
+        It is unavailable when the episode sets ``sandbox_lifetime = "sampling"``.
+        """
         return self._require_sandbox(self.execution_sandbox, kind, "execution_sandbox")
 
     def require_grading_sandbox[KindT: SandboxKind[Any]](self, kind: type[KindT]) -> KindT:
-        """Return the separate grading sandbox as kind, or raise if unavailable."""
+        """Return the separate grading sandbox as ``kind``, or raise if it is unavailable."""
         return self._require_sandbox(self.grading_sandbox, kind, "grading_sandbox")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Closing(_Phase):
-    """Final cleanup: only resources actually initialized and still accessible."""
+    """The phase record that ``close()`` receives for final cleanup.
+
+    It offers only the sandboxes that were initialized and are still accessible.
+    """
 
     timed_out: bool
     execution_sandbox: SandboxKind[Any] | None
     grading_sandbox: SandboxKind[Any] | None
 
     def require_execution_sandbox[KindT: SandboxKind[Any]](self, kind: type[KindT]) -> KindT:
-        """Return the execution sandbox when it was initialized and remains accessible."""
+        """Return the execution sandbox as ``kind`` if it is still accessible, or raise."""
         return self._require_sandbox(self.execution_sandbox, kind, "execution_sandbox")
 
     def require_grading_sandbox[KindT: SandboxKind[Any]](self, kind: type[KindT]) -> KindT:
-        """Return the grading sandbox when it was initialized and remains accessible."""
+        """Return the grading sandbox as ``kind`` if it is still accessible, or raise."""
         return self._require_sandbox(self.grading_sandbox, kind, "grading_sandbox")
 
 
 class Episode[TaskT: BaseModel | None, OptionsT: BaseModel | None]:
-    """One attempt, constructed with validated task/options data.
+    """One attempt at a task, built from the validated task and options.
 
-    Declare execution_kind and grading_kind independently of the two data types.
-    Fixed hooks receive immutable phase records; resources remain runtime-owned.
-    Initialize grading state here because run() can be cut before producing output.
+    Subclass it as ``Episode[MyTask, MyOptions]``, with ``None`` for a model you don't
+    need. Declare ``execution_kind`` and ``grading_kind`` separately from those two
+    types. Each hook receives an immutable phase record, and the rollout runtime keeps
+    ownership of every resource. Initialize any state that ``grade()`` reads in
+    ``__init__``, because the deadline can cut ``run()`` before it produces output.
     """
 
     execution_kind: ClassVar[type[SandboxKind[Any]] | None] = None
@@ -331,25 +361,34 @@ class Episode[TaskT: BaseModel | None, OptionsT: BaseModel | None]:
         self.options = options
 
     async def setup(self, setup: Setup) -> None:
-        """Prepare execution resources without holding sampling capacity."""
+        """Prepare execution resources before the attempt holds sampling capacity."""
 
     async def run(self, sample: Sampling) -> Mapping[str, JsonValue] | None:
-        """Run the agent; return recorded metadata or None, including partial output."""
+        """Run the agent, and return the metadata to record, or ``None``.
+
+        The metadata may include partial output.
+        """
         raise NotImplementedError
 
     async def grade(self, grading: Grading) -> float | GradeResult | None:
-        """Score this attempt; grading.timed_out records an agent deadline cut."""
+        """Score this attempt.
+
+        ``grading.timed_out`` is true when the agent's deadline cut ``run()``.
+        """
         raise NotImplementedError
 
     @classmethod
     async def grade_group(
         cls, members: Sequence[GroupMember[TaskT]], options: OptionsT
     ) -> Sequence[float]:
-        """Score a complete group using recorded evidence and validated options only."""
+        """Score a complete group from its recorded evidence and the validated options only."""
         raise NotImplementedError
 
     async def close(self, closing: Closing) -> None:
-        """Close once after a quiescent attempt, including failed setup or sampling."""
+        """Clean up once, after all of the attempt's work has stopped.
+
+        The cookbook calls it after a failed setup or sampling, too.
+        """
 
 
 def _substitute(origin: type[Episode[Any, Any]], args: tuple[object, ...]) -> tuple[object, object]:
@@ -367,7 +406,8 @@ def _substitute(origin: type[Episode[Any, Any]], args: tuple[object, ...]) -> tu
 
 
 def episode_models(episode: type[Episode[Any, Any]]) -> tuple[object, object]:
-    """Resolve task/options arguments, including bound generic intermediate bases."""
+    """Resolve the task and options type arguments, including those bound by generic bases."""
+
     task, options = (
         _default(model)
         for model in episode._episode_models  # pyright: ignore[reportPrivateUsage]

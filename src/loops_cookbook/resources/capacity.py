@@ -1,8 +1,8 @@
-"""Whether each sandbox a run declares fits in one of a provider's, checked before the run.
+"""Check, before the run, that each sandbox a run declares fits in one of the provider's.
 
-A runtime knows how big each of its sandboxes is; a ``CapacityProvider`` knows its
-defaults and the most one sandbox may have, as its table declares. Nothing here calls
-a provider: a limit not declared is not checked.
+A rollout runtime knows how big each of its sandboxes is. A ``CapacityProvider`` knows
+its default size and the most one sandbox may have, as its table declares. Nothing
+here calls a provider, so a limit that the table does not declare is not checked.
 """
 
 from __future__ import annotations
@@ -15,9 +15,10 @@ UNITS = ("vCPU", "GiB memory", "GiB disk")
 
 
 def oversized(capacity: SandboxCapacity, sizes: Mapping[str, SandboxResources]) -> list[str]:
-    """Each of ``sizes`` (by name) over ``capacity.per_sandbox``, naming what is over.
+    """Return one line for each named size in ``sizes`` that exceeds ``capacity.per_sandbox``.
 
-    A dimension a size leaves unknown is the provider's default.
+    Each line names the dimensions that are over the limit. A dimension that a size
+    leaves unknown takes the provider's default.
     """
     found: list[str] = []
     for name, size in sizes.items():

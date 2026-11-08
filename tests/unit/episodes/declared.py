@@ -107,7 +107,7 @@ def context(
     sandbox_providers=None,
     evidence=None,
 ):
-    """A runtime context; every configured provider provides ``Fake`` sandboxes unless
+    """A rollout runtime context; every configured provider provides ``Fake`` sandboxes unless
     ``sandbox_providers`` says otherwise."""
     return runtime_context(
         tasks_path,

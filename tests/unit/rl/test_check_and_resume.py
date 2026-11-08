@@ -1,6 +1,6 @@
 """``loops check`` on an RL config, and what a resumed run reports, for any runtime.
 
-The runtime is the in-process direct pattern's, as its config names it; nothing here
+The rollout runtime is the in-process direct pattern's, as its config names it; nothing here
 depends on which runtime it is.
 """
 

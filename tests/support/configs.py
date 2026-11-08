@@ -22,7 +22,7 @@ CHECKPOINTS: Tables = {
     "checkpoint_ttl_seconds": 0,
 }
 
-# The smallest RL config that validates: its recipe, a runtime factory, a model, the
+# The smallest RL config that validates: its recipe, a rollout runtime factory, a model, the
 # batch and optimizer, and the deadlines and concurrency a run must have.
 MINIMAL: Tables = {
     "recipe": "rl",

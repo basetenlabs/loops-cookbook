@@ -1,11 +1,12 @@
-"""What the gateway serves of Chat Completions: the capability matrix and its policy.
+"""The part of Chat Completions that the gateway serves, as a capability matrix and its policy.
 
 Schema validation and capability are separate. The generated types reject malformed
-values; this layer then decides, field by field, what a well-formed request may
-ask for. Every field the schema can carry appears in the matrix below as
-supported, accepted only at a value with no observable effect, or rejected, and a
-rejected or unknown field fails before admission with the canonical
-``unsupported_parameter`` error naming it. Nothing is accepted and ignored.
+values. This module then decides, field by field, what a well-formed request may ask
+for. Every field the schema can carry appears in the matrix below with one of three
+levels. It is supported, accepted only at a value with no observable effect, or
+rejected. A rejected or unknown field fails before admission with the canonical
+``unsupported_parameter`` error, which names the field. Nothing is accepted and
+ignored.
 """
 
 from __future__ import annotations
@@ -34,7 +35,8 @@ from loops_cookbook.model_access.openai.schema.models import (
 
 class Support(Enum):
     SUPPORTED = "supported"
-    DEFAULT_ONLY = "default_only"  # accepted only where it changes nothing
+    # Accepted only at a value that changes nothing.
+    DEFAULT_ONLY = "default_only"
     REJECTED = "rejected"
 
 
@@ -97,8 +99,8 @@ MATRIX: Mapping[str, Mapping[str, Capability]] = {
         "prediction": rejected("no predicted outputs"),
         "verbosity": rejected("the run renderer decides"),
         "web_search_options": rejected("no hosted tools"),
-        # Extension: accepted empty; run-level options belong in
-        # [model].renderer_chat_template_kwargs, reasoning in reasoning_effort.
+        # An extension, accepted only when empty. Run-level options belong in
+        # [model].renderer_chat_template_kwargs, and reasoning belongs in reasoning_effort.
         "chat_template_kwargs": default_only("empty"),
     },
     "ChatCompletionStreamOptions1": {
@@ -128,7 +130,8 @@ MATRIX: Mapping[str, Mapping[str, Capability]] = {
         "audio": rejected("text output only"),
         "function_call": rejected("deprecated; use tool_calls"),
         "name": rejected("participant names are not rendered"),
-        # Extension (vLLM convention): prior reasoning, kept or dropped by the renderer.
+        # An extension that follows the vLLM convention. It carries prior reasoning,
+        # which the renderer keeps or drops.
         "reasoning_content": supported("passed to the renderer"),
     },
     "ChatCompletionRequestToolMessage": {
@@ -196,7 +199,7 @@ MATRIX: Mapping[str, Mapping[str, Capability]] = {
         "parameters": supported("declared to the renderer"),
         "strict": default_only("false: tool arguments are not constrained"),
     },
-    # tool_choice objects: required and named choices constrain generation.
+    # Required and named tool_choice objects constrain generation, so they are rejected.
     "ChatCompletionAllowedToolsChoice": {
         "type": rejected("constrained tool choice is not supported"),
         "allowed_tools": rejected("constrained tool choice is not supported"),
@@ -234,16 +237,20 @@ MATRIX: Mapping[str, Mapping[str, Capability]] = {
 }
 
 
-# Free-form by design: a function's parameters are a JSON Schema the renderer declares.
+# These models are free-form by design. A function's parameters are a JSON Schema
+# that the renderer declares.
 OPAQUE = frozenset({"FunctionParameters", "ResponseFormatJsonSchemaSchema"})
 
 
 class ModelNotFoundError(LookupError):
-    """The request names a model this connection does not serve."""
+    """Raised when the request names a model this connection does not serve."""
 
 
 class InvalidRequestError(ValueError):
-    """A well-formed request the gateway cannot interpret, such as a dangling tool result."""
+    """Raised for a well-formed request the gateway cannot interpret.
+
+    A tool result that answers no tool call is one example.
+    """
 
     def __init__(self, param: str, message: str) -> None:
         super().__init__(message)
@@ -252,7 +259,10 @@ class InvalidRequestError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class SamplingOptions:
-    """Only what the request supplied; the run's defaults apply to the rest."""
+    """Holds only the sampling options the request supplied.
+
+    The run's defaults apply to the rest.
+    """
 
     temperature: float | None = None
     top_p: float | None = None
@@ -265,7 +275,7 @@ class SamplingOptions:
 
 @dataclass(frozen=True, slots=True)
 class ChatRequest:
-    """A request the run can serve, in schema terms; translation renders it."""
+    """A request the run can serve, in schema terms. Translation renders it."""
 
     messages: tuple[BaseModel, ...]
     tools: tuple[ChatCompletionTool, ...]
@@ -312,7 +322,7 @@ def admit(request: CreateChatCompletionRequest, *, model: str) -> ChatRequest:
         tools.append(tool)
     structured_outputs = _structured_outputs(request.response_format)
     if structured_outputs is not None and tools and choice != "none":
-        # The sampler holds the constraint from the first token: no tool call could start.
+        # The sampler holds the constraint from the first token, so no tool call could start.
         raise UnsupportedParameterError(
             "response_format", "a JSON response_format cannot be combined with offered tools"
         )
@@ -340,7 +350,7 @@ def admit(request: CreateChatCompletionRequest, *, model: str) -> ChatRequest:
 
 
 def _structured_outputs(value: object) -> dict[str, JsonValue] | None:
-    """The sampler's constraint for a response format; plain text has none."""
+    """Return the sampler's constraint for a response format. Plain text has none."""
     if isinstance(value, ResponseFormatJsonObject):
         return {"json_object": True}
     if isinstance(value, ResponseFormatJsonSchema):
@@ -392,7 +402,7 @@ _DEFAULTS: Mapping[str, Mapping[str, object]] = {
 
 
 def _check_fields(value: BaseModel, path: str) -> None:
-    """Every supplied field, recursively, must be supported or at its no-op default.
+    """Check that every supplied field, recursively, is supported or at its no-op default.
 
     An explicit ``null`` is treated as omitted, as the schema defines it.
     """
@@ -404,7 +414,7 @@ def _check_fields(value: BaseModel, path: str) -> None:
     table = MATRIX.get(kind, {})
     extra = value.model_extra or {}
     supplied = {name: getattr(value, name) for name in value.model_fields_set} | extra
-    # A part or message is named by its kind first: what it is decides the rest.
+    # Check a part's or message's kind first, because what it is decides the rest.
     for name, field in sorted(supplied.items(), key=lambda item: item[0] not in ("type", "role")):
         if field is None:
             continue
@@ -440,14 +450,15 @@ def _check_nested(value: object, path: str) -> None:
 
 
 def text_parts(content: object, param: str) -> list[ChatCompletionRequestMessageContentPartText]:
-    """A text-only content value as parts; ``param`` names it in errors."""
+    """Return a text-only content value as parts. ``param`` names the value in errors."""
     if isinstance(content, RootModel):
         content = content.root  # pyright: ignore[reportUnknownMemberType]
     if isinstance(content, str):
         return [ChatCompletionRequestMessageContentPartText(type="text", text=content)]
     parts: list[ChatCompletionRequestMessageContentPartText] = []
     for index, part in enumerate(content if isinstance(content, list) else []):  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
-        if isinstance(part, RootModel):  # system and tool parts wrap the text part
+        # System and tool parts wrap the text part.
+        if isinstance(part, RootModel):
             part = part.root  # pyright: ignore[reportUnknownMemberType]
         if not isinstance(part, ChatCompletionRequestMessageContentPartText):
             raise UnsupportedParameterError(

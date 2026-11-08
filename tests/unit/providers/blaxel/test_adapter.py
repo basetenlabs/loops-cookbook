@@ -156,7 +156,7 @@ async def test_only_valid_blaxel_names_are_created(service, api, name):
 
 
 async def test_a_sandbox_asked_for_without_a_name_gets_one_of_its_own(service, api):
-    """A runtime that asks by specification alone, as a native one does, never collides."""
+    """A rollout runtime that asks by specification alone, as a native one does, never collides."""
     first = await service.provision(sandbox_request(key="a", name=None))
     second = await service.provision(sandbox_request(key="b", name=None))
     names = [handle.resource.name for handle in (first, second)]

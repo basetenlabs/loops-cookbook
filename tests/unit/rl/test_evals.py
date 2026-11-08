@@ -228,7 +228,7 @@ async def test_no_more_rollouts_grade_at_once_than_the_runs_verifier_limit():
 
 
 class GroupRuntime(Runtime):
-    """A runtime that is its own group grader; ``tries`` scripts each call's answer."""
+    """A rollout runtime that is its own group grader; ``tries`` scripts each call's answer."""
 
     def __init__(self, tries: list[Any]) -> None:
         super().__init__(on_grade=odd_tasks_fail)

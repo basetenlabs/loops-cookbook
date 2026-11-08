@@ -1,9 +1,10 @@
-"""Write train.jsonl and validation.jsonl: a unit-conversion assistant that uses a tool.
+"""Write train.jsonl and validation.jsonl for a unit-conversion assistant that uses a tool.
 
-Deterministic, so the files beside it are what this produces. Each conversation asks
-for a conversion, the assistant calls ``convert``, reads the result and answers in one
-fixed style; a third of them continue with a follow-up the assistant answers without
-the tool. Run it from anywhere: ``python examples/sft_tool_use/make_data.py``.
+The script is deterministic, so the files beside it are what it produces. Each
+conversation asks for a conversion. The assistant calls ``convert``, reads the result
+and answers in one fixed style. A third of the conversations continue with a follow-up
+that the assistant answers without the tool. Run it from any directory with
+``python examples/sft_tool_use/make_data.py``.
 """
 
 import json
@@ -33,7 +34,7 @@ TOOLS = [
 
 SYSTEM = "You convert units. Use the convert tool, then give the answer to two decimals."
 
-# (from, to, factor, plural names)
+# Each entry is (from, to, factor, plural names).
 UNITS = [
     ("mi", "km", 1.609344, ("miles", "kilometres")),
     ("km", "mi", 1 / 1.609344, ("kilometres", "miles")),
@@ -58,7 +59,7 @@ SINGULAR = {
 
 
 def unit(name: str, amount: float) -> str:
-    """``name`` as said of ``amount``: one pound, two pounds."""
+    """Return ``name`` as said of ``amount``, such as one pound or two pounds."""
     return SINGULAR[name] if amount == 1 else name
 
 

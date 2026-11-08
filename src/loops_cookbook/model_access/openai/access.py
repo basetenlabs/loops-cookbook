@@ -1,9 +1,10 @@
-"""One attempt's OpenAI-compatible model access: credentials, conversations, and delivery.
+"""One attempt's OpenAI-compatible model access, covering credentials, conversations and delivery.
 
 The run's gateway only authenticates and transports. Everything scoped to an attempt
-lives here: the producer credentials it minted, the HTTP conversations and what they
-returned, the ``Idempotency-Key`` ledger, and the sampling and handler tasks it owns.
-All of it ends when the attempt's lease stops admitting.
+lives here. That includes the producer credentials the attempt minted, the HTTP
+conversations and what they returned, the ``Idempotency-Key`` ledger, and the sampling
+and handler tasks the attempt owns. All of it ends when the attempt's lease stops
+admitting.
 """
 
 from __future__ import annotations
@@ -52,18 +53,21 @@ from loops_cookbook.model_access.openai.translate import renderer_input as trans
 
 
 class IdempotencyConflict(ValueError):
-    """An ``Idempotency-Key`` was reused with a different request."""
+    """Raised when an ``Idempotency-Key`` is reused with a different request."""
 
 
 class AccessEnded(ModelAccessError):
-    """The attempt sealed, aborted, or timed out; its credentials no longer admit."""
+    """Raised when the attempt has sealed, aborted or timed out.
+
+    Its credentials no longer admit requests.
+    """
 
 
 class UnknownGeneration(ModelAccessError):
-    """No generation this credential's attempt and producer returned has that ID."""
+    """Raised when no generation returned to this credential's attempt and producer has that ID."""
 
 
-# Rejections that leave nothing sampled: a retry under the same key is a new try.
+# These rejections leave nothing sampled, so a retry under the same key is a new try.
 _BEFORE_SAMPLING = (
     ConversationBusy,
     ContextWindowExceeded,
@@ -74,7 +78,7 @@ _BEFORE_SAMPLING = (
 
 
 class GatewayPort(Protocol):
-    """What an attempt needs from the run's gateway."""
+    """The part of the run's gateway that an attempt uses."""
 
     @property
     def model(self) -> str: ...
@@ -107,7 +111,7 @@ class _HttpChannel:
 
     @property
     def transcript(self) -> TranscriptRecorder | None:
-        """Never here: the conversation sees translated messages, not the agent's."""
+        """Return ``None``, because the conversation sees translated messages, not the agent's."""
         return None
 
     async def generate(
@@ -138,25 +142,26 @@ class _HttpChannel:
 @dataclass(slots=True)
 class _Conversation:
     conversation: Conversation
-    # The agent named it with the conversation header; otherwise it is one request.
+    # True when the agent named the conversation with the conversation header.
+    # Otherwise the conversation is one request.
     named: bool
     returned: Returned = field(default_factory=Returned)
 
 
 @dataclass(slots=True)
 class _Keyed:
-    """One ``Idempotency-Key``: the request it names and the one generation serving it."""
+    """Holds one ``Idempotency-Key``'s request digest and the one generation serving it."""
 
     digest: str
     task: asyncio.Task[Completion | InvalidOutput]
 
 
 def request_digest(request: BaseModel, conversation_id: str | None) -> str:
-    """The canonical identity of a request, for ``Idempotency-Key`` comparison.
+    """Return the canonical identity of a request, for ``Idempotency-Key`` comparison.
 
-    Taken from the validated request, so two spellings of the same value, such as
-    ``1`` and ``1.0``, are the same request, and an explicit ``null`` is the same as
-    an omitted field.
+    It is taken from the validated request, so two spellings of the same value, such as
+    ``1`` and ``1.0``, are the same request. An explicit ``null`` is the same as an
+    omitted field.
     """
     body = request.model_dump(mode="json", exclude_unset=True, exclude_none=True)
     canonical = json.dumps(
@@ -166,7 +171,10 @@ def request_digest(request: BaseModel, conversation_id: str | None) -> str:
 
 
 class HttpModelAccess:
-    """``ModelAccess`` for ``model_access = "openai_http"``: attempt credentials on the gateway."""
+    """The ``ModelAccess`` for ``model_access = "openai_http"``.
+
+    It registers the attempt's credentials on the gateway.
+    """
 
     def __init__(self, lease: AttemptLease, renderers: Renderers, gateway: GatewayPort) -> None:
         self._lease = lease
@@ -176,7 +184,7 @@ class HttpModelAccess:
         self._clients: dict[str, LoopsLLM] = {}
         self._conversations: dict[tuple[str, str], _Conversation] = {}
         self._keys: dict[tuple[str, str], _Keyed] = {}
-        # Every generation returned, by producer and sample ID, for ``discard``.
+        # Holds every generation returned, by producer and sample ID, for ``discard``.
         self._replies: dict[tuple[str, str], tuple[_Conversation, LLMResponse]] = {}
         self._tasks: set[asyncio.Task[Any]] = set()
         self._open = True
@@ -188,22 +196,23 @@ class HttpModelAccess:
 
     def llm(self, producer: str | None = None) -> LoopsLLM:
         raise ModelAccessError(
-            "the runtime declares openai_http model access, which http_connection() "
-            "serves; llm() serves only a runtime that declares direct"
+            "the rollout runtime declares openai_http model access, which http_connection() "
+            "serves. llm() serves only a rollout runtime that declares direct"
         )
 
     async def http_connection(self, producer: str | None = None) -> ModelConnection:
-        """The endpoint and a credential bound to this attempt and producer.
+        """Return the endpoint and a credential bound to this attempt and producer.
 
-        Binding the run's shared listener is the only I/O; nothing samples until the
+        Binding the run's shared listener is the only I/O. Nothing samples until the
         agent sends a request. The credential stays valid until the attempt seals,
-        aborts, or times out, with no expiry of its own.
+        aborts or times out, and it has no expiry of its own.
         """
         name = self._lease.producer(producer)
         if not self._open:
             raise AccessEnded("model access for this attempt has ended")
         base_url = await self._gateway.base_url()
-        if not self._open:  # revoked while the listener was binding
+        # Access may have been revoked while the listener was binding.
+        if not self._open:
             raise AccessEnded("model access for this attempt has ended")
         credential = self._credentials.get(name)
         if credential is None:
@@ -213,7 +222,7 @@ class HttpModelAccess:
         return ModelConnection(base_url, SecretStr(credential), self._gateway.model)
 
     def own(self, task: asyncio.Task[Any]) -> None:
-        """Hold ``task`` until the attempt settles; handlers and generations alike."""
+        """Hold ``task``, a handler or a generation, until the attempt settles."""
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
@@ -227,11 +236,11 @@ class HttpModelAccess:
         key: str | None,
         digest: str,
     ) -> asyncio.Task[Completion | InvalidOutput]:
-        """The generation serving this request, shared with every retry of its key.
+        """Return the generation serving this request, shared with every retry of its key.
 
-        ``sent`` is the request body as the agent sent it, for the transcript. It runs
-        as a task the attempt owns, so a client that disconnects mid-generation cannot
-        cancel the sample it asked for.
+        ``sent`` is the request body as the agent sent it, for the transcript. The
+        generation runs as a task the attempt owns, so a client that disconnects
+        mid-generation cannot cancel the sample it asked for.
         """
         if not self._open:
             # A handler that authenticated before revocation admits nothing after it.
@@ -255,7 +264,7 @@ class HttpModelAccess:
     def _forget_if_unsampled(
         self, producer: str, key: str, done: asyncio.Task[Completion | InvalidOutput]
     ) -> None:
-        """A key whose request was refused before sampling names nothing yet."""
+        """Forget a key whose request was refused before sampling, because it names nothing yet."""
         if done.cancelled() or not isinstance(done.exception(), _BEFORE_SAMPLING):
             return
         keyed = self._keys.get((producer, key))
@@ -263,7 +272,7 @@ class HttpModelAccess:
             del self._keys[(producer, key)]
 
     def _conversation(self, producer: str, conversation_id: str | None) -> _Conversation:
-        """The conversation a request names, or one of its own when it names none."""
+        """Return the conversation a request names, or a new one when it names none."""
         key = conversation_id or str(uuid.uuid4())
         slot = self._conversations.get((producer, key))
         if slot is None:
@@ -281,14 +290,15 @@ class HttpModelAccess:
         self, slot: _Conversation, request: ChatRequest, sent: Mapping[str, Any]
     ) -> Completion | InvalidOutput:
         messages, tools = translate_input(request, slot.returned)
-        # The transcript keeps the request as the agent sent it: its echoed assistant
-        # messages, not the native ones translation substitutes for them, and its keys in
-        # its own order, not the schema's.
+        # The transcript keeps the request as the agent sent it. It keeps the echoed
+        # assistant messages, not the native ones translation substitutes for them, and
+        # it keeps the keys in the request's own order, not the schema's.
         recorder = self._lease.transcript
         pending: PendingTurn | None = None
 
         def begin_turn() -> FailedReply:
-            # Where a direct turn begins: a request refused before it leaves no turn.
+            # This is where a direct turn begins, so a request refused before it
+            # leaves no turn.
             nonlocal pending
             assert recorder is not None
             pending = recorder.begin(
@@ -306,7 +316,7 @@ class HttpModelAccess:
             _sampling_params(request, self._lease.sampling_policy),
             messages=messages,
             tools=tools,
-            # None is the run's trajectory budget; a request cannot name another.
+            # None means the run's trajectory budget. A request cannot name another.
             max_trajectory_tokens=None,
             reasoning_effort=request.reasoning_effort,
             begin_turn=begin_turn if recorder is not None else None,
@@ -320,7 +330,8 @@ class HttpModelAccess:
         if isinstance(done, Completion) and reply.native_message is not None:
             slot.returned.remember(done.message, reply.native_message)
         elif isinstance(done, InvalidOutput) and (written := reply.history_message) is not None:
-            # Its echo stands for the sampled tokens, which the next turn bridges from.
+            # The written echo stands for the sampled tokens, which the next turn
+            # bridges from.
             slot.returned.remember(done.message, written)
         if pending is not None:
             pending.completion(reply.sample, done.body())
@@ -330,9 +341,10 @@ class HttpModelAccess:
     def discard(self, producer: str, completion_id: str) -> None:
         """Exclude a returned completion from training, as ``Conversation.discard`` does.
 
-        The same rules as a direct discard: only a delivered generation, only the most
-        recent one of its conversation, and only once. An ID this attempt and producer
-        never returned, another attempt's included, is ``UnknownGeneration``.
+        The rules of a direct discard apply. Only a delivered generation can be
+        discarded, only the most recent one of its conversation, and only once. An ID
+        that this attempt and producer never returned raises ``UnknownGeneration``,
+        including another attempt's ID.
         """
         if not self._open:
             raise AccessEnded("model access for this attempt has ended")
@@ -348,7 +360,7 @@ class HttpModelAccess:
         self._lease.delivered(sample_id)
 
     def _close(self) -> None:
-        """The lease stopped admitting: revoke every credential and cancel owned work."""
+        """Revoke every credential and cancel owned work, because the lease stopped admitting."""
         self._revoke()
         for task in list(self._tasks):
             task.cancel()
@@ -359,16 +371,16 @@ class HttpModelAccess:
             self._gateway.revoke(credential)
 
     async def quiesce(self, grace_seconds: float) -> None:
-        """Before sealing: stop admitting, let in-flight work finish, then cancel the rest."""
+        """Stop admitting before sealing, let in-flight work finish, then cancel the rest."""
         self._revoke()
         await _settle(self._tasks, grace_seconds)
 
 
 def _sampling_params(request: ChatRequest, policy: SamplingPolicy) -> SamplingParams:
-    """What the request supplied, and the run's defaults for what it left out.
+    """Return what the request supplied, with the run's defaults for what it left out.
 
-    The same defaults a direct caller gets; the client joins the renderer's stops to a
-    request's ``stop`` where they are the same kind.
+    These are the same defaults a direct caller gets. The client joins the renderer's
+    stops to a request's ``stop`` where they are the same kind.
     """
     sampling = request.sampling
     params = SamplingParams()
@@ -390,7 +402,11 @@ def _sampling_params(request: ChatRequest, policy: SamplingPolicy) -> SamplingPa
 
 
 async def _settle(tasks: set[asyncio.Task[object]], grace_seconds: float) -> None:
-    """The grace for ``tasks`` to finish, then a stop of each left, which no cancellation ends."""
+    """Give ``tasks`` the grace period to finish, then stop each one left.
+
+    No cancellation ends the stopping.
+    """
+
     pending = {task for task in tasks if not task.done()}
     try:
         if pending:

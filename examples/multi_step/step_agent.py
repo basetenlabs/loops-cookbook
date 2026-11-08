@@ -1,7 +1,7 @@
 """The hill-climb agent from patterns/harbor/in_process_direct, on a multi-step task.
 
-The agent is unchanged: Harbor runs it once per step, with that step's instruction,
-in the same sandbox, and verifies each step there.
+The agent is unchanged. Harbor runs it once per step, with that step's instruction, in
+the same sandbox, and verifies each step there.
 """
 
 import shlex
@@ -17,8 +17,8 @@ from loops_cookbook.model_access import ModelAccessMode
 class StepOptions(AgentOptions):
     """Settings supplied through ``agents[].kwargs`` in the Harbor job."""
 
-    # Nothing yet: temperature and generation length are the run's decisions and
-    # arrive from `[sampling]` in the training config.
+    # There are no settings yet. Temperature and generation length are the run's
+    # decisions, and they arrive from `[sampling]` in the training config.
 
 
 class StepAgent(LoopsAgent):

@@ -1,4 +1,8 @@
-"""Provider-neutral resource ownership: requests, leases, and the provider contract."""
+"""Own resources independently of any provider.
+
+The package holds the resource requests, the leases and the contract that every
+provider implements.
+"""
 
 from loops_cookbook.resources.api import (
     CapacityProvider,

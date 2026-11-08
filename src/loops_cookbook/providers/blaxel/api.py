@@ -1,7 +1,7 @@
-"""The Blaxel calls the adapter makes, as one narrow facade over the pinned SDK.
+"""Make the adapter's Blaxel calls through one narrow facade over the pinned SDK.
 
-The adapter's ownership logic is tested against a fake of this class. Everything
-that touches the SDK's own types, private members, or workarounds lives here.
+The adapter's ownership logic is tested against a fake of this class. Everything that
+touches the SDK's own types, private members or workarounds lives here.
 """
 
 from __future__ import annotations
@@ -27,7 +27,8 @@ from loops_cookbook.providers.blaxel.build_file import (
 )
 from loops_cookbook.providers.blaxel.incidents import close_clients
 
-BUILDER_TTL = "5m"  # Harbor's: a builder the cookbook cannot delete reaps itself
+# Harbor's builder ttl. A builder that the cookbook cannot delete deletes itself.
+BUILDER_TTL = "5m"
 LIST_PAGE = 100
 
 
@@ -51,13 +52,13 @@ def _observed(sandbox: SandboxInstance) -> Observed:
 
 
 class _LabeledImage(ImageInstance):
-    """An image whose builder sandbox carries the cookbook's ownership labels and runs
-    in the provider's region.
+    """An image whose builder sandbox carries the cookbook's ownership labels.
 
-    ``ImageInstance.build`` creates or updates a builder sandbox from a payload
-    that labels it only as auto-generated and names no region; this is the one seam
-    to set both at creation, so a crash mid-build still leaves a sandbox the journal
-    can find, and Blaxel never places the builder elsewhere.
+    The builder also runs in the provider's region. ``ImageInstance.build`` creates or
+    updates a builder sandbox from a payload that labels it only as auto-generated and
+    names no region. This method override is the one place to set both at creation. A
+    crash mid-build therefore still leaves a sandbox that the journal can find, and
+    Blaxel never places the builder in another region.
     """
 
     def __init__(self, context: ImageBuildContext, labels: Mapping[str, str], region: str) -> None:
@@ -68,10 +69,11 @@ class _LabeledImage(ImageInstance):
     async def _create_sandbox_with_upload(
         self, sandbox: Sandbox
     ) -> tuple[Response[Sandbox], str | None]:
-        """The builder's create, failing with the SDK's own typed error for its status.
+        """Create the builder, and raise the SDK's own typed error for a failed status.
 
-        ``build`` turns a failed create into a bare ``RuntimeError`` that names the
-        status only in its text, so a rate limit would read as an unknown failure.
+        ``build`` turns a failed create into a bare ``RuntimeError`` that names the status
+        only in its text. Without this override, a rate limit would read as an unknown
+        failure.
         """
         response, upload_url = await super()._create_sandbox_with_upload(sandbox)
         if response.status_code >= 400:
@@ -83,16 +85,16 @@ class _LabeledImage(ImageInstance):
     ) -> Sandbox:
         payload = super()._create_sandbox_payload(name, memory, build_labels)
         labels = payload.metadata.labels
-        assert isinstance(labels, MetadataLabels)  # the SDK always labels a builder
+        assert isinstance(labels, MetadataLabels)  # The SDK always labels a builder.
         for key, value in self._loops_labels.items():
             labels[key] = value
-        assert isinstance(payload.spec, SandboxSpec)  # the SDK always sets a spec
+        assert isinstance(payload.spec, SandboxSpec)  # The SDK always sets a spec.
         payload.spec.region = self._loops_region
         return payload
 
 
 def image_context(build: Mapping[str, JsonValue]) -> ImageBuildContext:
-    """The SDK build context an ``image_build`` specification describes."""
+    """Return the SDK build context that an ``image_build`` specification describes."""
     files = build.get("local_files") or []
     assert isinstance(files, list)
     local_files: list[LocalFile] = []
@@ -118,11 +120,12 @@ def image_context(build: Mapping[str, JsonValue]) -> ImageBuildContext:
 def image_build_specification(
     image: ImageInstance, *, memory: int, sandbox_version: str, slim: bool = True
 ) -> dict[str, JsonValue]:
-    """The ``image_build`` specification an image describes; ``image_context`` inverts it.
+    """Return the ``image_build`` specification that describes an image.
 
-    ``slim=False`` asks for Blaxel's full image, as Harbor always does. It is carried
-    as data: the build writes the ``blaxel.toml`` that says so into its own temporary
-    directory, so describing an image writes nothing.
+    ``image_context`` is its inverse. ``slim=False`` asks for Blaxel's full image, as
+    Harbor always does. The flag is carried as data. The build writes the ``blaxel.toml``
+    that turns slimming off into its own temporary directory, so describing an image
+    writes nothing.
     """
     context = image._context  # pyright: ignore[reportPrivateUsage]
     return {
@@ -146,11 +149,11 @@ def image_build_specification(
 def _with_build_toml(
     context: ImageBuildContext, directory: Path, region: str, *, slim: bool
 ) -> ImageBuildContext:
-    """``context`` with a ``blaxel.toml`` naming ``region``, written in ``directory``.
+    """Return ``context`` with a ``blaxel.toml`` that names ``region``, written in ``directory``.
 
-    A task that ships its own ``blaxel.toml`` keeps it, as in Harbor: one that names
-    no region gets the configured one added in the build's copy (the task's file is
-    never written), and one that names another region is refused.
+    A task that ships its own ``blaxel.toml`` keeps it, as in Harbor. If the file names
+    no region, the build's copy gets the configured region added, and the task's own
+    file is never written. A file that names another region is refused.
     """
     path = directory / BUILD_TOML_NAME
     files = list(context.local_files)
@@ -169,7 +172,7 @@ def _with_build_toml(
 
 
 class BlaxelApi:
-    """The control-plane calls, each raising the SDK's own errors."""
+    """Make the control-plane calls. Each call raises the SDK's own errors."""
 
     async def create(self, config: Mapping[str, JsonValue]) -> Observed:
         sandbox = await SandboxInstance.create(dict(config), safe=False)
@@ -190,7 +193,10 @@ class BlaxelApi:
         await SandboxInstance.delete(name)  # pyright: ignore[reportCallIssue]
 
     async def list(self) -> AsyncGenerator[Sequence[Observed], None]:
-        """The workspace's sandboxes, one page at a time: the SDK lists no labels."""
+        """Yield the workspace's sandboxes, one page at a time.
+
+        The SDK cannot filter a listing by label, so this yields every sandbox.
+        """
         page = await SandboxInstance.list(limit=LIST_PAGE)
         while True:
             yield [_observed(sandbox) for sandbox in page.data]
@@ -199,10 +205,13 @@ class BlaxelApi:
             page = await page.next_page()
 
     async def image_tags(self, name: str) -> frozenset[str] | None:
-        """The tags of the workspace's sandbox image ``name``, or ``None`` when it has no
-        image by that name (404). ``GET /images/sandbox/<name>/tags`` names every tag,
-        where the image's own answer may only count them (since 22 Oct 2026). Raises when
-        Blaxel answers otherwise, or holds more tags than one page."""
+        """Return the tags of the workspace's sandbox image ``name``.
+
+        It returns ``None`` when Blaxel answers 404, meaning the workspace has no image by
+        that name. ``GET /images/sandbox/<name>/tags`` names every tag. The image's own
+        answer may only count them, as observed since 22 Oct 2026. Any other answer
+        raises, and so does an image with more tags than one page holds.
+        """
         response = await client.get_async_httpx_client().get(f"/images/sandbox/{name}/tags")
         if response.status_code == 404:
             return None
@@ -217,21 +226,24 @@ class BlaxelApi:
         for entry in listed:  # pyright: ignore[reportUnknownVariableType]
             tag = entry.get("name") if isinstance(entry, dict) else None  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             if not isinstance(tag, str) or not tag:
-                # A tag unread would read as absent: the whole answer is unreadable.
+                # A tag left unread would look absent, so the whole answer is unreadable.
                 raise TypeError(f"GET /images/sandbox/{name}/tags answered a tag {entry!r}")
             tags.add(tag)
         return frozenset(tags)
 
     async def image_built(self, name: str) -> bool:
-        """Whether the content-addressed image is built and consumable.
+        """Return whether the content-addressed image is built and usable.
 
-        Looked up by name: ``GET /images`` answers 502 on a workspace with many images
-        (19k on 3 Oct 2026), and its first page never holds most names, so every start
-        rebuilt an image that existed. ``GET /images/sandbox/<name>`` answers 404 for a
-        name never built. Built means ``BUILT`` with a tag, listed in ``tags`` or, since
-        22 Oct 2026, counted in ``tagCount`` instead: a sandbox starts from
-        ``:latest``, so an image whose last build FAILED (or is still BUILDING) does not
-        start even though an earlier tag is listed (3 Oct 2026).
+        The lookup is by name. ``GET /images`` answers 502 on a workspace with many
+        images, such as 19k on 3 Oct 2026. Its first page also never holds most names, so
+        a listing would make every start rebuild an image that exists.
+        ``GET /images/sandbox/<name>`` answers 404 for a name never built.
+
+        Built means the status is ``BUILT`` and the image has a tag. The tag is listed in
+        ``tags``, or, since 22 Oct 2026, counted in ``tagCount`` instead. A sandbox
+        starts from ``:latest``. An image whose last build FAILED, or is still BUILDING,
+        therefore does not start even though an earlier tag is listed, as observed on 3
+        Oct 2026.
 
         Only a 404 proves an image unbuilt, because a build in its place can leave
         ``:latest`` unstartable. Any other failed or unreadable answer raises.
@@ -259,8 +271,11 @@ class BlaxelApi:
         build_memory: int | None = None,
         build_volume: int | None = None,
     ) -> None:
-        """Build ``name``; ``build_memory`` and ``build_volume`` (MB) size the environment
-        it is built in, and Blaxel's defaults apply where they are ``None``."""
+        """Build the image ``name``.
+
+        ``build_memory`` and ``build_volume``, in MB, size the environment that builds it.
+        Blaxel's defaults apply where they are ``None``.
+        """
         memory, version = build.get("memory", 4096), build.get("sandbox_version", "latest")
         try:
             with tempfile.TemporaryDirectory(prefix="loops-blaxel-build-") as directory:
@@ -281,5 +296,5 @@ class BlaxelApi:
         finally:
             try:
                 await SandboxInstance.update_ttl(name, BUILDER_TTL)
-            except Exception:  # noqa: BLE001, S110 - a safety net; the release deletes it
+            except Exception:  # noqa: BLE001, S110 - a safety net, as the release deletes it
                 pass

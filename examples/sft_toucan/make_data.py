@@ -39,7 +39,8 @@ SHARDS = [
     f"https://huggingface.co/api/datasets/Agent-Ark/Toucan-1.5M/parquet/SFT/train/{i}.parquet"
     for i in range(3)
 ]
-MAX_TOKENS = 3584  # headroom under sft.toml's max_seq_len
+# This leaves headroom under sft.toml's max_seq_len.
+MAX_TOKENS = 3584
 SIZES = {"train": 2000, "validation": 200}
 VALIDATION_SHARE = 0.10
 MIX = {

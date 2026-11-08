@@ -1,13 +1,14 @@
 """Files in the episode's sandbox, reached through its provider's usage environment.
 
-``agent_program.py`` and ``verifier.py`` share this so either provider works unchanged:
+``agent_program.py`` and ``verifier.py`` share this module, so either provider works
+unchanged.
 
-- ``local_sandbox`` gives ``SANDBOX_DIR``, the sandbox's directory;
+- ``local_sandbox`` gives ``SANDBOX_DIR``, the sandbox's directory.
 - ``[providers.blaxel]`` gives ``BLAXEL_SANDBOX_NAME`` and Blaxel's ``BL_*``
   credentials, and files live under ``/tmp`` in the sandbox. That path needs the
   Blaxel SDK in the program's interpreter.
 
-Neither creates or deletes the sandbox: the run's registry owns it.
+Neither program creates or deletes the sandbox, because the run's registry owns it.
 """
 
 import asyncio
@@ -25,13 +26,12 @@ def write(name: str, text: str) -> None:
 
 
 def read(name: str) -> str:
-    """The file's text; ``FileNotFoundError`` when the read found no such file.
+    """Return the file's text, or raise ``FileNotFoundError`` when the read finds no file.
 
-    That is not proof the file is missing: the whole sandbox may be gone, and
-    neither Blaxel's 404 nor a missing path tells the two apart. So
-    ``local_episode``, not the programs, asks whether the sandbox is still alive
-    after the read.
-    """
+    That error is not proof the file is missing, because the whole sandbox may be gone,
+    and neither Blaxel's 404 nor a missing path tells the two apart. So
+    ``local_episode``, not the programs, asks whether the sandbox is still alive after
+    the read."""
     if "BLAXEL_SANDBOX_NAME" in os.environ:
         return asyncio.run(_blaxel_read(f"{BLAXEL_DIR}/{name}"))
     return pathlib.Path(os.environ["SANDBOX_DIR"], name).read_text()

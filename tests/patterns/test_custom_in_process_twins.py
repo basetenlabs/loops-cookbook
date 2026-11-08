@@ -42,7 +42,7 @@ class Reply:
 
 
 def direct(monkeypatch, reply):
-    """The model serves both direct hook calls and the runtime's model-access port."""
+    """The model serves both direct hook calls and the rollout runtime's model-access port."""
     import direct_episode
 
     class Conversation:

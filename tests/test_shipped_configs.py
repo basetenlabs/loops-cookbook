@@ -1,6 +1,6 @@
 """Every training config the repository ships passes ``loops check``, offline.
 
-``check`` is the first thing a user runs: it resolves the config, imports the runtime
+``check`` is the first thing a user runs: it resolves the config, imports the rollout runtime
 or the Harbor job's agent, and discovers the tasks, launching nothing. A config that
 names a moved file or a renamed setting fails here, not in a user's first command.
 """
@@ -54,7 +54,7 @@ def test_no_shipped_config_states_the_model_access_its_agent_class_states():
     assert stated == []
 
 
-# Each custom runtime's dataset is its episode's own ``AnswerTask``, one per line.
+# Each custom rollout runtime's dataset is its episode's own ``AnswerTask``, one per line.
 ANSWER_TASK_CONFIGS = [
     "patterns/custom_runtime/in_process_direct/train.toml",
     "patterns/custom_runtime/in_process_openai_http/train.toml",

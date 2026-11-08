@@ -1,12 +1,12 @@
-"""Daytona usage code: reaching a sandbox the run's registry already owns.
+"""Reach a Daytona sandbox that the run's registry already owns.
 
-Nothing here creates or deletes. A caller has the ``ProviderResource`` its handle
-carries and a Daytona client, and gets the SDK's sandbox for exactly that sandbox, or
-a failure. The adapter's ``client`` reaches a sandbox this way, with its own client, for
-an Episode and for Harbor's environment alike.
+Nothing here creates or deletes a sandbox. A caller passes the ``ProviderResource``
+that its handle carries, and a Daytona client. It gets back the SDK's sandbox for
+exactly that sandbox, or a failure. The adapter's ``client`` reaches a sandbox this way,
+with its own Daytona client, for an Episode and for Harbor's environment alike.
 
-A sandbox is usable only while it is ``started``; ``started`` is that rule, and the
-adapter's provisioning and liveness and ``attach`` all read it.
+A sandbox is usable only while it is ``started``. The ``started`` function holds that
+rule, and the adapter's provisioning, its liveness check and ``attach`` all use it.
 """
 
 from __future__ import annotations
@@ -23,8 +23,8 @@ if TYPE_CHECKING:
 STARTED = "started"
 # The state of a deleted sandbox, until Daytona answers 404 for it.
 DESTROYED = "destroyed"
-# States a sandbox never leaves for ``started`` on its own. A stopped one is gone for
-# the run: an ephemeral sandbox is deleted as it stops.
+# States a sandbox never leaves for ``started`` on its own. A stopped sandbox is gone
+# for the run, because an ephemeral sandbox is deleted as it stops.
 DEAD = frozenset(
     {
         "error",
@@ -46,12 +46,12 @@ class Client(Protocol):
 
 
 def started(state: object) -> bool:
-    """Whether a sandbox in ``state`` (Daytona's wire value) is usable."""
+    """Return whether a sandbox in ``state``, Daytona's wire value, is usable."""
     return state == STARTED
 
 
 def state_of(sandbox: AsyncSandbox) -> str:
-    """An SDK sandbox's state as Daytona's wire value."""
+    """Return an SDK sandbox's state as Daytona's wire value."""
     return "unknown" if sandbox.state is None else sandbox.state.value
 
 
@@ -62,9 +62,9 @@ async def attach(
     timeout_seconds: float,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> Any:
-    """The SDK sandbox for the provisioned resource, once it is ``started``.
+    """Return the SDK sandbox for the provisioned resource, once it is ``started``.
 
-    Bounded by ``timeout_seconds``, the provider's attach deadline. The sandbox must
+    ``timeout_seconds``, the provider's attach deadline, bounds the wait. The sandbox must
     carry the ownership labels it was created with.
     """
     async with asyncio.timeout(timeout_seconds):

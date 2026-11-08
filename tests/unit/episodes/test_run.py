@@ -256,7 +256,7 @@ def test_check_builds_the_episode_runtime_and_reports_its_capabilities(loops_che
 @pytest.mark.parametrize(
     ("clock", "shown"),
     [
-        (None, "Rollout clock: 29s (derived by the runtime)"),  # 20 + 2 + 5 + 2
+        (None, "Rollout clock: 29s (derived by the rollout runtime)"),  # 20 + 2 + 5 + 2
         (30, "Rollout clock: 30s ([rollout] rollout_timeout_seconds)"),
     ],
     ids=["derived", "set"],

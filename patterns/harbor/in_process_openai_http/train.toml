@@ -1,4 +1,4 @@
-# Harbor, in-process, openai_http, on Docker: http_agent.py calls the model through an
+# Harbor, in-process, openai_http, on Docker. http_agent.py calls the model through an
 # OpenAI client pointed at the run's gateway.
 # uv run loops check patterns/harbor/in_process_openai_http/train.toml
 
@@ -37,7 +37,9 @@ rollout_timeout_seconds = 600
 setup_timeout_seconds = 600
 
 [rollout.grading]
-timeout_seconds = 900  # > Harbor's own bound: build 600s + verifier 30s
+# The grading deadline must exceed Harbor's own bound, which is a 600 s build plus
+# a 30 s verifier.
+timeout_seconds = 900
 
 [compute]
 scope = "serverless"

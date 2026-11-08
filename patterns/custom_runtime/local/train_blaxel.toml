@@ -1,6 +1,6 @@
-# A custom runtime, local, on Blaxel sandboxes: local_episode.py runs agent_program.py
-# as its own process on the training machine for each episode, in a Blaxel sandbox the
-# run provisions, and verifier.py scores what the sandbox holds.
+# A custom rollout runtime, local, on Blaxel sandboxes. For each episode,
+# local_episode.py runs agent_program.py as its own process on the training machine, in
+# a Blaxel sandbox the run provisions. verifier.py then scores what the sandbox holds.
 # uv sync --extra blaxel
 # uv run loops check patterns/custom_runtime/local/train_blaxel.toml
 #
@@ -13,11 +13,14 @@ recipe = "rl"
 factory = "loops_cookbook.episodes:create_runtime"
 
 [rollout_runtime.files]
-tasks = "../../../tasks/hidden_answer.jsonl"   # one hidden answer to learn (tasks/README)
+# Each task hides one answer for the model to learn. tasks/README.md describes the file.
+tasks = "../../../tasks/hidden_answer.jsonl"
 
 [rollout_runtime.config]
 episode = "local_episode:BlaxelAgentEpisode"
-agent_timeout_seconds = 90   # cut after its reply: graded on what it left; before it: unversioned
+# The agent's deadline. A rollout cut off before the model replies is discarded.
+# One cut off after the reply is graded on what the agent left.
+agent_timeout_seconds = 90
 
 # The two programs run with the PATH's python3, which `uv run` makes the training
 # interpreter, with the Blaxel SDK that sandbox_io needs for a Blaxel sandbox.
@@ -25,13 +28,15 @@ agent_timeout_seconds = 90   # cut after its reply: graded on what it left; befo
 [rollout_runtime.config.options]
 agent = ["python3", "./agent_program.py"]
 verifier = ["python3", "./verifier.py"]
-grade_against = "sandbox"   # verify the answer the agent left in its sandbox
+# The verifier checks the answer the agent left in its sandbox.
+grade_against = "sandbox"
 
 [rollout_runtime.config.sandbox]
 provider = "blaxel"
 image = "blaxel/base-image:latest"
 memory_mb = 2048
-ttl = "1h"         # required: it must outlast one episode
+# Required. The sandbox must outlast one episode.
+ttl = "1h"
 
 [providers.blaxel]
 # Credentials stay in .env as BL_WORKSPACE and BL_API_KEY.
@@ -52,7 +57,9 @@ group_size = 16
 max_group_losses = 0
 groups_per_step = 1
 max_steps = 5
-max_consecutive_unusable_groups = 20   # stop if every group scores alike
+# Stop after this many groups in a row that can't train, such as groups in which
+# every rollout scores alike.
+max_consecutive_unusable_groups = 20
 learning_rate = 0.0001
 loss_fn = "cispo"
 

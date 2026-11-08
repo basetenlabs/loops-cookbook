@@ -1,9 +1,9 @@
-"""The scoped resource services runtime code is given: one per attempt, one per run.
+"""Give rollout runtime code its scoped resource services, one per attempt and one per run.
 
-Each service is bound to its scope and owner, so runtime code supplies a request
-and never a scope, an owner, a digest, or an adapter. An episode can provision and
-release its own resources and borrow run resources; it cannot create or release a
-run resource.
+Each service is bound to its scope and owner. Rollout runtime code therefore supplies
+a request, and never a scope, an owner, a digest or an adapter. An episode can
+provision and release its own resources, and it can borrow run resources. It cannot
+create or release a run resource.
 """
 
 from __future__ import annotations
@@ -24,7 +24,8 @@ from loops_cookbook.resources.api import (
 )
 from loops_cookbook.resources.registry import ResourceContractError, ResourceRegistry
 
-# Wraps each call so the caller's clocks leave out resource-service time.
+# A context manager that wraps each call, so the caller's clocks leave out the time
+# spent in resource services.
 Excluded = Callable[[], AbstractContextManager[None]]
 
 
@@ -61,7 +62,7 @@ class _Lease:
 
 
 class RunResourceService:
-    """``RunResources``: resources that outlive every episode of the run."""
+    """Implement ``RunResources``, for resources that outlive every episode of the run."""
 
     def __init__(self, registry: ResourceRegistry, run_id: str) -> None:
         self._registry = registry
@@ -83,14 +84,17 @@ class RunResourceService:
         return lease
 
     async def close(self) -> CleanupReport:
-        """Shutdown step 6: end the run's leases, then release the run scope."""
+        """End the run's leases, then release the run scope.
+
+        This is step 6 of the run's shutdown.
+        """
         for lease in list(self._leases.values()):
             await lease.close()
         return await self._registry.release_scope(ResourceScope.RUN, self._run_id)
 
 
 class EpisodeResourceService:
-    """``EpisodeResources``: one attempt's own resources and the run resources it borrows."""
+    """Implement ``EpisodeResources``, for one attempt's own resources and the ones it borrows."""
 
     def __init__(self, registry: ResourceRegistry, attempt_id: str, excluded: Excluded) -> None:
         self._registry = registry
@@ -119,7 +123,10 @@ class EpisodeResourceService:
         return lease
 
     async def release(self, resource_id: str) -> CleanupResult:
-        """End a resource early; return the registry's proof, including unresolved results."""
+        """End a resource early, and return the registry's proof.
+
+        The proof includes unresolved results.
+        """
         if resource_id not in self._owned:
             raise ResourceContractError(f"{resource_id} is not an episode resource of this attempt")
         with self._excluded():
@@ -149,7 +156,7 @@ class EpisodeResourceService:
             )
 
     async def close(self) -> CleanupReport:
-        """End the episode: close its leases and release what it still owns."""
+        """End the episode by closing its leases and releasing what it still owns."""
         with self._excluded():
             for lease in list(self._leases.values()):
                 await lease.close()

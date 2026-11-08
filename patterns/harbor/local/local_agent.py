@@ -1,12 +1,12 @@
-"""A local Harbor agent: the agent loop is a separate program the cookbook does not own.
+"""A local Harbor agent, whose loop is a separate program the cookbook does not own.
 
-``LocalAgent`` runs ``command`` (``agents[].kwargs.command`` in the Harbor job) as a
-process on the training machine, through the attempt's ``processes`` service. The
+``LocalAgent`` runs ``command``, which is ``agents[].kwargs.command`` in the Harbor job,
+as a process on the training machine, through the attempt's ``processes`` service. The
 program gets two things in its environment: the attempt's OpenAI-compatible model
 connection, served by the run's loopback gateway, and the trial environment's
 ``usage_environment()``, so it runs its tools in the trial's sandbox through the
-provider's own API. The cookbook's Blaxel environment provides that usage
-environment; the program never creates or deletes the sandbox.
+provider's own API. The cookbook's Blaxel environment provides that usage environment.
+The program never creates or deletes the sandbox.
 
 Samples are attributed to the attempt through its credential alone, and the
 credential is revoked when the rollout is sealed.
@@ -39,7 +39,8 @@ class UsageEnvironment(Protocol):
 
 
 class LocalAgentOptions(AgentOptions):
-    """``agents[].kwargs``: the program's argv. ``./`` paths resolve beside this file."""
+    """The ``agents[].kwargs`` that give the program's argv. ``./`` paths resolve beside
+    this file."""
 
     command: list[str] = Field(default_factory=lambda: ["python3", "./agent_program.py"])
 

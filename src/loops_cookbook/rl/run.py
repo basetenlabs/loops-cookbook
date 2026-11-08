@@ -1,8 +1,9 @@
-"""Training runner: rollout runtime in, GRPO batches out, Loops effects applied.
+"""The RL training runner, which turns rollouts into GRPO batches and trains them on Loops.
 
-``Run`` is the composition root for one training run. It builds the runtime from
-its factory, validates what the runtime declares, wires each attempt's model-access
-lease to the trainer's sampler, and drives the pipeline until the step limit.
+``Run`` is the composition root for one training run. It builds the rollout runtime
+from its factory and validates what the rollout runtime declares. It wires each
+attempt's model-access lease to the trainer's sampler, and it drives the pipeline
+until the step limit.
 """
 
 from __future__ import annotations
@@ -116,39 +117,43 @@ from loops_cookbook.trainer import Capacity, ended_under
 
 logger = logging.getLogger(__name__)
 
-# baseten-loops 0.32 creates a sampler and waits for it in one call, so one whose wait
-# failed or was cancelled cannot be stopped from here.
+# baseten-loops 0.32 creates a sampler and waits for it in one call. So a sampler
+# whose wait failed or was cancelled can't be stopped from here.
 _MAY_BE_UP = (
-    "Its sampler may still be up and BILLING: find its ID in the SDK's 'Provisioned "
-    "Loops sampler <id>' line and stop it with POST /v1/loops/samplers/<id>/deactivate."
+    "Its sampler may still be up and BILLING. Find its ID in the SDK's 'Provisioned "
+    "Loops sampler <id>' line, and stop it with POST /v1/loops/samplers/<id>/deactivate."
 )
 
 
 def _later(step: int) -> str:
-    """How to run an eval of ``step`` that did not run, from the weights it kept."""
+    """Say how to run an eval of ``step`` that didn't run, from the weights the run kept."""
     return f" Run it later with `loops eval <config> --step {'base' if step < 0 else step}`."
 
 
 SAMPLER_WEIGHTS = "sampler_weights.jsonl"
-"""In the run directory: each step whose sampler weights the run kept, with their path
-and policy version, for ``loops eval``."""
+"""The run-directory file that lists each step whose sampler weights the run kept.
+
+Each row holds the weights' path and policy version, for ``loops eval``.
+"""
 
 
 def finished_hint(max_steps: int) -> tuple[str, str]:
-    """The bound and the way to train more for a run that made all ``max_steps``
-    updates (``run_record.finished_message``)."""
+    """Return the bound, and how to train more, for a run that made all ``max_steps`` updates.
+
+    ``run_record.finished_message`` uses them.
+    """
     return f"max_steps = {max_steps}", "Raise max_steps to train more"
 
 
 class _NothingToTrain(Exception):
-    """A resume with no update left: ``execute`` skips training and still cleans up."""
+    """A resume has no update left, so ``execute`` skips training and still cleans up."""
 
 
 @dataclass(frozen=True)
 class Outcome:
     status: str
     steps: int
-    """Optimizer updates completed by this invocation, excluding restored steps."""
+    """The optimizer updates this invocation completed, not counting restored steps."""
     discards: dict[str, int]
     reason: str | None = None
     next_step: int = 0
@@ -159,9 +164,12 @@ class Outcome:
 
 
 def _append_json(path: Path, record: dict, *, after_failure: bool = False) -> None:
-    """Append ``record`` as one line. ``after_failure``: an earlier append to ``path``
-    failed and may have left half a row, so this one starts a line of its own, and
-    only the row that failed is unreadable."""
+    """Append ``record`` as one line.
+
+    Set ``after_failure`` when an earlier append to ``path`` failed and may have left
+    half a row. This row then starts a line of its own, so only the row that failed is
+    unreadable.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a+b") as handle:
         lead = b""
@@ -174,8 +182,9 @@ def _append_json(path: Path, record: dict, *, after_failure: bool = False) -> No
 def redact_model_input(payload: dict) -> dict:
     """Replace inline image bytes in a serialized ``ModelInput`` with a digest.
 
-    Run records must not embed images: they are large and potentially sensitive.
-    The digest keeps image identity auditable across sample and batch records.
+    Run records must not embed images, because images are large and may be
+    sensitive. The digest keeps each image's identity auditable across sample and
+    batch records.
     """
     chunks = []
     for chunk in payload.get("chunks", []):
@@ -190,16 +199,16 @@ BULK_SAMPLE_FIELDS = frozenset({"prompt_ids", "completion_ids", "logprobs"})
 
 
 def _plain(value: object) -> object:
-    """Packed tokens or logprobs as the tuple JSON encoders write as a list."""
+    """Return packed tokens or logprobs as a tuple, which JSON encoders write as a list."""
     return tuple(value) if isinstance(value, (TokenSpan, Logprobs)) else value
 
 
 def sample_record(sample: Sample, *, tokens: bool) -> dict:
-    """One generation's evidence; ``tokens`` keeps the arrays that dominate the size.
+    """Return one generation's evidence. ``tokens`` keeps the arrays that dominate the size.
 
-    Without them the row still identifies the generation, the policy that produced it
-    and how long it was -- which answers most questions about a finished run at about
-    a hundredth of the bytes. Only replay needs the arrays themselves.
+    Without the arrays, the row still identifies the generation, the policy that
+    produced it and how long it was. That answers most questions about a finished run,
+    at about a hundredth of the bytes. Only replay needs the arrays themselves.
     """
     record = {
         field.name: _plain(getattr(sample, field.name))
@@ -210,27 +219,27 @@ def sample_record(sample: Sample, *, tokens: bool) -> dict:
         record["prompt_tokens"] = len(sample.prompt_ids)
         record["completion_tokens"] = len(sample.completion_ids)
         return record
-    # Text-only chunks are exactly `prompt_ids` -- a reader rebuilds them from it --
-    # so writing them doubles the largest thing in the file to say it twice. Images
-    # cannot be reconstructed that way, so those prompts are written as chunks.
+    # Text-only chunks are exactly `prompt_ids`, and a reader rebuilds them from it.
+    # Writing them would double the largest thing in the file. Images can't be
+    # rebuilt that way, so prompts with images are written as chunks.
     if not sample.prompt_chunks.text_only:
         record["prompt_input"] = redact_model_input(sample.prompt_input.model_dump(mode="json"))
     return record
 
 
 def transcript_record(transcript: SealedTranscript) -> dict[str, Any]:
-    """An attempt's transcript as written beside its samples.
+    """Return an attempt's transcript as it is written beside its samples.
 
-    ``sealed`` is false for an attempt that failed instead, whose turns are as far as it
-    got and none trainable. A turn with ``sample_id`` null is a request no generation
-    answered, written whole. A turn's ``unrecordable`` says why its request or reply is
-    missing, when it could not be recorded as JSON.
+    ``sealed`` is false for an attempt that failed instead. Its turns go as far as it
+    got, and none of them is trainable. A turn whose ``sample_id`` is null is a request
+    that no generation answered, and it is written whole. When a turn's request or
+    reply could not be recorded as JSON, its ``unrecordable`` says why it is missing.
 
-    Images are named by digest, with their format and size, and never embedded: a run
-    record holds no image bytes. Tool definitions are written once, by digest. A
-    non-finite number, which a policy can write in a tool call's arguments, is written
-    as the string ``"NaN"``, ``"Infinity"`` or ``"-Infinity"``, so the file stays
-    strict JSON that any reader can load.
+    Images are named by digest, with their format and size, and never embedded, so a
+    run record holds no image bytes. Tool definitions are written once, by digest. A
+    policy can write a non-finite number in a tool call's arguments. Such a number is
+    written as the string ``"NaN"``, ``"Infinity"`` or ``"-Infinity"``, so the file
+    stays strict JSON that any reader can load.
     """
     turns: list[JsonValue] = []
     for sealed in transcript.turns:
@@ -273,14 +282,15 @@ def transcript_record(transcript: SealedTranscript) -> dict[str, Any]:
 
 
 def transcript_requests(record: Mapping[str, Any]) -> dict[str, list[JsonValue]]:
-    """Each turn's whole request, by sample id, rebuilt from a written transcript.
+    """Rebuild each turn's whole request, by sample ID, from a written transcript.
 
-    A turn stores only what its request adds to the turn it ``extends``, and that
-    turn can have any disposition -- discarded, undelivered -- and, over HTTP without
-    ``X-Loops-Conversation-Id``, any conversation of the same producer. So a request
-    is rebuilt by following ``extends`` through every turn in the file, never only the
-    trainable ones or one conversation's. A request no generation answered has no
-    sample id: its turn, written whole, is the request.
+    A turn stores only what its request adds to the turn it ``extends``. That turn can
+    have any disposition, such as discarded or undelivered. Over HTTP without
+    ``X-Loops-Conversation-Id``, it can belong to any conversation of the same
+    producer. So a request is rebuilt by following ``extends`` through every turn in
+    the file, never through only the trainable turns or one conversation's. A request
+    that no generation answered has no sample ID, and its turn, written whole, is the
+    request.
     """
     turns: dict[str, Mapping[str, Any]] = {
         turn["sample_id"]: turn for turn in record["turns"] if turn["sample_id"] is not None
@@ -297,7 +307,7 @@ def transcript_requests(record: Mapping[str, Any]) -> dict[str, list[JsonValue]]
 
 
 def _write_transcript(path: Path, identity: AttemptIdentity, transcript: SealedTranscript) -> None:
-    """Whole or absent: a reader never finds half an attempt's transcript."""
+    """Write an attempt's transcript whole or not at all, so a reader never finds half of one."""
     path.parent.mkdir(parents=True, exist_ok=True)
     record = {
         "attempt_id": identity.attempt_id,
@@ -311,7 +321,7 @@ def _write_transcript(path: Path, identity: AttemptIdentity, transcript: SealedT
 
 
 def _strict(value: JsonValue) -> JsonValue:
-    """``value`` with each non-finite number spelled as the string JavaScript uses for it."""
+    """Return ``value`` with each non-finite number spelled as the string JavaScript uses."""
     if isinstance(value, float) and not math.isfinite(value):
         return "NaN" if math.isnan(value) else ("Infinity" if value > 0 else "-Infinity")
     if isinstance(value, list):
@@ -327,16 +337,19 @@ def datum_record(datum) -> dict:
 
 
 def row_record(row: TrainingRow) -> dict:
-    """A training row as the batch record keeps it: the datum, and which of its target
-    positions are actions, as half-open ranges."""
+    """Return a training row as the batch record keeps it.
+
+    The record holds the datum, and which of its target positions are actions, as
+    half-open ranges.
+    """
     return {"datum": datum_record(row.datum), "actions": [list(span) for span in row.actions]}
 
 
 def _describe(error: BaseException) -> str:
-    """Name first, message only when there is one.
+    """Describe an error by its class name, and add its message only when it has one.
 
-    ``CancelledError`` and many transport errors stringify to nothing at all, so
-    interpolating them alone leaves a dangling colon and says less than the class.
+    ``CancelledError`` and many transport errors stringify to nothing at all.
+    Interpolating them alone leaves a dangling colon and says less than the class name.
     """
     return f"{type(error).__name__}: {error}" if str(error) else type(error).__name__
 
@@ -345,31 +358,33 @@ def _describe(error: BaseException) -> str:
 class StepEvent:
     """One optimizer update, as an observer sees it.
 
-    A value rather than an argument list, so a sink names what it reads and a
-    later field costs nothing: the push half of observability exists to let sinks
-    be added without touching the training loop, which three positional arguments
-    would quietly undo the moment a fourth was needed.
+    It is a value, not an argument list, so a sink names what it reads and a later
+    field costs nothing. The push half of observability exists so that sinks can be
+    added without touching the training loop. Three positional arguments would quietly
+    undo that the moment a fourth was needed.
     """
 
     step: int
     gauges: dict[str, float]
     step_scoped: frozenset[str]
-    """Names in ``gauges`` an update alone produces, so only these can carry the
-    step axis. Everything else is also reported between updates, by a heartbeat
-    that has no step to plot against."""
+    """Names in ``gauges`` that only an update produces, so only these can carry the step axis.
+
+    Everything else is also reported between updates, by a heartbeat that has no step
+    to plot against.
+    """
 
 
 StepSink = Callable[[StepEvent], None]
 
 
 def _network_environment() -> dict[str, str]:
-    """The proxy configuration every outbound call in this run will inherit.
+    """Return the proxy configuration that every outbound call in this run inherits.
 
-    Worth a line in the log because a proxy failure is close to undiagnosable
-    afterwards: httpx raises ``ProxyError`` naming neither the proxy nor the host,
-    so a run that did not write down what was in its path cannot answer "what was
-    proxying this?" once the shell that launched it is gone. Credentials in a proxy
-    URL are redacted -- the host is what identifies it, the password never helps.
+    It is worth a line in the log because a proxy failure is close to undiagnosable
+    afterwards. httpx raises ``ProxyError`` naming neither the proxy nor the host. A
+    run that didn't write down what was in its path can't answer "what was proxying
+    this?" once the shell that launched it is gone. Credentials in a proxy URL are
+    redacted, because the host identifies the proxy and the password never helps.
     """
     proxies = dict(urllib.request.getproxies())
     for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"):
@@ -387,8 +402,11 @@ def _write_eval(
     rows: Sequence[Mapping[str, JsonValue]],
     transcripts: Sequence[tuple[str, SealedTranscript]],
 ) -> None:
-    """One eval's files: ``<stem>.jsonl``, a JSON object per rollout, and
-    ``<stem>.transcripts.jsonl``, each sealed rollout's conversation."""
+    """Write one eval's files.
+
+    ``<stem>.jsonl`` holds a JSON object per rollout. ``<stem>.transcripts.jsonl``
+    holds each sealed rollout's conversation.
+    """
     directory.mkdir(parents=True, exist_ok=True)
     (directory / f"{stem}.transcripts.jsonl").write_text(
         "".join(
@@ -405,9 +423,9 @@ def _record_sample(
 ) -> None:
     """Record one generation, stamped with the wall clock it was captured at.
 
-    The timestamp is the only way to ask a finished run *when* anything happened:
-    without it the sampling rate over time can only be inferred from trace-file
-    mtimes, which report each attempt's last write and so rewrite their own history
+    The timestamp is the only way to ask a finished run *when* anything happened.
+    Without it, the sampling rate over time can only be inferred from trace-file
+    mtimes. Those report each attempt's last write, so they rewrite their own history
     as the run continues.
     """
     _append_json(
@@ -418,11 +436,11 @@ def _record_sample(
 
 
 JSON_CHUNK = 8192
-"""List items encoded as one unit."""
+"""How many list items are encoded as one unit."""
 
 
 def _dump_in_slices(value: object, write: Callable[[str], object]) -> Sliced[None]:
-    """``json.dumps(value, allow_nan=False)``, pausing between a long list's chunks."""
+    """Run ``json.dumps(value, allow_nan=False)``, pausing between a long list's chunks."""
     if isinstance(value, dict) and all(isinstance(key, str) for key in value):
         write("{")
         for index, (key, item) in enumerate(value.items()):
@@ -449,8 +467,11 @@ def _dump_in_slices(value: object, write: Callable[[str], object]) -> Sliced[Non
 
 
 async def _record_batch(path, step, policy_version, groups, rows, aggregation) -> None:
-    """Encoded in slices on the loop, since a thread would hold the GIL; written from a
-    thread, since a write releases it. Whole or absent, like a transcript."""
+    """Write one step's batch record, whole or not at all, like a transcript.
+
+    The record is encoded in slices on the loop, because a thread would hold the GIL.
+    It is written from a thread, because a write releases the GIL.
+    """
     rollout_ids = [r.identity.rollout_id for group in groups for r in group.members]
     head = json.dumps(
         {"step": step, "policy_version": policy_version, "rollout_ids": rollout_ids},
@@ -478,7 +499,7 @@ def _write(path: Path, text: str, mode: str) -> None:
 
 
 async def _in_thread[T](function: Callable[..., T], /, *args, **kwargs) -> T:
-    """``in_thread``, waited out when cancelled: the thread never outlives it."""
+    """Run ``in_thread``, and wait it out when cancelled, so the thread never outlives it."""
     return await see_through(in_thread(function, *args, **kwargs))
 
 
@@ -488,12 +509,14 @@ class ScoredBatch:
     rewards: list[float]
     advantages: list[float]
     versions: list[int]
-    forked_rollouts: int  # rollouts whose generations form more than one chain
+    forked_rollouts: int  # Rollouts whose generations form more than one chain.
 
 
 def score_batch(groups) -> Sliced[ScoredBatch]:
-    """Derive all training rows only after rollout-atomic freshness selection, pausing
-    after each row."""
+    """Derive all training rows, pausing after each row.
+
+    It runs only after freshness selection, which keeps or drops whole rollouts.
+    """
     rows_by_group, rewards, advs, versions = [], [], [], []
     forked = 0
     for group in groups:
@@ -503,7 +526,9 @@ def score_batch(groups) -> Sliced[ScoredBatch]:
         group_advs = advantages(group_rewards)
         rows = []
         for rollout, advantage in zip(group.members, group_advs, strict=True):
-            if not rollout.trains:  # its agent discarded every generation: a baseline only
+            if (
+                not rollout.trains
+            ):  # Its agent discarded every generation, so it is a baseline only.
                 continue
             chains = rollout.chains
             forked += len(chains) > 1
@@ -519,9 +544,9 @@ def score_batch(groups) -> Sliced[ScoredBatch]:
 class PreparedBatch:
     """One update's rows, ready for the trainer, and what its rollouts report.
 
-    The rows are the batch's bulk -- Python objects per token -- and only the trainer
-    and the batch record read them; everything the step reports afterwards is in the
-    other fields. ``trained()`` is the same batch without its rows, to keep once they
+    The rows are the batch's bulk, with Python objects per token. Only the trainer and
+    the batch record read them. Everything the step reports afterwards is in the other
+    fields. ``trained()`` returns the same batch without its rows, to keep once they
     are submitted.
     """
 
@@ -531,35 +556,36 @@ class PreparedBatch:
     advantages: list[float]
     versions: list[int]
     forked_rollouts: int
-    routed_datums: int  # rows that name their samples' records, for replay
-    unrecorded_datums: int  # rows with a generation the sampler did not record
+    routed_datums: int  # Rows that name their samples' records, for replay.
+    unrecorded_datums: int  # Rows with a generation the sampler didn't record.
     rollout_gauges: dict[str, float]
 
     def trained(self) -> PreparedBatch:
-        """This batch's report without its rows, which the trainer has accumulated."""
+        """Return this batch's report without its rows, which the trainer has accumulated."""
         return replace(self, rows=[])
 
 
 def prepare_batch(
     groups, training: TrainingSettings, *, metrics_limit: int = 32
 ) -> Sliced[PreparedBatch]:
-    """Score, weight and summarize a selected batch: all of a step's work on its tokens.
+    """Score, weight and summarize a selected batch, which is all of a step's work on its tokens.
 
-    CPU-bound and linear in the batch's tokens -- seconds for a large batch of long
-    rollouts -- so it pauses after each row it builds or weights, and the runner runs it on
-    the event loop with ``in_slices``: attempts, heartbeats and logging wait at most
-    a slice. Not in a worker thread: that holds the GIL just the same, and the loop
-    then waits for it after every I/O wakeup, which slows hundreds of rollouts' HTTP
-    traffic to a crawl. Selected groups are complete, and nothing changes them until
-    the batch is committed or aborted, so the tasks that run between slices cannot
-    change what is prepared.
+    The work is CPU-bound and linear in the batch's tokens, and it takes seconds for a
+    large batch of long rollouts. So it pauses after each row it builds or weights, and
+    the runner runs it on the event loop with ``in_slices``. Attempts, heartbeats and
+    logging then wait at most a slice. It doesn't run in a worker thread, because a
+    thread holds the GIL just the same. The loop would then wait for the GIL after
+    every I/O wakeup, which slows hundreds of rollouts' HTTP traffic to a crawl.
+    Selected groups are complete, and nothing changes them until the batch is
+    committed or aborted, so the tasks that run between slices can't change what is
+    prepared.
     """
     scored = yield from score_batch(groups)
     batch = yield from aggregate_loss_in_slices(scored.rows_by_group, training)
-    # Weighted rows share targets and inputs, but replace the advantage arrays. The
-    # originals go now, before transport, a group at a time: freeing them is a pass
-    # over every position too.
-    # Under replay, a row without provenance takes the whole batch off replay.
+    # Weighted rows share targets and inputs, but they replace the advantage arrays.
+    # The originals are freed now, before transport, a group at a time, because
+    # freeing them is also a pass over every position. Under replay, a row without
+    # provenance takes the whole batch off replay.
     unrecorded = sum(not row.routed for row in batch.rows) if training.router_replay else 0
     for unweighted in scored.rows_by_group:
         unweighted.clear()
@@ -581,9 +607,9 @@ def prepare_batch(
 
 
 def _lag_gauges(policy_version: int, rollouts) -> dict[str, float]:
-    """How many updates behind the trainer each trained rollout's oldest generation was.
+    """Report how many updates behind the trainer each trained rollout's oldest generation was.
 
-    ``freshness/lag_max`` reports only the worst; the spread says whether a batch is
+    ``freshness/lag_max`` reports only the worst. The spread says whether a batch is
     mostly fresh with one straggler, or old throughout.
     """
     lags = sorted(
@@ -600,10 +626,10 @@ def _lag_gauges(policy_version: int, rollouts) -> dict[str, float]:
 
 
 def _completion_spread_gauges(groups) -> dict[str, float]:
-    """Seconds from each trained group's first member resolving to its last.
+    """Report the seconds from each trained group's first member resolving to its last.
 
-    Its first finishers wait that long for the rest, ageing towards the freshness
-    limit; a wide spread means the run's rollouts are spread over many groups.
+    The group's first finishers wait that long for the rest, ageing towards the
+    freshness limit. A wide spread means the run's rollouts are spread over many groups.
     """
     spreads = [
         group.completed_at - group.first_resolved_at
@@ -619,7 +645,7 @@ def _completion_spread_gauges(groups) -> dict[str, float]:
 
 
 def mixed_policy_rollouts(rollouts: Sequence[Rollout]) -> int:
-    """Rollouts whose trainable generations came from more than one policy version."""
+    """Count rollouts whose trainable generations came from more than one policy version."""
     return sum(len(set(rollout.policy_versions)) > 1 for rollout in rollouts)
 
 
@@ -630,19 +656,19 @@ def _update_gauges(
     unusable_rewards: Sequence[float] = (),
     unusable_metadata: Sequence[Mapping[str, JsonValue]] = (),
 ) -> dict[str, float]:
-    """What only an optimizer update reports: the step, its batch, and its rows.
+    """Return what only an optimizer update reports, which is the step, its batch and its rows.
 
-    What is linear in the batch's tokens was summarized with its rows, off the event
-    loop, by ``prepare_batch``.
+    ``prepare_batch`` already summarized whatever is linear in the batch's tokens, with
+    its rows, in slices on the event loop.
 
     ``unusable_rewards`` are the graded rewards of groups dropped as unusable since the
-    previous update. ``reward/mean`` leaves them out, since they do not train;
+    previous update. ``reward/mean`` leaves them out, because they don't train.
     ``reward/mean_with_unusable`` counts them, so groups the policy solves or fails
     outright still show in the reward curve. ``unusable_metadata`` is the same members'
-    metadata: each numeric ``rollout/<key>`` the batch reports is also reported as
-    ``rollout/<key>_with_unusable``, so an all-pass rate counts the groups the policy
-    solves outright too. Both are reported every update, with or without unusable
-    groups, so their curves do not sample only the steps that dropped one.
+    metadata. Each numeric ``rollout/<key>`` the batch reports is also reported as
+    ``rollout/<key>_with_unusable``, so an all-pass rate also counts the groups the
+    policy solves outright. Both are reported every update, with or without unusable
+    groups, so their curves don't sample only the steps that dropped one.
     """
     selected = [rollout for group in groups for rollout in group.members]
     gauges = {
@@ -657,8 +683,8 @@ def _update_gauges(
     for key, mean in means.items():
         if f"rollout/{key}" in batch.rollout_gauges:
             gauges[f"rollout/{key}_with_unusable"] = mean
-    # The spread GRPO learns from is within each group; reward/std is across the
-    # whole batch, so it reads high even when every group's members scored alike.
+    # The spread GRPO learns from is within each group. reward/std is across the whole
+    # batch, so it reads high even when every group's members scored alike.
     spreads = [
         statistics.pstdev(rewards)
         for rewards in (
@@ -672,12 +698,13 @@ def _update_gauges(
         gauges["reward/group_std_max"] = max(spreads)
     gauges.update(_lag_gauges(report.policy_version_before, selected))
     gauges.update(_completion_spread_gauges(groups))
-    # What each trained group lost before training: GRPO's baseline is over its
+    # What each trained group lost before training. GRPO's baseline is over the
     # survivors, so losses bias it.
     lost = [group.expected - len(group.members) for group in groups]
     gauges["groups/rollouts_lost"] = float(sum(lost))
     gauges["groups/rollouts_lost_max"] = float(max(lost, default=0))
-    # Rollouts in the baseline that train nothing: their agent discarded every turn.
+    # Rollouts in the baseline that train nothing, because their agent discarded every
+    # turn.
     gauges["trajectory/untrained_rollouts"] = float(sum(not r.trains for r in selected))
     gauges["trajectory/forked_rollouts"] = batch.forked_rollouts
     gauges["trajectory/mixed_policy_rollouts"] = mixed_policy_rollouts(selected)
@@ -691,7 +718,7 @@ def _digest(data: bytes) -> str:
 
 
 def _content_digest(path: Path) -> str | None:
-    """A digest of a file, or of every file under a directory by relative path."""
+    """Return a digest of a file, or of every file under a directory by relative path."""
     if path.is_file():
         return _digest(path.read_bytes())
     if path.is_dir():
@@ -710,15 +737,20 @@ def _canonical(value: object) -> bytes:
 
 
 class Manifest(run_record.Manifest):
-    """An RL run's resume point: also where the task order was, and the policy version
-    and training contract a resumed run is held to."""
+    """An RL run's resume point.
+
+    Besides the common fields, it records where the task order was, and the policy
+    version and training contract that a resumed run is held to.
+    """
 
     method: Literal["rl"] = "rl"
     next_group_index: int = Field(ge=0)
     pending_group_indices: list[int] = Field(default_factory=list)
-    """Places below ``next_group_index`` whose groups had not trained when it was
-    written: a resume samples them first, in this order. Empty in a manifest written
-    before it had them, which resumes at ``next_group_index`` alone."""
+    """Places below ``next_group_index`` whose groups had not trained when the manifest was written.
+
+    A resume samples them first, in this order. The list is empty in a manifest written
+    before this field existed, and such a manifest resumes at ``next_group_index`` alone.
+    """
     policy_version: int = Field(ge=0)
     shuffle_seed: int
     contract: dict[str, Any]
@@ -750,19 +782,20 @@ class Run:
         preflight_only: bool = False,
         run_directory: Path | None = None,
     ) -> None:
-        """Everything a run uses is built by its composition root (``rl.recipe``) and
-        handed in: the trainer, restoring ``resume``'s state when there is one; the
-        runtime factory, which the run calls with its own context; and the renderer
-        factory, which it calls once per reasoning effort.
+        """Take everything the run uses from its composition root, ``rl.recipe``.
 
-        ``preflight_only`` is ``loops check``: it holds a resume to its contract
-        alone, and never opens the run the manifest names. ``run_directory`` is the
-        run ``evaluate_after`` evaluates.
+        The parts are the trainer, which restores ``resume``'s state when there is
+        one, the rollout runtime factory, which the run calls with its own context,
+        and the renderer factory, which the run calls once per reasoning effort.
+
+        ``preflight_only`` means ``loops check``. It holds a resume to its contract
+        alone, and it never opens the run the manifest names. ``run_directory`` is the
+        run that ``evaluate_after`` evaluates.
         """
         if config.providers and adapters is None:
             raise ValueError(
-                "[providers] is configured; build its adapters with "
-                "loops_cookbook.providers.create_adapters and pass them"
+                "[providers] is configured. Build its adapters with "
+                "loops_cookbook.providers.create_adapters and pass them."
             )
         self.config = config
         self.config_dir = (config_dir or Path.cwd()).resolve()
@@ -785,8 +818,9 @@ class Run:
         self._discarded = {"generations": 0, "tokens": 0}
         self._undelivered = {"generations": 0, "tokens": 0}
         self._unwritten = {"samples": 0, "transcripts": 0}
-        # Rollout ID -> attempt ID -> [undelivered, discarded by the agent], until the
-        # rollout's rollouts.jsonl record takes the counts of the attempt it names.
+        # Maps rollout ID to attempt ID to [undelivered, discarded by the agent]. The
+        # counts stay until the rollout's rollouts.jsonl record takes those of the
+        # attempt it names.
         self._dropped: dict[str, dict[str, list[int]]] = {}
         self._last_commit = None
         # True from the optimizer step's start until its publication returns.
@@ -798,30 +832,35 @@ class Run:
         self._pending_group_indices = list(resume.pending_group_indices) if resume else []
         self._runtime_factory = runtime_factory
         self._renderer_factory = renderer_factory
-        # Conversations render here, off the event loop, when the renderer is thread-safe.
+        # Conversations render here, off the event loop, when the renderer is
+        # thread-safe.
         self._render_pool = RenderPool()
         self._environ = environ
         self.capabilities: RuntimeCapabilities | None = None
-        # The rollout clock the run keeps, configured or the runtime's; set by preflight().
+        # The rollout clock the run keeps, which is configured or the rollout runtime's.
+        # preflight() sets it.
         self.rollout_timeout_seconds: float | None = None
-        # How attempts reach the model, configured or the runtime's; set by preflight().
+        # How attempts reach the model, which is configured or the rollout runtime's.
+        # preflight() sets it.
         self.model_access: ModelAccessMode | None = None
         self.group_grader: GroupGrader | None = None
-        # [eval.sets], built by preflight(), each with its count of tasks it shares
-        # with training.
+        # [eval.sets], which preflight() builds, each with the count of tasks it
+        # shares with training.
         self.eval_sets: tuple[EvalSet, ...] = ()
         self.eval_shared: dict[str, int] = {}
-        # One background task per eval step, by step (-1: the base model); and the
-        # (set, step) evals that ended, evaluated or not, so shutdown can name the rest.
+        # One background task per eval step, by step, where -1 is the base model. Also
+        # the (set, step) evals that ended, evaluated or not, so shutdown can name the
+        # rest.
         self._evals: dict[int, asyncio.Future[Any]] = {}
         self._evals_ended: set[tuple[str, int]] = set()
-        self._evals_written: set[str] = set()  # sets that wrote an eval's results
-        # Each set's latest eval, and its step: a set has one eval at a time.
+        self._evals_written: set[str] = set()  # Sets that wrote an eval's results.
+        # Each set's latest eval, and its step. A set has one eval at a time.
         self._set_evals: dict[str, tuple[int, asyncio.Task[None]]] = {}
-        self._set_eval_runs: list[asyncio.Task[None]] = []  # every set eval started
+        self._set_eval_runs: list[asyncio.Task[None]] = []  # Every set eval started.
         self._access: Callable[[AttemptLease], AttemptModelAccess] | None = None
         if resume is not None and not preflight_only:
-            # The same run, so the same ownership labels and resource journal.
+            # It is the same run, so it keeps the same ownership labels and resource
+            # journal.
             self.out, self.run_id = Path(resume.run_directory), resume.run_id
         self._manifest_order = run_record.ManifestOrder(self.out)
         self.trainer = trainer
@@ -835,8 +874,11 @@ class Run:
         max_concurrent_rollouts: int | None = None,
         metrics: MetricsSink | None = None,
     ) -> RuntimeContext:
-        """The training runtime's context; an eval set's names its own files, working
-        directory, concurrency and metrics sink."""
+        """Return the training rollout runtime's context.
+
+        An eval set's context names its own files, working directory, concurrency and
+        metrics sink.
+        """
         rollout = self.config.rollout
         return RuntimeContext(
             work_dir=work_dir or self.out / "runtime",
@@ -887,8 +929,10 @@ class Run:
         )
 
     def _runtime_files(self, overrides: Mapping[str, str] | None = None) -> dict[str, Path]:
-        """``[rollout_runtime.files]`` with ``overrides`` on top, relative paths resolved against
-        the config directory."""
+        """Return ``[rollout_runtime.files]`` with ``overrides`` on top.
+
+        Relative paths are resolved against the config directory.
+        """
         files = {**self.config.rollout_runtime.files, **(overrides or {})}
         return {
             alias: (Path(path) if Path(path).is_absolute() else self.config_dir / path)
@@ -926,8 +970,9 @@ class Run:
                 )
             except Exception:
                 cut_short.add(path)
-                # The trace is for reading the run, so a row it cannot write is
-                # reported, never a reason for the generation's attempt to fail.
+                # The trace is for reading the run, so a row it can't write is
+                # reported, and it is never a reason for the generation's attempt to
+                # fail.
                 self._unwritten["samples"] += 1
                 logger.warning(
                     "Attempt %s: the sample row of generation %s was not written",
@@ -946,8 +991,8 @@ class Run:
             attempts.setdefault(identity.attempt_id, [0, 0])[1 if delivered else 0] += 1
 
         async def write_transcript(identity: AttemptIdentity, transcript: SealedTranscript) -> None:
-            # A transcript runs to megabytes; encoding and writing it on the event loop
-            # would stall every gateway handler and attempt. It is immutable, so a
+            # A transcript runs to megabytes, and encoding and writing it on the event
+            # loop would stall every gateway handler and attempt. It is immutable, so a
             # thread can read it while the loop runs on. A cancelled write is over only
             # once its thread is, so a later write of the attempt never races it.
             try:
@@ -958,8 +1003,9 @@ class Run:
                     transcript,
                 )
             except (Exception, asyncio.CancelledError) as error:
-                # A cancelled write ran to its end: written, unless it failed, which
-                # the cancellation carries as its cause.
+                # A cancelled write ran to its end. The transcript was written, unless
+                # the write failed, and then the cancellation carries the failure as
+                # its cause.
                 failure = error.__cause__ if isinstance(error, asyncio.CancelledError) else error
                 if failure is not None:
                     self._unwritten["transcripts"] += 1
@@ -975,19 +1021,20 @@ class Run:
 
         def unrecordable_prompt() -> None:
             # Each such generation fails, and its rollout is discarded as a sampling
-            # failure; the cause is said once, where the config can fix it.
+            # failure. The cause is logged once, naming the settings that fix it.
             nonlocal warned_images
             if not warned_images:
                 warned_images = True
                 logger.warning(
-                    "A prompt has images, but [rollout_runtime] has_images = false and router "
+                    "A prompt has images, but [rollout_runtime] has_images = false, and router "
                     "replay records every generation, which Loops cannot do for an image "
-                    "prompt. Its rollout fails; set has_images = true and "
+                    "prompt. Its rollout fails. Set has_images = true and "
                     "router_replay = false."
                 )
 
-        # Recording copies every request, so it is on only for a reader: the run's
-        # trace, or a group grader, which reads each member's transcript.
+        # Recording copies every request, so it is on only when something reads it.
+        # That is the run's trace, or a group grader, which reads each member's
+        # transcript.
         keeps_transcripts = config.output.trace in {"transcripts", "full"}
         grouped = self.capabilities is not None and self.capabilities.pending_group_grade
         records_transcripts = keeps_transcripts or grouped
@@ -1049,18 +1096,20 @@ class Run:
     async def _unless_ended(
         self, error: BaseException, status: str, reason: str
     ) -> tuple[str, str]:
-        """``(status, reason)``, or ``loops_run_ended`` with what Loops reports when the
-        Loops run ended under this one: whatever noticed first, that is the cause.
+        """Return ``(status, reason)``, unless the Loops run ended under this one.
 
-        Asked only once the failure is recorded, so a cancellation while Loops answers
-        cannot lose the record; an ended run then records again, as such.
+        In that case, it returns ``loops_run_ended`` with what Loops reports. An ended
+        Loops run is the cause, whatever noticed first.
+
+        Loops is asked only once the failure is recorded, so a cancellation while Loops
+        answers can't lose the record. An ended run then records again, as such.
         """
         ended = await ended_under(self.trainer.run_ended)
         if not ended:
             return status, reason
         self._record_failure(error, "loops_run_ended", quiet=True)
         logger.error(
-            "The Loops run had ended under the run (%s): recorded as loops_run_ended", ended
+            "The Loops run had ended under the run (%s). It is recorded as loops_run_ended", ended
         )
         return "loops_run_ended", ended
 
@@ -1068,8 +1117,8 @@ class Run:
         """Record a run stopped by a cancellation, and say how shutdown goes on."""
         self._notice = (
             "Shutdown requested -- draining attempts for up to "
-            f"{self.config.rollout.shutdown_drain_seconds:g}s, then closing the runtime; "
-            "any cleanup that is not confirmed is reported"
+            f"{self.config.rollout.shutdown_drain_seconds:g}s, then closing the rollout "
+            "runtime. Any cleanup that is not confirmed is reported"
         )
         self._record_failure(error, "interrupted")
 
@@ -1079,9 +1128,9 @@ class Run:
         ``quiet`` rewrites a record already announced, under a status found since.
 
         Cleanup runs for up to the shutdown drain and fills the log with cancelled
-        trials and sandbox errors, so the original traceback surfaces thousands of
-        lines later -- or not at all, if the process does not survive to print it.
-        A run that died is exactly the run whose cause you need, so it is written
+        trials and sandbox errors. The original traceback then surfaces thousands of
+        lines later, or not at all if the process doesn't survive to print it. A run
+        that died is exactly the run whose cause you need, so the cause is written
         first, next to the run's own artifacts.
         """
         record = {
@@ -1095,20 +1144,20 @@ class Run:
         if destination is None or quiet:
             return
         if status == "interrupted":
-            # Not an error -- somebody asked for this. What they need next is not the
-            # cause but how long the shutdown takes, that its noise is expected, and
-            # how cleanup that did not finish will show.
+            # This isn't an error, because somebody asked for it. What they need next
+            # isn't the cause. They need how long the shutdown takes, that its noise
+            # is expected, and how cleanup that didn't finish will show.
             logger.warning(
-                "Interrupted; shutting down. In-flight attempts get up to %gs to settle, "
-                "then the runtime closes; errors about resources that have already "
-                "gone are expected, and not the cause. Any cleanup that is not "
-                "confirmed is logged before exit. Recorded in %s.",
+                "Interrupted, so shutting down. In-flight attempts get up to %gs to settle, "
+                "and then the rollout runtime closes. Errors about resources that have "
+                "already gone are expected, and they are not the cause. Any cleanup "
+                "that is not confirmed is logged before exit. Recorded in %s.",
                 self.config.rollout.shutdown_drain_seconds,
                 destination,
             )
             return
         logger.error(
-            "Run %s: %s. Cause recorded in %s; the cleanup output below is a "
+            "Run %s: %s. Cause recorded in %s. The cleanup output below is a "
             "consequence of it, not the cause.",
             status,
             record["error"],
@@ -1122,21 +1171,22 @@ class Run:
             self._reconcile_contract(self._resume.contract, self._resume_contract)
 
     def _reconcile_contract(self, stored: dict[str, Any], current: dict[str, Any]) -> None:
-        """Refuse what cannot work, reset what cannot mean anything, report the rest.
+        """Refuse what can't work, reset what can't mean anything, and report the rest.
 
         Only a little of a contract is unsound to change. Weights trained for another
-        base model or LoRA rank will not load at all, so that is refused. A task
-        cursor counts groups through one ordering of one task list, so against a
-        different seed or task set it points nowhere and is restarted. Everything
-        else -- batch shape, producers, tokenizer, renderer and its options, sampling policy, the
-        runtime's configuration, files and evidence digests -- only makes the two halves of the run
-        incomparable, and whether that matters is the caller's judgement. It is
-        recorded so a later comparison knows the settings moved mid-run.
+        base model or LoRA rank won't load at all, so that change is refused. A task
+        cursor counts groups through one ordering of one task list. Against a
+        different seed or task set it points nowhere, so it is restarted. Every other
+        change only makes the two halves of the run incomparable, and whether that
+        matters is the caller's judgement. Those changes cover the batch shape,
+        producers, tokenizer, renderer and its options, sampling policy, and the
+        rollout runtime's configuration, files and evidence digests. They are reported
+        so a later comparison knows the settings moved mid-run.
         """
         before, now = stored.get("training", {}), current["training"]
         # A contract recorded before runs kept where the renderer came from had no
-        # cookbook selection: Prime chose unless the config named a renderer. The
-        # class it built is unknown, so that is not compared.
+        # cookbook selection. Prime chose, unless the config named a renderer. The
+        # class it built is unknown, so the class is not compared.
         before = {
             "renderer_source": before.get("renderer") or renderer_source("", None),
             "renderer_class": now["renderer_class"],
@@ -1158,7 +1208,8 @@ class Run:
             for name in set(before) | set(now)
             if name not in ("base_model", "lora_rank") and before.get(name) != now.get(name)
         )
-        # A contract recorded before runs kept runtime evidence has none to compare.
+        # A contract recorded before runs kept rollout runtime evidence has none to
+        # compare.
         stored = {"runtime_evidence_digests": current["runtime_evidence_digests"], **stored}
         for name in (
             "runtime_config_digest",
@@ -1180,7 +1231,7 @@ class Run:
         ):
             logger.warning(
                 "Task set or order changed, so the checkpoint's cursor at group %d "
-                "means nothing here; starting the task order from the beginning.",
+                "means nothing here. The task order starts from the beginning.",
                 self._next_group_index,
             )
             self._next_group_index = 0
@@ -1223,20 +1274,20 @@ class Run:
     async def _last_gasp(self, pipeline: Pipeline) -> None:
         """Try to leave the last committed step resumable as the run goes down.
 
-        Only useful when that step fell between the checkpoint cadences -- if it
-        was already checkpointed there is nothing to add. Best effort by design:
-        when the trainer is what died, this cannot succeed, and saying so is more
-        use than raising over it while the caller is already unwinding.
+        This helps only when that step fell between the checkpoint cadences. If it was
+        already checkpointed, there is nothing to add. It is best effort by design.
+        When the trainer is what died, this can't succeed, and saying so is more use
+        than raising while the caller is already unwinding.
         """
         report = self._last_commit
         if report is None or report.checkpoint_state_path:
             return
         if self._committing:
-            # Cut between the optimizer step and publication: the trainer's state is
-            # neither the last committed step's nor a published one, so saving it
-            # under any step's name would make a resume one update off.
+            # The commit was cut between the optimizer step and publication. The
+            # trainer's state is neither the last committed step's nor a published one,
+            # so saving it under any step's name would make a resume one update off.
             logger.warning(
-                "A commit was cut short, so the trainer's state is not step %d's; no "
+                "A commit was cut short, so the trainer's state is not step %d's. No "
                 "last-gasp checkpoint is saved",
                 report.step,
             )
@@ -1246,49 +1297,49 @@ class Run:
             return
         self._checkpoint_progress(report, pipeline, state_path=state_path)
         logger.warning(
-            "Saved a last-gasp checkpoint for step %d; resume from %s",
+            "Saved a last-gasp checkpoint for step %d. Resume from %s",
             report.step,
             self.out / "checkpoints" / f"step-{report.step}.json",
         )
 
     def add_step_sink(self, sink: StepSink) -> Callable[[], None]:
-        """Observe every optimizer update; returns the call that detaches this sink.
+        """Observe every optimizer update, and return the call that detaches this sink.
 
-        A registry rather than a settable attribute, so attaching telemetry is not
-        a thing observers can do to each other: two can watch the same run, either
-        can leave without knowing about the other, and one attached after the run
-        started still receives every update from then on.
+        This is a registry, not a settable attribute, so observers can't undo each
+        other's telemetry. Two can watch the same run, and either can leave without
+        knowing about the other. One attached after the run started still receives
+        every update from then on.
         """
         self._step_sinks.append(sink)
 
         def detach() -> None:
-            """Idempotent: a second call is a no-op, not a ``ValueError``."""
+            """Detach the sink. A second call does nothing, instead of raising ``ValueError``."""
             if sink in self._step_sinks:
                 self._step_sinks.remove(sink)
 
         return detach
 
     def _emit_step(self, event: StepEvent) -> None:
-        """Offer one update to each observer. A failing one never ends the run.
+        """Offer one update to each observer. A failing observer never ends the run.
 
-        This is reached after the update has been applied, checkpointed and written
-        to the run record, and there is no recovery past this point in the loop --
-        so a sink raising here would discard a finished step, and with it a run that
-        may be days old, to report a fault in something that was only watching.
+        This runs after the update has been applied, checkpointed and written to the
+        run record, and there is no recovery past this point in the loop. A sink that
+        raised here would discard a finished step, and with it a run that may be days
+        old, to report a fault in something that was only watching.
         """
         for sink in list(self._step_sinks):
             try:
                 sink(event)
             except Exception:
-                logger.exception("A step observer failed; the update stands regardless")
+                logger.exception("A step observer failed. The update stands regardless")
 
     def _record_identity(self) -> None:
         """Write down which Loops run this is, and say so. Never raises.
 
-        The id is assigned at start and, until now, existed only in the log -- so
-        asking "which run do I reuse?" an hour later meant scrolling back through a
-        teardown. It belongs beside the run's other artifacts: `config.json` is what
-        was asked for, this is what was created, `failure.json` is how it ended.
+        The ID is assigned at start, and otherwise exists only in the log. Then asking
+        "which run do I reuse?" an hour later means scrolling back through a teardown.
+        It belongs beside the run's other artifacts. `config.json` is what was asked
+        for, this record is what was created, and `failure.json` is how it ended.
         """
         run_id = self._loops_run_id()
         if not run_id:
@@ -1302,66 +1353,67 @@ class Run:
 
     @property
     def notice(self) -> str | None:
-        """A line about the run's lifecycle, for pinning where it cannot scroll away.
+        """A line about the run's lifecycle, for pinning where it can't scroll away.
 
-        Words rather than gauges, which is why it is not in ``snapshot``: a teardown
-        takes minutes and buries itself in Harbor's per-trial output, so "this is
-        shutting down" has to stay on screen rather than be the line you scroll back
-        to find.
+        It is words, not gauges, which is why it isn't in ``snapshot``. A teardown takes
+        minutes and buries itself in Harbor's per-trial output, so "this is shutting
+        down" has to stay on screen instead of being a line you scroll back to find.
         """
         return self._notice
 
     def _loops_run_id(self) -> str | None:
-        """The trainer's Loops run id; None before it has one, or without a Loops client."""
+        """Return the trainer's Loops run ID, or None before it has one or with no Loops client."""
         return getattr(getattr(self.trainer, "client", None), "run_id", None)
 
     @property
     def evals_running(self) -> int:
-        """Set evals started and not yet ended, a final one waiting its turn included."""
+        """Count set evals started and not yet ended, including a final one waiting its turn."""
         return sum(not run.done() for run in self._set_eval_runs)
 
     @property
     def resume_step(self) -> int | None:
-        """The step this run resumes at, from the manifest it was given; ``None`` for a
-        fresh run."""
+        """The step this run resumes at, from the manifest it was given.
+
+        It is ``None`` for a fresh run.
+        """
         return self._resume.next_step if self._resume else None
 
     @property
     def loops_url(self) -> str | None:
-        """This run's page on Baseten, or ``None`` until the trainer has an id.
+        """This run's page on Baseten, or ``None`` until the trainer has an ID.
 
-        Only available once the trainer has started, which is exactly when it
-        becomes worth showing -- before that there is nothing to look at.
+        It is available only once the trainer has started, which is exactly when it
+        becomes worth showing. Before that, there is nothing to look at.
         """
         return loops_url(self._loops_run_id())
 
     def snapshot(self) -> dict[str, float] | None:
-        """Everything the run knows about itself right now, or ``None`` if nothing.
+        """Return everything the run knows about itself right now, or ``None`` if nothing.
 
-        The pull half of this run's observability, and the only definition of its
-        current state: the heartbeat, the terminal region and the per-update record
-        all read this, so none of them can drift from the others.
+        This is the pull half of the run's observability, and the only definition of
+        its current state. The heartbeat, the terminal region and the per-update record
+        all read it, so none of them can drift from the others.
 
-        ``None`` means there is no live pipeline to describe -- the run is still
-        provisioning, or has stopped -- and is distinct from a reading that happens
-        to be all zeroes, which is a real state and says the pipeline is idle. A
-        live pipeline is the only thing this waits on, so it doubles as the flag.
+        ``None`` means there is no live pipeline to describe, because the run is still
+        provisioning or has stopped. It differs from a reading that happens to be all
+        zeroes, which is a real state and says the pipeline is idle. A live pipeline is
+        the only thing this waits on, so it doubles as the flag.
 
-        Safe to call from another task at any moment -- before the pipeline exists,
-        between batches, while the run is unwinding. It reads counters and queue
-        sizes, never awaits and never mutates, so an observer's timer cannot
+        It is safe to call from another task at any moment, such as before the pipeline
+        exists, between batches or while the run is unwinding. It reads counters and
+        queue sizes, never awaits and never mutates, so an observer's timer can't
         interleave with the orchestration it is watching.
         """
         if self._pipeline is None:
             return None
         return {
-            # The caps travel with the counts so a reader never needs the config to
+            # The caps travel with the counts, so a reader never needs the config to
             # know whether 39 sampling is busy or nearly stalled.
             "progress/step": float(self._step),
-            # Which half of the loop the run is in. A gauge rather than a notice, so
-            # it reaches W&B and the progress file too -- on a long collection phase
-            # "has it started training yet" is the question, and the answer belongs
-            # beside the counts that explain the wait.
+            # Which half of the loop the run is in. It is a gauge, not a notice, so it
+            # also reaches W&B and the progress file. On a long collection phase, "has
+            # it started training yet?" is the question, and the answer belongs beside
+            # the counts that explain the wait.
             "progress/training": float(self._training),
             "progress/policy_version": float(self.trainer.policy_version),
             "progress/groups_needed": float(self.config.training.groups_per_step),
@@ -1375,18 +1427,19 @@ class Run:
         }
 
     def _discard_gauges(self) -> dict[str, float]:
-        """Generations sampled and then left out of the evidence, since this process began.
+        """Count generations sampled and then left out of the evidence, since this process began.
 
-        `discard/generations` counts them all: the ones the agent discarded, and the
-        ones sealing dropped because they were never delivered, which
-        `discard/undelivered_generations` counts on its own. Batch metrics describe
-        what survived selection, so these would otherwise be invisible:
-        `trajectory/sampled_tokens` would understate what the sampler actually
-        produced, with nothing saying by how much.
+        `discard/generations` counts them all. That covers the ones the agent
+        discarded, and the ones sealing dropped because they were never delivered,
+        which `discard/undelivered_generations` also counts on its own. Batch metrics
+        describe what survived selection, so these would otherwise be invisible.
+        `trajectory/sampled_tokens` would understate what the sampler produced, with
+        nothing saying by how much.
 
-        Not carried across a resume. The checkpoint manifest is a validated contract
-        for what training needs to continue correctly, and a diagnostic counter is
-        not that; a resumed run counts its own discards from zero.
+        The counts aren't carried across a resume. The checkpoint manifest is a
+        validated contract for what training needs to continue correctly, and a
+        diagnostic counter isn't part of that. A resumed run counts its own discards
+        from zero.
         """
         return {
             "discard/generations": float(self._discarded["generations"]),
@@ -1396,10 +1449,10 @@ class Run:
         }
 
     def _trace_gauges(self) -> dict[str, float]:
-        """Trace records that could not be written, since this process began.
+        """Count trace records that could not be written, since this process began.
 
-        A failed write never fails its attempt, so these are the only sign that the
-        trace beside the run record is incomplete, and by how much.
+        A failed write never fails its attempt, so these counts are the only sign that
+        the trace beside the run record is incomplete, and by how much.
         """
         return {
             "trace/unwritten_samples": float(self._unwritten["samples"]),
@@ -1407,11 +1460,11 @@ class Run:
         }
 
     def _rollout_record(self, record: dict[str, Any]) -> dict[str, Any]:
-        """A rollouts.jsonl record, with what its attempt sampled that is not in its evidence.
+        """Return a rollouts.jsonl record, with what its attempt sampled outside its evidence.
 
-        The counts are the recorded attempt's: generations sealing dropped because they
-        were never delivered, and generations the agent discarded. A rollout recorded
-        without an attempt sealed none, so both are zero.
+        The counts are the recorded attempt's. They count generations that sealing
+        dropped because they were never delivered, and generations the agent discarded.
+        A rollout recorded without an attempt sealed none, so both counts are zero.
         """
         attempts = self._dropped.pop(record["rollout_id"], {})
         undelivered, discarded = attempts.get(record["attempt_id"], (0, 0))
@@ -1442,10 +1495,10 @@ class Run:
 
     def _record_step(self, pipeline: Pipeline, report, groups, batch: PreparedBatch) -> None:
         """Write one applied update to the run record, tell observers, and log it."""
-        # Split by how often each source can report. The snapshot is also what
-        # heartbeats carry, and those have no step, so only what an update alone
-        # produces can be plotted per update. `or {}`: the accessor is nullable,
-        # and the caller only guards against OSError, so a TypeError here would
+        # Split the gauges by how often each source can report. The snapshot is also
+        # what heartbeats carry, and those have no step, so only what an update alone
+        # produces can be plotted per update. The accessor can return None, and the
+        # caller guards only against OSError. Without `or {}`, a TypeError here would
         # discard an update that is already applied and checkpointed.
         shared = self.snapshot() or {}
         per_update = _update_gauges(
@@ -1457,8 +1510,8 @@ class Run:
         )
         if self.config.training.mode == "async":
             per_update["admission/window_held_share"] = pipeline.take_window_held_share()
-        # A name both sources report is a heartbeat name; it keeps the time axis
-        # rather than changing meaning between records.
+        # A name both sources report is a heartbeat name. It keeps the time axis,
+        # instead of changing meaning between records.
         gauges = {**shared, **per_update}
         step_scoped = per_update.keys() - shared.keys()
         for group in groups:
@@ -1479,9 +1532,9 @@ class Run:
             },
         )
         self._emit_step(StepEvent(self._step, gauges, frozenset(step_scoped)))
-        # What the update produced, and nothing about where the pipeline is: the
-        # region shows that live and the heartbeat records it. `lag` is how stale
-        # the data trained on was, and `std` is the early warning for the
+        # Log what the update produced, and nothing about where the pipeline is. The
+        # region shows that live, and the heartbeat records it. `lag` is how stale the
+        # data trained on was. The reward's spread is the early warning for the
         # no-variance discards that stall a batch.
         logger.info(
             "step %d: loss %.4f  reward %.4f \u00b1%.3f  %d datums  lag %d  train %.1fs  total %s",
@@ -1501,16 +1554,16 @@ class Run:
         return self._registry
 
     def _run_scope(self) -> RunResourceService:
-        """The one run-scope service, whose leases shutdown ends before releasing."""
+        """Return the one run-scope service, whose leases shutdown ends before releasing."""
         if self._run_resources is None:
             self._run_resources = RunResourceService(self._resources(), self.run_id)
         return self._run_resources
 
     async def _open_resources(self) -> ResourceRegistry:
-        """The run's resource registry, after releasing what a previous process left.
+        """Open the run's resource registry, after releasing what a previous process left.
 
-        A resumed run reopens its own journal. Anything it cannot prove gone stays
-        in the journal for ``loops cleanup``, and the run goes ahead.
+        A resumed run reopens its own journal. Anything it can't prove gone stays in the
+        journal for ``loops cleanup``, and the run goes ahead.
         """
         if self._registry is not None:
             return self._registry
@@ -1542,22 +1595,23 @@ class Run:
         return registry
 
     async def close_resources(self) -> None:
-        """Shutdown steps 6 and 7: release the run scope, then close adapters and journal.
+        """Release the run scope, then close the adapters and the journal.
 
-        Provisioning stops first, and both steps share one bound,
-        ``shutdown_drain_seconds``: what is still in flight then is cut off and
-        reported, with the rest of what is unresolved, for ``loops cleanup``.
+        These are shutdown steps 6 and 7. Provisioning stops first, and both steps
+        share one bound, ``shutdown_drain_seconds``. What is still in flight then is
+        cut off and reported, with the rest of what is unresolved, for
+        ``loops cleanup``.
         """
         registry = self._registry
         if registry is None:
-            # The journal never opened, so no registry took the adapters: they are
-            # still the run's to close.
+            # The journal never opened, so no registry took the adapters. The run
+            # still has to close them.
             adapters, self._adapters = self._adapters, {}
             await close_adapters(adapters)
             return
         scope = self._run_resources or RunResourceService(registry, self.run_id)
         self._registry = self._run_resources = None
-        self._adapters = {}  # the registry closes them
+        self._adapters = {}  # The registry closes them.
         bound = self.config.rollout.shutdown_drain_seconds
         loop = asyncio.get_running_loop()
         deadline = loop.time() + bound
@@ -1568,16 +1622,18 @@ class Run:
         except TimeoutError:
             logger.warning(
                 "Releasing the run's resources did not finish within shutdown_drain_seconds "
-                "(%gs); what is left is cut off and reported",
+                "(%gs). What is left is cut off and reported",
                 bound,
             )
         finally:
             try:
-                # Waits for creates and releases still in flight, up to the same deadline,
-                # then gives what it cuts off, and the adapters, a short grace to stop.
+                # This waits for creates and releases still in flight, up to the same
+                # deadline. Then it gives what it cuts off, and the adapters, a short
+                # grace to stop.
                 await registry.close(timeout=max(0.0, deadline - loop.time()))
             finally:
-                # Reported however the close ended: failed, or cut short by an interrupt.
+                # Report this however the close ended, whether it failed or an interrupt
+                # cut it short.
                 unresolved = registry.unresolved
                 if unresolved.results:
                     self._report_unresolved(unresolved, registry.journal.path.parents[2])
@@ -1598,8 +1654,11 @@ class Run:
     async def preflight(
         self, *, training: bool = True
     ) -> tuple[RolloutRuntime, list[TaskRef], Renderers]:
-        """Build the runtime, discover its tasks, and validate what it declares.
-        ``training``: whether the run trains, or only evaluates (``loops eval``)."""
+        """Build the rollout runtime, discover its tasks, and validate what it declares.
+
+        ``training`` says whether the run trains, or only evaluates, as ``loops eval``
+        does.
+        """
         config = self.config
         check_open_file_limit(config, training=training)
         await self._open_resources()
@@ -1637,8 +1696,8 @@ class Run:
                 and config.rollout_runtime.openai
             ):
                 raise RuntimeConfigurationError(
-                    f"[rollout_runtime.openai] is set, and the runtime's model access is "
-                    f"{self.model_access.value!r}; it applies only to openai_http"
+                    f"[rollout_runtime.openai] is set, and the rollout runtime's model access is "
+                    f"{self.model_access.value!r}. It applies only to openai_http"
                 )
             self.group_grader = group_grader(runtime, capabilities)
             self.eval_sets = await self._build_eval_sets(tasks)
@@ -1650,11 +1709,12 @@ class Run:
         return runtime, tasks, renderers
 
     async def _build_eval_sets(self, training: list[TaskRef]) -> tuple[EvalSet, ...]:
-        """Each ``[eval.sets]`` entry: training's runtime factory and config on the set's
-        files, prepared and checked as training's runtime is.
+        """Build each ``[eval.sets]`` entry from training's rollout runtime factory and config.
 
-        A set whose runtime resolves another model access is refused, since one gateway
-        serves both. Tasks it shares with training are counted and warned about.
+        Each set uses its own files, and it is prepared and checked the way training's
+        rollout runtime is. A set whose rollout runtime resolves another model access is
+        refused, because one gateway serves both. Tasks a set shares with training are
+        counted and warned about.
         """
         config = self.config
         configured = (
@@ -1696,7 +1756,7 @@ class Run:
                     if mode is not self.model_access:
                         raise RuntimeConfigurationError(
                             f"eval set {name!r} resolves model access {mode.value!r}, and "
-                            f"training {getattr(self.model_access, 'value', None)!r}; both "
+                            f"training {getattr(self.model_access, 'value', None)!r}. Both "
                             "must use the same"
                         )
                     grader = group_grader(runtime, capabilities)
@@ -1709,7 +1769,7 @@ class Run:
                 self.eval_shared[name] = len(shared)
                 if shared:
                     logger.warning(
-                        "eval set %r shares %d task(s) with training (%s); its scores "
+                        "eval set %r shares %d task(s) with training (%s). Its scores "
                         "include tasks the policy trains on",
                         name,
                         len(shared),
@@ -1734,7 +1794,7 @@ class Run:
         return tuple(built)
 
     def _open_gateway(self) -> Gateway | None:
-        """The run's Chat Completions gateway, for ``model_access = "openai_http"``.
+        """Return the run's Chat Completions gateway, for ``model_access = "openai_http"``.
 
         It binds its listener when the first attempt asks for a connection.
         """
@@ -1752,10 +1812,10 @@ class Run:
         )
 
     def _renderers(self) -> Renderers:
-        """The run renderer and one per ``[model.reasoning_efforts]`` value, each probed.
+        """Build the run renderer and one per ``[model.reasoning_efforts]`` value, each probed.
 
-        Every renderer comes from the same factory: an effort only overrides the
-        template options its table entry names.
+        Every renderer comes from the same factory. An effort only overrides the
+        template options that its table entry names.
         """
         model = self.config.model
         base = self._renderer_factory(self.config)
@@ -1775,16 +1835,19 @@ class Run:
     def _start_eval(
         self, step: int, path: str | None, version: int, *, final: bool = False
     ) -> None:
-        """Evaluate every eval set at ``step`` in the background, on a sampler pinned to
-        ``path`` (the base model when None) at policy ``version``. On dedicated Loops a
-        set whose last eval is still running skips this one, unless it is the ``final``
-        one, which waits. On serverless a set's evals overlap, each with its own cap."""
+        """Evaluate every eval set at ``step`` in the background.
+
+        Each set runs on a sampler pinned to ``path`` at policy ``version``. When
+        ``path`` is None, the sampler serves the base model. On dedicated Loops, a set
+        whose last eval is still running skips this one, unless this is the ``final``
+        eval, which waits. On serverless, a set's evals overlap, each with its own cap.
+        """
         if not self.eval_sets:
             return
         if path is not None and not path.startswith("bt://loops:"):
             # Only a dev trainer's local weight sync publishes such a path.
             logger.warning(
-                "eval at step %d skipped: the trainer returned %r, which a sampler cannot serve",
+                "eval at step %d skipped. The trainer returned %r, which a sampler cannot serve",
                 step,
                 path,
             )
@@ -1792,8 +1855,8 @@ class Run:
         runs = []
         serverless = self.trainer.serverless
         for eval_set in self.eval_sets:
-            # A serverless sampler costs nothing while it waits, so nothing is saved by
-            # running a set's evals one at a time.
+            # A serverless sampler costs nothing while it waits, so running a set's evals
+            # one at a time saves nothing.
             previous = None if serverless else self._running_eval(eval_set)
             if previous is not None and not final:
                 self._skip_busy(eval_set, step, previous[0])
@@ -1812,8 +1875,8 @@ class Run:
             self._set_eval_runs.append(run)
             runs.append(run)
         if runs:
-            # The sets of one step at once, each on its own sampler. Cancelled, it ends
-            # only once every set has cleaned up.
+            # Run the sets of one step at once, each on its own sampler. When this is
+            # cancelled, it ends only once every set has cleaned up.
             self._evals[step] = asyncio.gather(*runs, return_exceptions=True)
 
     def _running_eval(self, eval_set: EvalSet) -> tuple[int, asyncio.Task[None]] | None:
@@ -1824,8 +1887,8 @@ class Run:
         self._evals_ended.add((eval_set.name, step))
         logger.warning(
             "eval %r at step %d skipped: its eval %s is still running, and on dedicated "
-            "Loops a set runs one eval at a time. Raise [eval] every_steps to evaluate "
-            "every one.%s",
+            "Loops a set runs one eval at a time. Raise [eval] every_steps so that no "
+            "eval is skipped.%s",
             eval_set.name,
             step,
             "before training" if running < 0 else f"at step {running}",
@@ -1841,10 +1904,10 @@ class Run:
         *,
         after: tuple[int, asyncio.Task[None]] | None = None,
     ) -> None:
-        """One set's eval: its own sampler, always deactivated; its rows and gauges.
-        ``after`` is the set's eval still running, which the final eval waits for.
+        """Run one set's eval on its own sampler, which is always deactivated, and record it.
 
-        Nothing here reaches the run but a cancellation: a skipped or failed eval is
+        ``after`` is the set's eval still running, which the final eval waits for.
+        Only a cancellation reaches the run from here. A skipped or failed eval is
         logged, and training goes on.
         """
         config, name = self.config, eval_set.name
@@ -1854,8 +1917,9 @@ class Run:
         if eval_set.slots is not None and eval_set.slots.all_kept:
             self._evals_ended.add((name, step))
             logger.error(
-                "eval %r %s skipped: hooks of its earlier evals ignored cancellation past "
-                "their grace and hold all %d of its slots until they end. Training continues.",
+                "eval %r %s skipped. Hooks of its earlier evals ignored cancellation past "
+                "their grace, and they hold all %d of its slots until they end. Training "
+                "continues.",
                 name,
                 where,
                 eval_set.slots.cap,
@@ -1871,12 +1935,12 @@ class Run:
                 "eval %r %s stopped while its sampler was starting. %s", name, where, _MAY_BE_UP
             )
             raise
-        except Exception as error:  # noqa: BLE001 - a sampler that did not start skips this eval
+        except Exception as error:  # noqa: BLE001 - a sampler that didn't start skips this eval
             self._evals_ended.add((name, step))
             logger.error(
                 "eval %r %s skipped: its sampler was not ready (%s: %s). On dedicated Loops "
                 "each eval starts a sampler deployment, which needs free allocation for %s "
-                "at max_seq_len %s; raise [eval] sampler_start_timeout_seconds or evaluate "
+                "at max_seq_len %s. Raise [eval] sampler_start_timeout_seconds or evaluate "
                 "less often. Training continues.%s %s",
                 name,
                 where,
@@ -1889,7 +1953,7 @@ class Run:
             )
             return
         ready = monotonic() - started
-        metrics = MetricsSink()  # this eval's alone: evals of other steps run beside it
+        metrics = MetricsSink()  # This eval's alone, because evals of other steps run beside it.
         try:
             result = await evaluate(
                 eval_set,
@@ -1907,7 +1971,7 @@ class Run:
             raise
         except Exception:
             self._evals_ended.add((name, step))
-            logger.exception("eval %r %s failed; training continues.%s", name, where, _later(step))
+            logger.exception("eval %r %s failed. Training continues.%s", name, where, _later(step))
             return
         finally:
             await see_through(asyncio.ensure_future(self.trainer.deactivate_sampler(sampler)))
@@ -1918,9 +1982,9 @@ class Run:
             )
             self._record_eval(eval_set, step, result, metrics, ready, monotonic() - started)
             self._evals_written.add(name)
-        except Exception:  # recording one eval never ends the others
+        except Exception:  # Recording one eval never ends the others.
             self._evals_ended.add((name, step))
-            logger.exception("eval %r %s could not be recorded; training continues", name, where)
+            logger.exception("eval %r %s could not be recorded. Training continues", name, where)
             return
         self._evals_ended.add((name, step))
 
@@ -1933,14 +1997,17 @@ class Run:
         ready: float,
         seconds: float,
     ) -> None:
-        """One eval's gauges, and what its episodes reported, to the step sinks; its line
-        to the log."""
+        """Send one eval's gauges, and what its episodes reported, to the step sinks.
+
+        It also writes the eval's line to the log.
+        """
         name = eval_set.name
         where = "before training" if step < 0 else f"at step {step}"
         gauges = {
             **result.gauges,
             **{f"eval/{name}/{key}": value for key, value in metrics.snapshot().items()},
-            # What the set's runtime reports through its context, across its evals so far.
+            # What the set's rollout runtime reports through its context, across its
+            # evals so far.
             **{
                 f"eval/{name}/set/{key}": value
                 for key, value in eval_set.metrics.snapshot().items()
@@ -1971,9 +2038,12 @@ class Run:
         self._unclean = True
 
     def _eval_driver(self, eval_set: EvalSet, sampler: Any, version: int, metrics: MetricsSink):
-        """The driver factory ``evaluate`` calls: training's settings but the set's own
-        rollout clock, the eval's own ``metrics``, training's access and resources, over
-        leases pinned to the eval's sampler and version."""
+        """Return the driver factory that ``evaluate`` calls.
+
+        The driver uses training's settings, but the set's own rollout clock and the
+        eval's own ``metrics``. It uses training's model access and resources, over
+        leases pinned to the eval's sampler and version.
+        """
         access = self._access
         if access is None:
             raise RuntimeError("evals start once the run's model access is built")
@@ -1990,14 +2060,16 @@ class Run:
                     rollout_timeout_seconds=eval_set.rollout_timeout_seconds,
                 ),
                 capacity=capacity,
-                # No affinity key: replica affinity is the paired sampler's prefix cache.
+                # No affinity key, because replica affinity serves the paired sampler's
+                # prefix cache.
                 leases=lambda identity: AttemptLease(identity, wiring, affinity_key=None),
                 access=access,
                 resources=lambda identity, phases: EpisodeResourceService(
                     self._resources(), identity.attempt_id, phases.resource_operation
                 ),
                 metrics=metrics,
-                # Fixed: every sample is at the eval's version, so nothing is stale.
+                # This is fixed. Every sample is at the eval's version, so nothing is
+                # stale.
                 policy_version=lambda: version,
                 on_systemic=on_systemic,
                 run_ended=self.trainer.run_ended,
@@ -2006,9 +2078,11 @@ class Run:
         return driver
 
     def _eval_wiring(self, eval_set: EvalSet, sampler: Any, version: int) -> LeaseWiring:
-        """Training's lease wiring, pinned to the eval's sampler and version, recording
-        nothing. Samples keep training's trainable flags, which is what lets the driver
-        version them; none trains, since eval rollouts never reach the trainer."""
+        """Return training's lease wiring, pinned to the eval's sampler and version.
+
+        The wiring records nothing. Samples keep training's trainable flags, which is what lets the driver version
+        them. None of them trains, because eval rollouts never reach the trainer.
+        """
         config = self.config
 
         async def nothing(identity: AttemptIdentity, sample: Sample) -> None:
@@ -2038,15 +2112,16 @@ class Run:
             on_sample=nothing,
             on_discard=lambda identity, sample: None,
             on_undelivered=lambda identity, sample: None,
-            # An eval records every conversation, whatever [output] trace says: it is
-            # small, and what the policy said is the point of evaluating it.
+            # An eval records every conversation, whatever [output] trace says. An eval
+            # is small, and what the policy said is the point of evaluating it.
             records_transcripts=True,
         )
 
     async def _finish_evals(self, *, wait: bool) -> None:
-        """Wait for the evals still running, or cancel them; either way each one
-        deactivates its sampler before this returns. Then name the ones that did not
-        finish."""
+        """Wait for the evals still running, or cancel them, then name the ones that didn't finish.
+
+        Either way, each eval deactivates its sampler before this returns.
+        """
         tasks = list(self._evals.values())
         if tasks:
             gathered = asyncio.gather(*tasks, return_exceptions=True)
@@ -2071,8 +2146,10 @@ class Run:
                             logger.warning("eval %r %s did not finish", eval_set.name, where)
 
     async def close_runtimes(self, runtime: RolloutRuntime) -> None:
-        """Close the training runtime and every eval set's, each as ``close_runtime``
-        closes one; all are attempted whatever happens to the others."""
+        """Close the training rollout runtime and every eval set's, each as ``close_runtime`` does.
+
+        Every close is attempted, whatever happens to the others.
+        """
         try:
             await self.close_runtime(runtime)
         finally:
@@ -2080,8 +2157,11 @@ class Run:
             await self._close_each(eval_set.runtime for eval_set in eval_sets)
 
     async def _close_each(self, runtimes: Iterable[RolloutRuntime]) -> None:
-        """``close_runtime`` on each; a cancellation cuts one close short, not the
-        closes after it, and is raised once every one has been attempted."""
+        """Run ``close_runtime`` on each rollout runtime.
+
+        A cancellation cuts one close short, but not the closes after it. It is raised
+        once every close has been attempted.
+        """
         interrupted: asyncio.CancelledError | None = None
         for runtime in runtimes:
             try:
@@ -2092,10 +2172,11 @@ class Run:
             raise interrupted
 
     async def close_runtime(self, runtime: RolloutRuntime) -> None:
-        """Shutdown step 4: ``close()`` under the cleanup deadline, then a bounded grace.
+        """Call ``close()`` under the cleanup deadline, then allow a bounded grace.
 
-        A ``close()`` that still has not stopped is reported and the run goes on
-        closing: shutdown is already under way, so this is not a systemic failure.
+        This is shutdown step 4. A ``close()`` that still hasn't stopped is reported,
+        and the run goes on closing. Shutdown is already under way, so this is not a
+        systemic failure.
         """
         cleanup = self.config.rollout.cleanup
         task = asyncio.create_task(runtime.close(), name="runtime-close")
@@ -2106,22 +2187,24 @@ class Run:
         stopped.propagate()
         if not stopped.settled:
             logger.error(
-                "The runtime's close() did not stop within %gs plus %gs of grace; its "
-                "cleanup is not confirmed and the run does not end cleanly.",
+                "The rollout runtime's close() did not stop within %gs plus %gs of grace. "
+                "Its cleanup is not confirmed, and the run does not end cleanly.",
                 cleanup.timeout_seconds,
                 cleanup.cancellation_grace_seconds,
             )
             self._unclean = True
             return
         if task.cancelled():
-            logger.error("The runtime's close() was cancelled at its deadline")
+            logger.error("The rollout runtime's close() was cancelled at its deadline")
             self._unclean = True
         elif (error := task.exception()) is not None:
-            logger.error("The runtime's close() failed: %s", _describe(error), exc_info=error)
+            logger.error(
+                "The rollout runtime's close() failed: %s", _describe(error), exc_info=error
+            )
             self._unclean = True
 
     def _open_access(self, renderers: Renderers) -> Callable[[AttemptLease], AttemptModelAccess]:
-        """How attempts reach the model: directly, or over the run's gateway, opened here."""
+        """Return how attempts reach the model, directly or over the run's gateway, opened here."""
         gateway = self._gateway = self._open_gateway()
 
         def access(lease: AttemptLease) -> AttemptModelAccess:
@@ -2140,13 +2223,16 @@ class Run:
         trainer_state: str | None = None,
         policy_version: int = 0,
     ) -> list[str]:
-        """``loops eval``: evaluate update ``step`` of the run in ``self.out`` (-1: the
-        base model) as an eval during the run would, writing the same files, with every
-        eval set of the config; the sets that ran it.
+        """Evaluate update ``step`` of the run in ``self.out``, as ``loops eval`` does.
+
+        Step -1 is the base model. The eval runs as an eval during the run would, with
+        every eval set of the config, and writes the same files. It returns the names
+        of the sets that ran.
 
         The weights are the ``sampler_weights`` path the run kept for ``step`` at
-        ``policy_version``, or else its ``trainer_state``, which a trainer of its own
-        saves for a sampler first; that trainer's Loops run is deactivated after.
+        ``policy_version``. Otherwise, they come from the step's ``trainer_state``,
+        which a trainer of this command's own first saves for a sampler. That trainer's
+        Loops run is deactivated afterwards.
         """
         runtime: RolloutRuntime | None = None
         made_weights = started = False
@@ -2168,7 +2254,8 @@ class Run:
             started = True
         finally:
             try:
-                # Waits for the evals started; anything raised before cancels them.
+                # Wait for the evals that started. Anything raised before this cancels
+                # them.
                 await self._finish_evals(wait=started)
             finally:
                 try:
@@ -2186,7 +2273,7 @@ class Run:
                         finally:
                             try:
                                 # Whatever else fails to close, the trainer made for
-                                # the weights stops billing.
+                                # the weights must stop billing.
                                 if made_weights:
                                     await self.trainer.deactivate_run()
                             finally:
@@ -2219,8 +2306,9 @@ class Run:
             self.reconcile_resume(tasks, renderers.base)
             limit = config.training.step_limit
             if self._resume and run_record.finished(self._step, limit):
-                # After the resume checks, so `loops run` refuses what `loops check`
-                # refuses; before the trainer, so nothing is provisioned.
+                # This comes after the resume checks, so `loops run` refuses what
+                # `loops check` refuses. It comes before the trainer starts, so nothing
+                # is provisioned.
                 assert limit is not None
                 run_record.report_finished(limit, *finished_hint(limit))
                 raise _NothingToTrain
@@ -2233,7 +2321,7 @@ class Run:
             settings = self._driver_settings()
             access = self._open_access(renderers)
             if self._resume is None and not config.training.init_from:
-                # The base model's eval; a run that starts from other weights has none.
+                # The base model's eval. A run that starts from other weights has none.
                 self._start_eval(-1, None, self.trainer.policy_version)
 
             def driver(
@@ -2255,8 +2343,9 @@ class Run:
                     policy_version=lambda: self.trainer.policy_version,
                     on_systemic=on_systemic,
                     on_sealed=on_sealed,
-                    # Only from here: start() returned once the trainer and sampler
-                    # were ready, so their readiness wait never meets a status check.
+                    # This is wired only here. start() returned once the trainer and
+                    # sampler were ready, so their readiness wait never meets a status
+                    # check.
                     run_ended=self.trainer.run_ended,
                 )
 
@@ -2267,8 +2356,9 @@ class Run:
                 initial_group_index=self._next_group_index,
                 initial_step=self._step,
                 replay_group_indices=self._pending_group_indices,
-                # Every rollout's disposition, discarded ones too: sliced by task or
-                # length from the file, rather than a metric per task.
+                # Record every rollout's disposition, including discarded ones. Readers
+                # slice them by task or length from the file, instead of a metric per
+                # task.
                 on_rollout=lambda record: _append_json(
                     self.out / "rollouts.jsonl", self._rollout_record(record)
                 ),
@@ -2276,17 +2366,18 @@ class Run:
             )
             async with pipeline:
                 # This `finally` runs before `__aexit__`, which drains for up to
-                # shutdown_drain_seconds. Observers poll throughout that, and a
-                # stopped pipeline's frozen counts beside a still-climbing clock
-                # read as a run that is working.
+                # shutdown_drain_seconds. Observers poll throughout the drain. A stopped
+                # pipeline's frozen counts beside a still-climbing clock would read as
+                # a run that is working.
                 try:
                     while limit is None or self._step < limit:
                         groups = await pipeline.next_batch()
                         self._training = True
                         try:
                             pipeline.start_training(groups)
-                            # Seconds of CPU for a large batch, in slices: every
-                            # attempt, heartbeat and log line waits at most one.
+                            # This is seconds of CPU for a large batch, so it runs in
+                            # slices. Every attempt, heartbeat and log line waits at
+                            # most one slice.
                             batch = await in_slices(
                                 prepare_batch(
                                     groups,
@@ -2305,12 +2396,13 @@ class Run:
                                     batch.rows,
                                     batch.aggregation,
                                 )
-                            # Only this runner updates the trainer, so its version cannot
-                            # change between refresh, backward, and commit.
+                            # Only this runner updates the trainer, so its version can't
+                            # change between refresh, backward and commit.
                             await self.trainer.accumulate(batch.rows)
-                            # Accumulated, so the rows -- gigabytes for a large batch
-                            # of long rollouts -- go now: the commit, checkpoint and
-                            # step record need only what the batch reports.
+                            # The rows are accumulated, so free them now. They can be
+                            # gigabytes for a large batch of long rollouts, and the
+                            # commit, checkpoint and step record need only what the
+                            # batch reports.
                             batch = batch.trained()
                             self._committing = True
                             report = await self.trainer.commit(
@@ -2327,9 +2419,10 @@ class Run:
                             self._training = False
                             pipeline.abort_batch(groups)
                             raise
-                        # Published, so applied: the batch is trained and the step
-                        # counts whatever happens to its checkpoint, or a resume would
-                        # repeat an update the sampler already serves.
+                        # The update is published, so it is applied. The batch is
+                        # trained, and the step counts whatever happens to its
+                        # checkpoint. Otherwise a resume would repeat an update the
+                        # sampler already serves.
                         pipeline.commit_batch(groups)
                         self._last_commit = report
                         try:
@@ -2341,7 +2434,8 @@ class Run:
                             self._checkpoint_progress(report, pipeline)
                             self._last_commit = report
                             if report.sampler_weights is not None:
-                                # What `loops eval` serves to evaluate this step later.
+                                # `loops eval` serves these weights to evaluate this
+                                # step later.
                                 _append_json(
                                     self.out / SAMPLER_WEIGHTS,
                                     {
@@ -2351,7 +2445,8 @@ class Run:
                                         "written_at": time(),
                                     },
                                 )
-                            # No weights path: the trainer said so, and the eval is skipped.
+                            # Without a weights path, the trainer has said it kept none,
+                            # and the eval is skipped.
                             if evaluated and report.sampler_weights is not None:
                                 self._start_eval(
                                     self._step,
@@ -2361,35 +2456,37 @@ class Run:
                                 )
                         finally:
                             self._training = False
-                            # Bookkeeping about an update that is already applied; none
-                            # of it can be allowed to discard that update.
+                            # This is bookkeeping about an update that is already
+                            # applied, and none of it may discard that update.
                             try:
                                 self._record_step(pipeline, report, groups, batch)
                             except OSError:
-                                # Only the environment. A value that will not serialise, a
-                                # key that is missing, a rollout with no samples -- those
-                                # say a number or an invariant went wrong, and training on
-                                # for days would produce a run whose own record the audit
-                                # rejects.
+                                # Catch only environment failures. A value that won't
+                                # serialize, a missing key or a rollout with no samples
+                                # says a number or an invariant went wrong. Training on
+                                # for days would then produce a run whose own record the
+                                # audit rejects.
                                 logger.exception(
-                                    "Could not record step %d; the update itself stands",
+                                    "Could not record step %d. The update itself stands",
                                     self._step,
                                 )
                             self._step += 1
                             steps_completed += 1
-                        # Recorded. Collecting the next batch can take as long as a
-                        # step; this one's rollouts must not be held through it.
+                        # The step is recorded. Collecting the next batch can take as
+                        # long as a step, and this step's rollouts must not be held
+                        # through it.
                         del groups, batch
                 finally:
                     self._pipeline = None
-                    # However the run ends -- interrupted, aborted, failed, or a
-                    # checkpoint that failed after its update was published -- the
-                    # last applied update is kept if its cadence skipped it. Seen
-                    # through: on Ctrl-C this task is already cancelling, and the save
-                    # is bounded by its own timeout.
+                    # However the run ends, the last applied update is kept if its
+                    # cadence skipped it. That covers a run interrupted, aborted or
+                    # failed, and a checkpoint that failed after its update was
+                    # published. The save is seen through, because on Ctrl-C this task
+                    # is already cancelling, and the save has its own timeout.
                     await see_through(asyncio.ensure_future(self._last_gasp(pipeline)))
         except _NothingToTrain:
-            # Through the cleanup below, so a runtime that did not close is reported.
+            # Go through the cleanup below, so a rollout runtime that didn't close is
+            # reported.
             pass
         except asyncio.CancelledError as error:
             status, reason = "interrupted", "run cancelled"
@@ -2409,24 +2506,25 @@ class Run:
             self._record_failure(error, status)
             if isinstance(error, Exception):
                 status, reason = await self._unless_ended(error, status, reason)
-            # A Loops run that ended under the run is the cause, and resumable: reported
-            # as such, not raised.
+            # A Loops run that ended under the run is the cause, and the run is
+            # resumable. It is reported as such, not raised.
             if status == "failed":
                 raise
         finally:
-            # Evals first: their samplers are deactivated through the trainer's client,
-            # and their rollouts use the runtimes, gateway and resources closed below.
+            # Finish the evals first. Their samplers are deactivated through the
+            # trainer's client, and their rollouts use the rollout runtimes, gateway and
+            # resources closed below.
             try:
                 await self._finish_evals(wait=status == "completed")
             except asyncio.CancelledError as error:
-                # Stopped while a completed run waits for its final evals: recorded as
-                # any other interruption.
+                # A stop while a completed run waits for its final evals is recorded
+                # like any other interruption.
                 if status == "completed":
                     status, reason = "interrupted", "run cancelled"
                     self._interrupted(error)
                 raise
             finally:
-                # Whatever stops the eval wait, a Ctrl-C among them, the rest of
+                # Whatever stops the eval wait, including a Ctrl-C, the rest of
                 # shutdown still runs.
                 if pipeline is not None and not pipeline.settled:
                     self._unclean = True
@@ -2436,7 +2534,8 @@ class Run:
                             await self.close_runtimes(runtime)
                     finally:
                         try:
-                            # Shutdown step 5: stopping the gateway revokes every credential left.
+                            # Shutdown step 5. Stopping the gateway revokes every
+                            # credential left.
                             if self._gateway is not None:
                                 await self._gateway.close()
                                 self._gateway = None
@@ -2444,10 +2543,11 @@ class Run:
                             self._render_pool.close()
                             await self.close_resources()
                 finally:
-                    # Last: the run ends only once nothing else uses it.
+                    # Close the trainer last. The run ends only once nothing else uses
+                    # it.
                     await self.trainer.close()
         if self._unclean and status == "completed":
-            status, reason = "unclean", "attempt or runtime cleanup is not confirmed"
+            status, reason = "unclean", "attempt or rollout runtime cleanup is not confirmed"
         return Outcome(
             status,
             steps_completed,
@@ -2457,34 +2557,37 @@ class Run:
         )
 
 
-# Open files a run needs: a floor for the process itself, and an allowance for each
-# attempt that can be live at once (its sandbox connections, trial logs, transcript and
-# sample files). An estimate, not a measurement; on 1 Oct 2026 a run with ~120 live
-# trials died at macOS's default soft limit of 256.
+# The open files a run needs. There is a floor for the process itself, and an
+# allowance for each attempt that can be live at once, which covers its sandbox
+# connections, trial logs, transcript and sample files. These are estimates, not
+# measurements. A run with about 120 live trials died at macOS's default soft limit
+# of 256.
 OPEN_FILES_FLOOR = 256
 OPEN_FILES_PER_LIVE_ATTEMPT = 32
 
 
 def check_open_file_limit(config: Config, *, training: bool = True, limits=None) -> None:
-    """Refuse a run whose process may not open the files its live attempts need: its
-    eval rollouts, and its training's when ``training`` (``loops eval`` trains none).
+    """Refuse a run whose process may not open the files its live attempts need.
 
-    Past the limit, sockets fail first: DNS lookups to the sampler, sandbox calls and
-    journal writes all raise, minutes into a billed run. The limit is the caller's to
-    raise (``ulimit -n``); this only says so before anything starts.
+    The attempts are its eval rollouts, plus its training's when ``training`` is true.
+    ``loops eval`` trains nothing.
+
+    Past the limit, sockets fail first. DNS lookups to the sampler, sandbox calls and
+    journal writes all raise, minutes into a billed run. The caller raises the limit,
+    with ``ulimit -n``. This check only says so before anything starts.
     """
     try:
         import resource
-    except ImportError:  # not POSIX: no such limit to check
+    except ImportError:  # Not POSIX, so there is no such limit to check.
         return
     soft, _ = limits if limits is not None else resource.getrlimit(resource.RLIMIT_NOFILE)
     if soft == resource.RLIM_INFINITY:
         return
     rollout = config.rollout
-    # On dedicated Loops a set's cap spans all its evals, so evals add at most every
-    # set's cap; on serverless they overlap, each with its own, so this is a floor. A
-    # rollout frees its slot before its task's group grading, which takes one of the
-    # eval's verifier slots: a set can have that many more live.
+    # On dedicated Loops, a set's cap spans all its evals, so evals add at most every
+    # set's cap. On serverless, evals overlap, each with its own cap, so this is a
+    # floor. A rollout frees its slot before its task's group grading, which takes one
+    # of the eval's verifier slots, so a set can have that many more live.
     live = sum(
         cap + min(cap, rollout.max_concurrent_verifiers)
         for cap in (eval_set.max_concurrent_rollouts for eval_set in config.eval.sets.values())
@@ -2502,8 +2605,8 @@ def check_open_file_limit(config: Config, *, training: bool = True, limits=None)
     if soft < needed:
         raise RuntimeConfigurationError(
             f"this process may open {soft} files, and up to {live} attempts can be live at once "
-            f"({kinds}), which needs about {needed}; raise the limit before starting, e.g. "
-            f"`ulimit -n {max(needed, 65536)}`"
+            f"({kinds}), which needs about {needed}. Raise the limit before starting, for "
+            f"example with `ulimit -n {max(needed, 65536)}`."
         )
 
 
@@ -2511,7 +2614,7 @@ def _warn_without_images(renderer: Renderer) -> None:
     """Probe image support before any Loops resource exists.
 
     A vision-capable model on a text-only task must keep working without the
-    ``vision`` extra, so a failing probe is a warning; the first real image part
+    ``vision`` extra, so a failing probe is only a warning. The first real image part
     still raises.
     """
     try:
@@ -2519,7 +2622,7 @@ def _warn_without_images(renderer: Renderer) -> None:
     except Exception as error:  # noqa: BLE001 - processor errors vary by backend
         logger.warning(
             "Image inputs are unavailable for this renderer (%s: %s). Text-only "
-            "training is unaffected; run `uv sync --extra vision` if this job sends images.",
+            "training is unaffected. Run `uv sync --extra vision` if this job sends images.",
             type(error).__name__,
             first_sentence(str(error)),
         )

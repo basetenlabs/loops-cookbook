@@ -1,10 +1,10 @@
-"""One try of a group grader: one verification slot, under the grading deadline.
+"""Run one try of a group grader in one verification slot, under the grading deadline.
 
-A group is not an attempt, so this is not the driver's attempt lifecycle. Each try of
-``grade_group()`` holds one run-level verification slot and runs under
-``[rollout.grading] timeout_seconds``. The pipeline's group stage decides whether to
-try again, after rechecking its group, as the driver does for ``grade()``. A result
-that is not one finite reward per member is a grader bug, a
+A group is not an attempt, so this module does not use the driver's attempt
+lifecycle. Each try of ``grade_group()`` holds one run-level verification slot, and
+runs under ``[rollout.grading] timeout_seconds``. The pipeline's group stage decides
+whether to try again, after rechecking its group, as the driver does for ``grade()``.
+A result that is not one finite reward per member is a grader bug, and raises
 ``PermanentGradingFailure``.
 """
 
@@ -38,7 +38,7 @@ class GroupGradingSettings:
 
 
 class GroupGrading:
-    """Tries the runtime's ``grade_group()`` on a group's members."""
+    """Try the rollout runtime's ``grade_group()`` on a group's members."""
 
     def __init__(
         self,
@@ -57,19 +57,19 @@ class GroupGrading:
 
     @property
     def calls(self) -> int:
-        """Calls on a slot now, not those waiting for one.
+        """Return the number of calls holding a slot now, not those waiting for one.
 
         A call still running after cancellation keeps its slot, so it still counts.
         """
         return self._calls
 
     async def score(self, group_id: str, members: Sequence[MemberEvidence]) -> list[float]:
-        """One final reward per member, in order, or the try's failure raised.
+        """Return one final reward per member, in order, or raise the try's failure.
 
-        Each call's duration, from its slot to its end, goes to ``observe``. A call
-        that ignores its cancellation keeps its verification slot, since the work it
-        bounds is still happening, and goes to ``unquiesced``; it then raises
-        ``NonQuiescentHook``, or the waiter's cancellation when one came.
+        Each call's duration, from getting its slot to its end, goes to ``observe``. A
+        call that ignores its cancellation keeps its verification slot, because the work
+        under the slot is still happening. Such a call goes to ``unquiesced``, and then
+        raises ``NonQuiescentHook``, or the waiter's cancellation when one came.
         """
         async with self._capacity.group_verification() as slot:
             self._calls += 1
@@ -86,7 +86,7 @@ class GroupGrading:
         return _rewards(result, len(members))
 
     async def _call(self, members: Sequence[MemberEvidence], slot: GroupHold) -> object:
-        """One try under the grading deadline, stopped with bounded quiescence.
+        """Run one try under the grading deadline, and stop it within the cancellation grace.
 
         A call that ignores its stop keeps its slot and raises ``NonQuiescentHook``.
         """
@@ -102,7 +102,8 @@ class GroupGrading:
         if not ran.settled:
             slot.keep()
             raise NonQuiescentHook(
-                f"runtime grade_group() ignored cancellation for {grace:g}s; it is still running",
+                f"rollout runtime grade_group() ignored cancellation for {grace:g}s; it is "
+                "still running",
                 ran,
             )
         ran.propagate()
@@ -118,7 +119,10 @@ class GroupGrading:
 
 
 def _rewards(result: object, members: int) -> list[float]:
-    """The grader's rewards, or a ``PermanentGradingFailure``: the same result every try."""
+    """Return the grader's rewards, or raise ``PermanentGradingFailure``.
+
+    A malformed result is permanent, because every try would give the same result.
+    """
     if isinstance(result, (str, bytes)) or not isinstance(result, Sequence):
         raise PermanentGradingFailure(
             f"grade_group() returned a {type(result).__name__}, not one reward per member"

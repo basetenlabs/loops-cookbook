@@ -1,1 +1,1 @@
-"""OpenAI Chat Completions access: the generated schema, capability policy, and gateway."""
+"""OpenAI Chat Completions access, built from the generated schema, a policy and the gateway."""

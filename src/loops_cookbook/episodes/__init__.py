@@ -1,6 +1,7 @@
-"""The Episode layer: write one ``Episode`` class; the cookbook runs it as a runtime.
+"""Write one ``Episode`` class, and the cookbook runs it as a custom rollout runtime.
 
-::
+Name the class in the run's config like this::
+
 
     [rollout_runtime]
     factory = "loops_cookbook.episodes:create_runtime"

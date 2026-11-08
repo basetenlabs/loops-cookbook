@@ -1,10 +1,11 @@
-"""Count the circles in a picture: an image prompt, scored on the host.
+"""Count the circles in an image prompt, and score the count on the host.
 
-Each task is a ``CountTask``: how many circles to draw, and the seed that places them.
+Each task is a ``CountTask``, which holds how many circles to draw and the seed that
+places them.
 ``run()`` draws the picture, sends it to the model as an image part with the question,
 and keeps the number the model replies with. ``grade()`` takes a quarter point off for
-each circle miscounted, so a near miss scores above a far one. The circles overlap, which
-vision models count badly; that gap is what training closes.
+each circle miscounted, so a near miss scores above a far one. The circles overlap, and
+vision models count overlapping circles badly. Training closes that gap.
 """
 
 from __future__ import annotations
@@ -19,10 +20,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from loops_cookbook.episodes import Episode, Grading, Sampling, Task
 from loops_cookbook.runtime import JsonValue
 
-SIZE = 448  # pixels on a side; 196 image tokens on Qwen3.6
-FEWEST, MOST = 9, 20  # circles in a picture; up to 20 always fit at SEPARATION
-# How far apart two circles must be: |dx| + |dy| + |dr| in pixels. One of the three then
-# differs by more than 12 px, four stroke widths, so no two outlines nearly coincide.
+# The picture is this many pixels on a side, which is 196 image tokens on Qwen3.6.
+SIZE = 448
+# The fewest and most circles in a picture. Up to 20 always fit at SEPARATION.
+FEWEST, MOST = 9, 20
+# How far apart two circles must be, measured as |dx| + |dy| + |dr| in pixels. One of
+# the three then differs by more than 12 px, four stroke widths, so no two outlines
+# nearly coincide.
 # At 24, two of 20 circles could still read as one.
 SEPARATION = 36
 QUESTION = "How many circles are in this picture? Reply with the number only."
@@ -33,7 +37,8 @@ class CountTask(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str  # for people reading the dataset; the episode does not use it
+    # The name is for people reading the dataset. The episode doesn't use it.
+    name: str
     count: int = Field(ge=FEWEST, le=MOST)
     seed: int
 
@@ -66,8 +71,10 @@ def draw(count: int, seed: int) -> bytes:
 
 
 def parse_count(reply: str | None) -> int | None:
-    """The first number in the reply when it is a whole count, or ``None``: scored as
-    wrong. A sign or a fraction is part of the number, so ``-12`` and ``12.9`` are not 12."""
+    """Return the first number in the reply when it is a whole count, else ``None``.
+
+    ``None`` scores as wrong. A sign or a fraction is part of the number, so ``-12`` and
+    ``12.9`` are not 12."""
     match = re.search(r"-?\d+(\.\d+)?", reply or "")
     if match is None or match.group().startswith("-") or match.group(1):
         return None
@@ -88,7 +95,8 @@ class CountEpisode(Episode[CountTask, None]):
 
     def __init__(self, task: Task[CountTask], options: None) -> None:
         super().__init__(task, options)
-        self.guess: int | None = None  # None until the model replies a number
+        # The guess stays None until the model replies with a number.
+        self.guess: int | None = None
 
     async def run(self, sample: Sampling) -> dict[str, JsonValue]:
         task = self.task.value

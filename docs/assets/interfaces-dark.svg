@@ -2,17 +2,17 @@
 <defs><marker id="h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
 <rect x="0" y="-20" width="1980" height="1072" fill="#1e1e2e"/>
 <text x="40" y="54.0" font-family="Helvetica, Arial" font-size="34" font-weight="bold" fill="#e5e5e5">Two interfaces, one contract</text>
-<text x="40" y="84.0" font-family="Helvetica, Arial" font-size="16" font-weight="normal" fill="#a0a0a0">Both runtimes implement runtime/api.py&#x27;s six hooks, and may add the optional group grader; the engine sees no difference.</text>
+<text x="40" y="84.0" font-family="Helvetica, Arial" font-size="16" font-weight="normal" fill="#a0a0a0">Both rollout runtimes implement runtime/api.py&#x27;s six hooks, and may add the optional group grader; the engine sees no difference.</text>
 <rect x="40" y="100" width="1900" height="46" rx="12" fill="#4d4417" fill-opacity="1.0" stroke="#fcc419" stroke-width="1"/>
 <text x="58" y="130.0" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#e5e5e5">Episode: the user writes one class. Harbor: the user brings a Harbor job and a LoopsAgent. Both become the same RolloutRuntime.</text>
 <rect x="40" y="180" width="700" height="70" rx="12" fill="#1a4d2e" fill-opacity="1.0" stroke="#69db7c" stroke-width="2"/>
-<text x="239.2" y="212.0" font-family="Helvetica, Arial" font-size="20" font-weight="bold" fill="#e5e5e5">Episode runtime  ·  episodes/</text>
+<text x="197.2" y="212.0" font-family="Helvetica, Arial" font-size="20" font-weight="bold" fill="#e5e5e5">Custom rollout runtime  ·  episodes/</text>
 <text x="201.0" y="236.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#a0a0a0">user writes: Episode[TaskModel, OptionsModel]</text>
 <rect x="790" y="180" width="340" height="70" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="2"/>
 <text x="897.6" y="212.0" font-family="Helvetica, Arial" font-size="20" font-weight="bold" fill="#e5e5e5">the contract</text>
 <text x="901.2" y="236.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#a0a0a0">runtime/api.py</text>
 <rect x="1180" y="180" width="760" height="70" rx="12" fill="#1a4d2e" fill-opacity="1.0" stroke="#69db7c" stroke-width="2"/>
-<text x="1424.8" y="212.0" font-family="Helvetica, Arial" font-size="20" font-weight="bold" fill="#e5e5e5">Harbor runtime  ·  harbor/</text>
+<text x="1376.8" y="212.0" font-family="Helvetica, Arial" font-size="20" font-weight="bold" fill="#e5e5e5">Harbor rollout runtime  ·  harbor/</text>
 <text x="1392.0" y="236.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#a0a0a0">user brings: a Harbor job + a LoopsAgent</text>
 <rect x="790" y="280" width="340" height="84" rx="12" fill="#1e3a5f" fill-opacity="1.0" stroke="#4dabf7" stroke-width="2"/>
 <text x="911.4" y="328.0" font-family="Menlo, monospace" font-size="18" font-weight="bold" fill="#e5e5e5">prepare()</text>
@@ -73,5 +73,5 @@
 <polyline points="1130,842 1180,842" fill="none" stroke="#a0a0a0" stroke-width="2" marker-end="url(#h)"/>
 <rect x="40" y="916" width="1900" height="96" rx="12" fill="#4d4417" fill-opacity="1.0" stroke="#fcc419" stroke-width="1"/>
 <text x="60" y="946.0" font-family="Helvetica, Arial" font-size="16" font-weight="normal" fill="#e5e5e5">Same for both: the driver owns the clocks, retries, seal and cleanup order around these hooks, and builds the Rollout from the lease.</text>
-<text x="60" y="966.0" font-family="Helvetica, Arial" font-size="16" font-weight="normal" fill="#e5e5e5">The runtime declares its model access and grading retries (Episode: class attributes; Harbor: the agent and the job&#x27;s retry: block).</text>
+<text x="60" y="966.0" font-family="Helvetica, Arial" font-size="16" font-weight="normal" fill="#e5e5e5">The rollout runtime declares its model access and grading retries (Episode: class attributes; Harbor: the agent and the job&#x27;s retry: block).</text>
 </svg>

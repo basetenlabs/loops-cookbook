@@ -1,9 +1,9 @@
-"""The rollout runtime contract: the one seam through which users supply episodes.
+"""Define the rollout runtime contract, which is the one place where users supply episodes.
 
-Names and signatures here are normative. A runtime implements ``RolloutRuntime``
-and is built by a synchronous ``RuntimeFactory`` from its opaque configuration and
-a ``RuntimeContext``; the cookbook owns scheduling, model access, capture, grading
-admission, cleanup ordering, and training.
+The names and signatures here are normative. A rollout runtime implements
+``RolloutRuntime``. A synchronous ``RuntimeFactory`` builds it from its opaque
+configuration and a ``RuntimeContext``. The cookbook owns scheduling, model access,
+capture, grading admission, the order of cleanup, and training.
 """
 
 from __future__ import annotations
@@ -44,33 +44,43 @@ class EpisodeDisposition(str, Enum):
 
 
 class AttemptAbortReason(str, Enum):
-    SAMPLE_FAILED = "sample_failed"  # sample() raised, or the lease was poisoned
-    CAPTURE_FAILED = "capture_failed"  # capture broke, or proved a future policy version
-    ROLLOUT_INVALID = "rollout_invalid"  # sealed evidence failed rollout validation
-    ROLLOUT_TIMEOUT = "rollout_timeout"  # the rollout clock expired
-    SETUP_TIMEOUT = "setup_timeout"  # the setup clock expired
-    STALE = "stale"  # the lease raised a freshness or policy-delta error
+    SAMPLE_FAILED = "sample_failed"  # sample() raised, or the lease was poisoned.
+    CAPTURE_FAILED = "capture_failed"  # Capture broke, or proved a future policy version.
+    ROLLOUT_INVALID = "rollout_invalid"  # The sealed evidence failed rollout validation.
+    ROLLOUT_TIMEOUT = "rollout_timeout"  # The rollout clock expired.
+    SETUP_TIMEOUT = "setup_timeout"  # The setup clock expired.
+    STALE = "stale"  # The lease raised a freshness or policy-delta error.
     CANCELLED = "cancelled"
 
 
 class PermanentRolloutFailure(Exception):
-    """Re-running this episode cannot help; bypasses rollout retries."""
+    """Raise this when running the episode again cannot help.
+
+    The cookbook discards the rollout at once, without rollout retries.
+    """
 
 
 class PermanentGradingFailure(Exception):
-    """Grading this rollout again cannot help; bypasses grading retries."""
+    """Raise this when grading the rollout again cannot help.
+
+    The cookbook discards the rollout at once, without grading retries.
+    """
 
 
 class ExcludedReward(PermanentGradingFailure):
-    """A reward left out of training on purpose: discarded, but never counted toward the
-    consecutive-failure stop, since excluding many in a row is not an outage."""
+    """Raise this to leave a reward out of training on purpose.
+
+    The cookbook discards the rollout, but never counts it toward the
+    consecutive-failure stop, because excluding many rewards in a row is not an outage.
+    """
 
 
 class NamedFailure(Exception):
     """A failure that names itself in its discard metric, as in ``grading_failed/<name>``.
 
-    Any other failure is named by its type. ``name`` is snake-cased like a type name,
-    so ``VerifierTimeoutError`` is ``verifier_timeout``; without one, the type names it.
+    The cookbook names any other failure by its type, snake-cased, so
+    ``VerifierTimeoutError`` becomes ``verifier_timeout``. Give ``name`` in the same
+    snake-cased form. Without a ``name``, the type names this failure too.
     """
 
     def __init__(self, *args: object, name: str | None = None) -> None:
@@ -82,19 +92,22 @@ class NamedFailure(Exception):
 class RuntimeCapabilities:
     model_access_modes: frozenset[ModelAccessMode]
     internally_acquired_phases: frozenset[Phase] = frozenset()
-    # Extra tries after a failed grade() or group grade: the runtime's to say, since
-    # only it knows whether grading can safely run again. 0: never retried.
+    # Extra tries after a failed grade() or group grade. The rollout runtime sets this,
+    # because only it knows whether grading can safely run again. 0 means grading is
+    # never retried.
     grading_retries: int = 0
-    # A complete group's rewards come from the runtime's grade_group(), so grade()
-    # may give none; the runtime implements GroupGrader.
+    # When true, a complete group's rewards come from the rollout runtime's
+    # grade_group(), so grade() may give none. The rollout runtime then implements
+    # GroupGrader.
     pending_group_grade: bool = False
-    # The rollout clock the runtime derives from its own agent deadline: the run uses
-    # it when [rollout] rollout_timeout_seconds is unset. None: the runtime derives
-    # none, and the setting is required.
+    # The rollout clock that the rollout runtime derives from its own agent deadline.
+    # The run uses it when [rollout] rollout_timeout_seconds is unset. None means the
+    # rollout runtime derives none, so the setting is required.
     rollout_timeout_seconds: float | None = None
-    # Where the runtime's model access and grading retries are stated, for check to
-    # report with each: "direct (MyEpisode.model_access)", "4 (Harbor job retry)".
-    # None: the runtime says nothing more than the values.
+    # Where the rollout runtime's model access and grading retries are stated, so that
+    # check can report the source with each value. Examples are
+    # "direct (MyEpisode.model_access)" and "4 (Harbor job retry)". None means the
+    # rollout runtime reports only the values.
     model_access_source: str | None = None
     grading_retries_source: str | None = None
 
@@ -116,17 +129,17 @@ class RuntimeMetrics(Protocol):
 
 
 class EpisodeResources(Protocol):
-    """One attempt's resources: provisioned for it, released with it."""
+    """One attempt's resources, which are provisioned for it and released with it."""
 
     async def provision(self, request: ResourceRequest) -> ResourceHandle: ...
     async def acquire(self, resource_id: str) -> ResourceLease: ...
     async def release(self, resource_id: str) -> CleanupResult:
-        """Release early; only RELEASED or ALREADY_ABSENT proves it gone."""
+        """Release a resource early. Only RELEASED or ALREADY_ABSENT proves it gone."""
         ...
 
     def usage_environment(self, resource_id: str) -> Mapping[str, str | SecretStr]: ...
     async def sandbox_client(self, resource_id: str) -> object:
-        """The provider's own client for a sandbox, when its adapter is a ``SandboxProvider``."""
+        """Return the provider's own client for a sandbox whose adapter is a ``SandboxProvider``."""
         ...
 
     async def close_sandbox_client(self, resource_id: str, client: object) -> None: ...
@@ -145,11 +158,12 @@ class RuntimeFiles(Protocol):
 
 
 class RuntimeEvidence(Protocol):
-    """Digests of what the runtime made of its configuration, recorded with the run.
+    """Record digests of what the rollout runtime made of its configuration, with the run.
 
-    Only a ``sha256:`` digest, never a value, so nothing a runtime derives reaches
-    disk. Each name is recorded once, while the runtime is built; the run writes the
-    digests beside ``config.json`` and into its checkpoints, and a resume compares them.
+    It takes only a ``sha256:`` digest, never a value, so nothing that a rollout runtime
+    derives reaches disk. Each name is recorded once, while the rollout runtime is
+    built. The run writes the digests beside ``config.json`` and into its checkpoints,
+    and a resume compares them.
     """
 
     def record_digest(self, name: str, digest: str) -> None: ...
@@ -164,8 +178,8 @@ class ProcessCommand:
 
 @dataclass(frozen=True, slots=True)
 class ProcessResult:
-    exit_code: int  # meaningful only when signal is None
-    signal: int | None  # terminating signal number, if the process was signalled
+    exit_code: int  # Meaningful only when signal is None.
+    signal: int | None  # The terminating signal number, if the process was signalled.
     stdout_tail: str
     stderr_tail: str
     elapsed_seconds: float
@@ -179,8 +193,8 @@ class AttemptProcesses(Protocol):
 class RunLimits:
     max_concurrent_rollouts: int
     max_concurrent_verifiers: int
-    # [rollout] rollout_timeout_seconds as configured; None when the runtime is to
-    # derive it.
+    # [rollout] rollout_timeout_seconds as configured. It is None when the rollout
+    # runtime is to derive it.
     rollout_timeout_seconds: float | None
     grading_timeout_seconds: float
     # How long a cancelled hook may take to stop before the run fails.
@@ -188,10 +202,11 @@ class RunLimits:
     # How long a cancelled agent process may take to exit after SIGTERM before SIGKILL.
     process_kill_grace_seconds: float
     provider_deadlines: Mapping[str, ProviderDeadlines]
-    # Admitted rollouts that may start their environment ahead of a free sampling slot.
+    # How many admitted rollouts may start their environment ahead of a free sampling slot.
     prestart_places: int = 0
-    # The most tokens one trajectory holds, prompt and completion of any call:
-    # [sampling] max_trajectory_tokens, else [model] max_seq_len; None when neither is set.
+    # The most tokens one trajectory holds, counting the prompt and completion of any
+    # call. It is [sampling] max_trajectory_tokens, or else [model] max_seq_len. It is
+    # None when neither is set.
     trajectory_tokens: int | None = None
 
 
@@ -220,9 +235,10 @@ class RuntimeContext:
         default_factory=dict[str, SandboxCapacity]
     )
     # The validated [providers.<name>] table, for each provider whose adapter is a
-    # ConfiguredProvider; read only by that provider's own code.
+    # ConfiguredProvider. Only that provider's own code reads it.
     provider_settings: Mapping[str, BaseModel] = field(default_factory=dict[str, BaseModel])
-    # Each ImageProvider's image_tags, so a runtime can check the images its tasks name.
+    # Each ImageProvider's image_tags, so a rollout runtime can check the images its
+    # tasks name.
     provider_images: Mapping[str, ImageLookup] = field(default_factory=dict[str, "ImageLookup"])
 
 
@@ -248,7 +264,8 @@ class EpisodeResult:
 
 @dataclass(frozen=True, slots=True)
 class GradeResult:
-    # None, no reward yet, only from a runtime that declares pending_group_grade.
+    # None means no reward yet. Only a rollout runtime that declares
+    # pending_group_grade may return None.
     reward: float | None
     metadata: Mapping[str, JsonValue] = field(default_factory=dict[str, JsonValue])
 
@@ -257,8 +274,8 @@ class GradeResult:
 class MemberEvidence:
     """One member of a complete group, as its group grader receives it.
 
-    ``rollout.reward`` is what ``grade()`` gave it, or ``None``; ``transcript`` is its
-    conversation as recorded at the model boundary and sealed with its evidence.
+    ``rollout.reward`` is what ``grade()`` gave it, or ``None``. ``transcript`` is its
+    conversation, as recorded at the model boundary and sealed with its evidence.
     """
 
     rollout: Rollout
@@ -270,48 +287,54 @@ class RolloutRuntime(Protocol):
     def capabilities(self) -> RuntimeCapabilities: ...
     async def prepare(self) -> Sequence[TaskRef]: ...
     async def sample(self, attempt: AttemptContext) -> EpisodeResult:
-        """Run one episode; how it ends decides what happens next.
+        """Run one episode. How it ends decides what happens next.
 
-        - Returns: an episode happened, however badly the agent did. Graded.
-        - Raises: infrastructure, the episode didn't happen. Retried as a fresh
-          attempt up to ``max_rollout_retries``, then discarded as
-          ``rollout_failed/<type>``, named by the exception's type. A
-          ``CancelledError`` the cookbook did not cause is one: ``rollout_failed/cancelled``.
-        - Raises ``PermanentRolloutFailure``: this can never succeed. Discarded now,
-          not retried.
+        - If it returns, an episode happened, however badly the agent did. The cookbook
+          grades it.
+        - If it raises, the infrastructure failed and the episode didn't happen. The
+          cookbook retries it as a fresh attempt up to ``max_rollout_retries`` times.
+          Then it discards the rollout as ``rollout_failed/<type>``, named by the
+          exception's type. A ``CancelledError`` that the cookbook did not cause counts
+          as such a failure, ``rollout_failed/cancelled``.
+        - If it raises ``PermanentRolloutFailure``, the episode can never succeed. The
+          cookbook discards it at once, without a retry.
 
-        An agent that failed, crashed or ran out of its own time is an episode:
-        return, and let ``grade()`` score what it left. One that never called the
-        policy left nothing to train, and is discarded as ``unversioned``. The one outcome the cookbook
-        decides itself is its rollout clock: when that cancels ``sample()`` there is
-        no episode to grade, and the rollout is discarded as
-        ``agent_timeout/rollout_clock``, not retried, and counted as a sampling
-        failure toward ``max_consecutive_rollout_failures``. The clock is a backstop,
-        not the agent's deadline: a runtime bounds its own agent below
-        ``rollout_timeout_seconds``, so that a slow agent returns and is graded
-        rather than expiring the clock and counting toward the stop. A failed model
-        call, broken capture or stale attempt is decided by the cookbook's own
-        evidence, whatever ``sample()`` raised or swallowed, and is never retried. A
-        completion the renderer could not read is decided the same way, but retried
-        as a fresh attempt: the model and sampler did their part.
+        An agent that failed, crashed or ran out of its own time still had an episode.
+        Return, and let ``grade()`` score what it left. An agent that never called the
+        policy left nothing to train, and the cookbook discards its rollout as
+        ``unversioned``.
+
+        The one outcome that the cookbook decides itself is its rollout clock. When the
+        clock cancels ``sample()``, there is no episode to grade. The cookbook discards
+        the rollout as ``agent_timeout/rollout_clock``, does not retry it, and counts it
+        as a sampling failure toward ``max_consecutive_rollout_failures``. The clock is a
+        backstop, not the agent's deadline. A rollout runtime should give its own agent a
+        deadline below ``rollout_timeout_seconds``. A slow agent then returns and is
+        graded, rather than expiring the clock and counting toward the stop.
+
+        The cookbook decides a failed model call, broken capture or stale attempt from
+        its own evidence, whatever ``sample()`` raised or swallowed, and never retries
+        it. It decides a completion that the renderer could not read the same way, but
+        retries that one as a fresh attempt, because the model and sampler did their
+        part.
         """
         ...
 
     async def grade(self, attempt: AttemptContext, rollout: Rollout) -> GradeResult:
-        """Score one sealed rollout; how it ends decides what happens next.
+        """Score one sealed rollout. How it ends decides what happens next.
 
-        - Returns a ``GradeResult``: the rollout's reward.
-        - Raises: the grader failed this time. Graded again up to the capabilities'
-          ``grading_retries`` times, then
-          discarded as ``grading_failed/<type>``. A ``CancelledError`` the cookbook
-          did not cause is one: ``grading_failed/cancelled``.
-        - Raises ``PermanentGradingFailure``: grading this rollout again cannot help.
-          Discarded now, not retried.
+        - If it returns a ``GradeResult``, that holds the rollout's reward.
+        - If it raises, the grader failed this time. The cookbook grades the rollout
+          again up to the capabilities' ``grading_retries`` times. Then it discards the
+          rollout as ``grading_failed/<type>``. A ``CancelledError`` that the cookbook
+          did not cause counts as such a failure, ``grading_failed/cancelled``.
+        - If it raises ``PermanentGradingFailure``, grading this rollout again cannot
+          help. The cookbook discards it at once, without a retry.
 
-        A non-finite or non-numeric reward, or metadata that repeats the episode's
-        keys, is a grader bug, and fails as ``PermanentGradingFailure`` does. A reward
-        of ``None`` is allowed only with ``pending_group_grade``: the group grader
-        gives it.
+        A non-finite or non-numeric reward, or metadata that repeats the episode's keys,
+        is a grader bug. It fails as ``PermanentGradingFailure`` does. A reward of
+        ``None`` is allowed only with ``pending_group_grade``, because the group grader
+        then gives the reward.
         """
         ...
 
@@ -321,33 +344,41 @@ class RolloutRuntime(Protocol):
         rollout: Rollout,
         disposition: EpisodeDisposition,
     ) -> None:
-        """Clean up after a sealed rollout. A failure, a ``CancelledError`` the cookbook
-        did not cause included, is a cleanup failure: reported, and counted toward cleanup."""
+        """Clean up after a sealed rollout.
+
+        Any failure, including a ``CancelledError`` that the cookbook did not cause, is a
+        cleanup failure. The cookbook reports it and counts it toward cleanup failures.
+        """
         ...
 
     async def abort(self, attempt: AttemptContext, reason: AttemptAbortReason) -> None:
-        """Clean up an attempt that left no valid rollout; its failures count as ``finish()``'s do."""
+        """Clean up an attempt that left no valid rollout.
+
+        Its failures count in the same way as ``finish()``'s.
+        """
         ...
 
     async def close(self) -> None: ...
 
 
 class GroupGrader(Protocol):
-    """What a runtime that declares ``pending_group_grade`` implements beside its hooks."""
+    """What a rollout runtime that declares ``pending_group_grade`` implements beside its hooks."""
 
     async def grade_group(self, members: Sequence[MemberEvidence]) -> Sequence[float]:
-        """Score a complete group at once: one final reward per member, in order.
+        """Score a complete group at once, returning one final reward per member, in order.
 
-        It runs once the group's members are sealed and graded, after its stale
-        members are dropped, and only for a group still large enough to train.
-        - Returns the rewards; they replace whatever ``grade()`` gave.
-        - Raises: the grader failed this time. Tried again up to the capabilities'
-          ``grading_retries`` times; then the
-          group's members are discarded as ``grading_failed/<type>``.
-        - Raises ``PermanentGradingFailure``: discarded now, not retried.
+        It runs once the group's members are sealed and graded, after its stale members
+        are dropped, and only for a group still large enough to train.
 
-        A result that is not one finite number per member is a grader bug, and fails
-        as ``PermanentGradingFailure`` does.
+        - If it returns the rewards, they replace whatever ``grade()`` gave.
+        - If it raises, the grader failed this time. The cookbook tries again up to the
+          capabilities' ``grading_retries`` times. Then it discards the group's members
+          as ``grading_failed/<type>``.
+        - If it raises ``PermanentGradingFailure``, the cookbook discards the members at
+          once, without a retry.
+
+        A result that is not one finite number per member is a grader bug. It fails as
+        ``PermanentGradingFailure`` does.
         """
         ...
 

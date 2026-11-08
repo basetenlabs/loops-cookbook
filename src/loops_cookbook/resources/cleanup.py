@@ -1,10 +1,10 @@
-"""The two ways to clean up after a training process dies, behind ``loops cleanup``.
+"""Clean up after a training process dies, in one of two ways, for ``loops cleanup``.
 
-With the run's state directory, ``reconcile_journal`` opens the journal in
-reconcile mode and releases everything it still holds. When the journal is gone,
+Given the run's state directory, ``reconcile_journal`` opens the journal in reconcile
+mode and releases everything it still holds. When the journal is gone,
 ``sweep_labels`` finds the run's resources by their ownership labels instead. Both
-release through the registry's one rule, ``release_resource``, and return a
-``CleanupReport`` naming every identity whose absence is unproven.
+release through the registry's one rule, ``release_resource``. Both return a
+``CleanupReport`` that names every identity whose absence is unproven.
 """
 
 from __future__ import annotations
@@ -35,17 +35,19 @@ from loops_cookbook.resources.registry import (
     validate,
 )
 
-# The identity of a sweep's entry for a listing that succeeded but proves nothing
-# about what it did not return. A listing that failed is ``<provider>:*`` instead.
+# The identity suffix of a sweep's entry for a listing that succeeded. Such a listing
+# proves nothing about what it did not return. A listing that failed is
+# ``<provider>:*`` instead.
 LISTING = ":listing"
-# How much a cleanup does at once: provider calls from the journal, resources by label.
-# A run can leave hundreds of resources, and each release (validate, release, prove
-# absent) takes seconds; an unbounded burst draws rate limits instead.
+# How much a cleanup does at once. It counts provider calls when cleaning from the
+# journal, and resources when sweeping by label. A run can leave hundreds of resources,
+# and each release takes seconds to validate, release and prove absent. An unbounded
+# burst draws rate limits instead.
 CLEANUP_CONCURRENCY = 32
 
 
 def only_listings_unconfirmed(report: CleanupReport) -> bool:
-    """Whether a sweep released everything it listed, leaving only its listings unproven."""
+    """Return whether a sweep released everything it listed, leaving only its listings unproven."""
     unresolved = report.unresolved
     return bool(unresolved) and all(r.resource_id.endswith(LISTING) for r in unresolved)
 
@@ -57,21 +59,22 @@ async def reconcile_journal(
     kind: Callable[[Path], str] = filesystem_type,
     concurrency: int = CLEANUP_CONCURRENCY,
 ) -> CleanupReport:
-    """Reconcile and release everything a run's journal holds, in dependency order,
-    at most ``concurrency`` provider calls at a time across every provider.
+    """Reconcile and release everything a run's journal holds, in dependency order.
 
-    Fails before any provider call when ``state_dir`` is not a run's state directory,
-    or while another process holds its journal. A run that opened its journal and
-    recorded nothing created nothing, and its cleanup is complete. A damaged journal is cleaned from what it replayed,
-    but whatever followed the damage is unknown, so its report is never complete.
+    At most ``concurrency`` provider calls run at a time, across every provider. The
+    function fails before any provider call when ``state_dir`` is not a run's state
+    directory, or while another process holds its journal. A run that opened its journal
+    and recorded nothing created nothing, so its cleanup is complete. A damaged journal
+    is cleaned from what it replayed. Whatever followed the damage is unknown, so the
+    report for a damaged journal is never complete.
     """
     journal = state_dir / JOURNAL
     try:
         _check_concurrency(concurrency)
-        # A run writes its journal with its first intent, before any provider call, so
-        # a run that opened the journal (its lock exists) and wrote none created
-        # nothing: opening it takes the lock, which refuses a live run, and replays
-        # nothing.
+        # A run writes its journal with its first intent, before any provider call. A
+        # run that opened the journal, so its lock exists, and wrote no intent therefore
+        # created nothing. Opening such a journal takes the lock, which refuses a live
+        # run, and replays nothing.
         if not journal.exists() and not journal.with_suffix(".lock").exists():
             raise JournalError(
                 f"{state_dir} holds no resource journal ({JOURNAL}); pass the run's state "
@@ -110,18 +113,20 @@ async def reconcile_journal(
 async def sweep_labels(
     adapters: Mapping[str, ResourceAdapter], run_id: str, *, concurrency: int = CLEANUP_CONCURRENCY
 ) -> CleanupReport:
-    """Release every resource each provider lists under ``run_id``'s ownership labels.
+    """Release every resource that each provider lists under ``run_id``'s ownership labels.
 
-    Listing is eventually consistent, so this proves nothing about what it did not
-    list, so each provider's report carries an ``UNCONFIRMED`` entry for the listing
-    itself; a failed list, an ownership that does not validate, and unproven absence
-    also end ``UNCONFIRMED``. Safe to rerun, but only once the run has stopped: it
-    takes no lock and cannot tell a live run's resources from a dead one's. Each page
-    of a listing is bounded by the provider's ``list_seconds``; the whole listing is
-    not, since it grows with the provider's account rather than the run. A provider's
-    resources are released ``concurrency`` at a time, each validated, released and
-    proven absent before its slot is free, episode-scoped ones first, as a run's own
-    release orders them.
+    Listing is eventually consistent, so a sweep proves nothing about what the listing
+    did not return. Each provider's report therefore carries an ``UNCONFIRMED`` entry
+    for the listing itself. A failed listing, an ownership that does not validate and
+    unproven absence also end ``UNCONFIRMED``.
+
+    A sweep is safe to rerun, but only once the run has stopped. It takes no lock, so it
+    cannot tell a live run's resources from a dead one's. The provider's
+    ``list_seconds`` bounds each page of a listing. The whole listing has no bound,
+    because it grows with the provider's account rather than the run. A provider's
+    resources are released ``concurrency`` at a time. Each one is validated, released
+    and proven absent before its slot is free. Episode-scoped resources go first, in
+    the same order as a run's own release.
     """
     results: list[CleanupResult] = []
     try:
@@ -134,15 +139,19 @@ async def sweep_labels(
 
 
 def _check_concurrency(concurrency: int) -> None:
-    if concurrency < 1:  # no permit would ever be free, so the cleanup would hang
+    # With no permit ever free, the cleanup would hang.
+    if concurrency < 1:
         raise ValueError(f"a cleanup's concurrency must be at least 1, not {concurrency}")
 
 
 async def _list_pages(
     pages: AsyncGenerator[Sequence[ProviderResource], None], page_seconds: float
 ) -> list[ProviderResource]:
-    """Every page of a listing, each bounded by ``page_seconds``. The total is not
-    bounded: it grows with the provider's account, which the run does not size."""
+    """Return every page of a listing, with ``page_seconds`` as each page's deadline.
+
+    The whole listing has no deadline, because it grows with the provider's account,
+    which the run does not size.
+    """
     listed: list[ProviderResource] = []
     try:
         while True:
@@ -170,7 +179,7 @@ async def _sweep(
                 f"list failed: {describe(error, adapter.deadlines.list_seconds)}",
             )
         ]
-    # A listing is eventually consistent: what it did not return is not proven gone.
+    # A listing is eventually consistent, so what it did not return is not proven gone.
     results = [
         CleanupResult(
             f"{name}{LISTING}",
@@ -180,7 +189,8 @@ async def _sweep(
         )
     ]
     slots = asyncio.Semaphore(concurrency)
-    # Episode-scoped resources first, each layer whole before the next, as a run releases.
+    # Release episode-scoped resources first, each layer whole before the next, as a run
+    # releases them.
     episodes = [r for r in listed if r.labels.get("loops.scope") == "episode"]
     others = [r for r in listed if r.labels.get("loops.scope") != "episode"]
     for layer in (episodes, others):
@@ -204,8 +214,11 @@ async def _release_listed(
     resource: ProviderResource,
     slots: asyncio.Semaphore,
 ) -> CleanupResult:
-    """Release one listed resource once its ownership validates, holding a slot
-    throughout, so a sweep stopped midway has finished the resources it started."""
+    """Release one listed resource once its ownership validates.
+
+    The release holds a slot throughout, so a sweep stopped midway has finished the
+    resources it started.
+    """
     identity = resource.labels.get("loops.resource_id") or f"{name}:{resource.provider_id}"
     intent = _listed_intent(name, run_id, resource)
     async with slots:
@@ -222,7 +235,7 @@ async def _release_listed(
 
 
 def _listed_intent(provider: str, run_id: str, resource: ProviderResource) -> ResourceIntent | None:
-    """The ownership identity a listed resource's labels claim, for validation."""
+    """Return the ownership identity that a listed resource's labels claim, for validation."""
     labels = resource.labels
     if any(not labels.get(label) for label in OWNERSHIP_LABELS):
         return None

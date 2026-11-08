@@ -1,12 +1,14 @@
-"""The program ``LocalAgent`` runs: one model call, one tool call in the sandbox.
+"""The program ``LocalAgent`` runs, which makes one model call and one tool call in the
+sandbox.
 
-Standard library only, apart from the Blaxel SDK when it reaches a Blaxel sandbox,
-so it runs in any interpreter that has that. It reads:
+It uses only the standard library, apart from the Blaxel SDK when it reaches a Blaxel
+sandbox, so it runs in any interpreter that has that SDK. It reads these variables:
 
-- ``OPENAI_BASE_URL``, ``OPENAI_API_KEY``, ``OPENAI_MODEL``: the model connection;
-- ``AGENT_INSTRUCTION``: the task;
-- the sandbox's usage environment: ``BLAXEL_SANDBOX_NAME`` and Blaxel's ``BL_*``
-  credentials.
+- ``OPENAI_BASE_URL``, ``OPENAI_API_KEY`` and ``OPENAI_MODEL`` give the model
+  connection.
+- ``AGENT_INSTRUCTION`` gives the task.
+- ``BLAXEL_SANDBOX_NAME`` and Blaxel's ``BL_*`` credentials are the sandbox's usage
+  environment.
 """
 
 import asyncio
@@ -14,7 +16,8 @@ import json
 import os
 import urllib.request
 
-ANSWER = "/app/answer.txt"  # where the task's verifier looks
+# The task's verifier looks for the answer here.
+ANSWER = "/app/answer.txt"
 
 
 def ask(instruction: str) -> str:
@@ -45,7 +48,8 @@ async def write_in_blaxel(path: str, content: str) -> None:
 
 def main() -> None:
     answer = ask(os.environ["AGENT_INSTRUCTION"])
-    # The tool call: the answer lands in the trial's sandbox, through its provider.
+    # This write is the tool call. It puts the answer in the trial's sandbox, through
+    # its provider.
     asyncio.run(write_in_blaxel(ANSWER, answer))
     print(f"wrote {len(answer)} characters to {ANSWER}")
 
