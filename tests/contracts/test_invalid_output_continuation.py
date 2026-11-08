@@ -133,7 +133,8 @@ TIMED_TOOLS = [
     }
 ]
 # The two other things a model gets wrong: an integer written as "30s", and a call
-# cut off at max_tokens. Each family writes them in its own syntax.
+# cut off at max_tokens. Each family writes them in its own syntax. GLM-5.3 runs only
+# the cut-off call.
 BAD_CALLS = {
     ("xml", "invalid_json"): (
         "<tool_call>\n<function=bash>\n<parameter=command>\nsleep 5 && ls\n</parameter>\n"
@@ -141,10 +142,6 @@ BAD_CALLS = {
     ),
     ("xml", "truncated"): (
         "<tool_call>\n<function=bash>\n<parameter=command>\nfind . -name '*.py' -exec grep -l"
-    ),
-    ("glm", "invalid_json"): (
-        "<tool_call>bash<arg_key>command</arg_key><arg_value>sleep 5 && ls</arg_value>"
-        "<arg_key>timeout</arg_key><arg_value>30s</arg_value></tool_call>"
     ),
     ("glm", "truncated"): (
         "<tool_call>bash<arg_key>command</arg_key><arg_value>find . -name '*.py' -exec grep -l"
@@ -254,9 +251,26 @@ async def test_an_xml_call_that_does_not_parse_continues_from_its_sampled_tokens
     await path(xml_model, shape)
 
 
-@pytest.mark.parametrize("shape", sorted(EXPECTED))
+# GLM-5.3 passes "30s" for an integer on to the tool as its text, which
+# test_glm53_renderer checks. Only a truncated call fails to parse.
+@pytest.mark.parametrize("shape", ["truncated"])
 @pytest.mark.parametrize("path", [_continues_through_the_gateway, _continues_directly])
 async def test_a_glm_call_that_does_not_parse_continues_from_its_sampled_tokens(
     glm_model, path, shape
 ):
     await path(glm_model, shape)
+
+
+def test_a_glm_value_its_type_cannot_read_reaches_the_tool(glm_model):
+    tokenizer, renderer, _, prefix, end = glm_model
+    call = (
+        "<tool_call>bash<arg_key>command</arg_key><arg_value>sleep 5 && ls</arg_value>"
+        "<arg_key>timeout</arg_key><arg_value>30s</arg_value></tool_call>"
+    )
+    prompt = renderer.render(ASK, TIMED_TOOLS).ids
+    completion = tokenizer.encode(prefix + call + end, add_special_tokens=False)
+    reply = renderer.parse(prompt, completion, TIMED_TOOLS)
+    [parsed] = reply.tool_calls
+    assert parsed.status.value == "ok"
+    assert parsed.arguments == {"command": "sleep 5 && ls", "timeout": "30s"}
+    assert reply.native_message is not None
