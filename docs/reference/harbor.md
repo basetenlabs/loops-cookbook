@@ -411,7 +411,7 @@ outcome = await project.train()
 
 `load()` makes the config's directory importable, as `loops` does. Unlike `loops`, it
 reads a `.env` only when you name one with `env_file`, which is relative to the config.
-See [the README](../../README.md#use-it-as-a-library) for the rest.
+See [using the cookbook as a library](library.md) for the rest.
 
 Output goes to `output_dir/<run_name>-<time>-<id>/`; layout and resume are described
 in [training.md](training.md#outputs). By default the Loops run stays up when the
