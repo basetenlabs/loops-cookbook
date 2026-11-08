@@ -40,7 +40,7 @@ import math
 import numbers
 import re
 from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any, ClassVar, NoReturn
 from uuid import uuid4
@@ -679,13 +679,12 @@ class AttemptDriver:
                         self._count("grading", error)
                     return Discard.GRADING_FAILED
                 self._budget.success("grading")
-                graded = Rollout(
-                    identity=rollout.identity,
-                    task=rollout.task,
-                    samples=rollout.samples,
+                # The graded rollout keeps every field of the sampled rollout, with the
+                # grade's fields on top.
+                graded = replace(
+                    rollout,
                     reward=None if result.reward is None else float(result.reward),
                     metadata={**rollout.metadata, **result.metadata},
-                    discarded_versions=rollout.discarded_versions,
                 )
                 self._finalize(admitted, graded, EpisodeDisposition.COMPLETED)
                 return graded
@@ -992,6 +991,7 @@ class AttemptDriver:
                 reward=None,
                 metadata=json_mapping(result.metadata, where="episode metadata"),
                 discarded_versions=sealed.discarded_versions,
+                task_digest=result.task_digest,
             )
         except TrajectoryError as error:
             await self._abort(attempt, AttemptAbortReason.ROLLOUT_INVALID, error)

@@ -51,9 +51,9 @@ A custom rollout runtime is an `Episode[TaskModel, OptionsModel]` subclass: one 
 attempt, with `run(sample)` as the agent and `grade(grading)` to score it. The fixed
 hooks receive `Setup`, `Sampling`, `Grading` and `Closing` records; only `Sampling`
 provides the policy model. The cookbook runs the class as the
-rollout runtime (`loops_cookbook.episodes:create_runtime`): it loads and digests the tasks,
-holds the attempt's capacity, provisions and releases its sandbox, enforces the agent
-deadline, and calls `close(closing)` once. The direct pattern includes standalone
+rollout runtime (`loops_cookbook.episodes:create_runtime`): it loads the tasks,
+records each rollout's task digest, holds the attempt's capacity, provisions and
+releases its sandbox, enforces the agent deadline, and calls `close(closing)` once. The direct pattern includes standalone
 host and Blaxel Episode classes. `RolloutRuntime` is the layer
 underneath, for a rollout runtime that must hold capacity itself in its own way, as Harbor
 does. See

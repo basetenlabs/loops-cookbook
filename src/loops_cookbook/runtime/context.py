@@ -243,20 +243,17 @@ def group_grader(runtime: RolloutRuntime, capabilities: RuntimeCapabilities) -> 
 def check_tasks(tasks: object) -> list[TaskRef]:
     """Return the prepared task list after checking it.
 
-    It must hold TaskRefs, and repeated task IDs must agree on their digest.
+    It must hold TaskRefs. A task ID appears as often as the rollout runtime lists it.
     """
     if isinstance(tasks, (str, bytes)) or not isinstance(tasks, Sequence):
         raise RuntimeConfigurationError("prepare() must return a sequence of TaskRef")
     entries: Sequence[object] = tasks  # pyright: ignore[reportUnknownVariableType]
     result: list[TaskRef] = []
-    digests: dict[str, str] = {}
     for task in entries:
         if not isinstance(task, TaskRef):
             raise RuntimeConfigurationError(
                 f"prepare() returned a {type(task).__name__}, not a TaskRef"
             )
-        if digests.setdefault(task.id, task.digest) != task.digest:
-            raise RuntimeConfigurationError(f"task {task.id!r} was prepared with two digests")
         result.append(task)
     if not result:
         raise RuntimeConfigurationError("prepare() returned no tasks")

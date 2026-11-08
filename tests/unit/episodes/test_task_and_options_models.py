@@ -111,7 +111,7 @@ async def test_a_generic_base_bound_by_a_subclass_declares_the_models_it_is_boun
         options={"url": "u"},
     )
     (task,) = await runtime.prepare()
-    assert task.digest == task_digest({"prompt": "p", "answer": "a", "points": 1})
+    assert runtime._task_digest(task.id) == task_digest({"prompt": "p", "answer": "a", "points": 1})
 
 
 @pytest.mark.parametrize(
@@ -231,7 +231,7 @@ async def test_a_model_dump_override_is_not_what_task_or_options_are_digested_by
     )
     if role == "task model":
         (task,) = await runtime.prepare()
-        digest = task.digest
+        digest = runtime._task_digest(task.id)
     else:
         digest = evidence.digests["options"]
     assert digest == task_digest({"q": "a"})

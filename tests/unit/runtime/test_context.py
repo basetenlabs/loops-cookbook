@@ -121,20 +121,19 @@ def test_capabilities_are_validated_at_preflight(capabilities, preflight, match)
         check_capabilities(capabilities, preflight)
 
 
-def test_prepared_tasks_are_task_refs_with_one_digest_per_id():
-    digest = "sha256:" + "a" * 64
-    other = "sha256:" + "b" * 64
-    assert check_tasks([TaskRef("t", digest), TaskRef("t", digest)])
-    with pytest.raises(RuntimeConfigurationError, match="two digests"):
-        check_tasks([TaskRef("t", digest), TaskRef("t", other)])
+def test_prepared_tasks_are_task_refs_an_id_repeated_as_the_runtime_lists_it():
+    assert check_tasks([TaskRef("t"), TaskRef("t")]) == [TaskRef("t"), TaskRef("t")]
     with pytest.raises(RuntimeConfigurationError, match="not a TaskRef"):
         check_tasks(["t"])
     with pytest.raises(RuntimeConfigurationError, match="no tasks"):
         check_tasks([])
 
 
-def test_a_task_digest_must_be_a_sha256():
-    from loops_cookbook.evidence import TrajectoryError
+@pytest.mark.parametrize("digest", ["sha256:ABC", "md5:" + "a" * 32, 7])
+def test_an_attempts_task_digest_must_be_a_sha256(digest):
+    from loops_cookbook.evidence import TrajectoryError, check_task_digest
 
     with pytest.raises(TrajectoryError):
-        TaskRef("t", "sha256:ABC")
+        check_task_digest(digest, where="rollout")
+    assert check_task_digest(None, where="rollout") is None
+    assert check_task_digest("sha256:" + "a" * 64, where="rollout")

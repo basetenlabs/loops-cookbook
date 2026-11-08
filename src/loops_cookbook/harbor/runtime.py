@@ -196,6 +196,9 @@ class _Pending:
     stop_failures: list[BaseException] = field(default_factory=list[BaseException])
     # The sandbox kernel's OOM-kill count at the end of the last agent phase read.
     oom_kills: int | None = None
+    # The content digest of the task as the sampling trial loaded it. It is read from
+    # Harbor's lock.
+    task_digest: str | None = None
     holds: dict[Phase, AbstractAsyncContextManager[None]] = field(
         default_factory=dict[Phase, AbstractAsyncContextManager[None]]
     )
@@ -331,7 +334,7 @@ class HarborRuntime:
         self._limits = limits
         self._metrics = metrics
         self._templates: dict[str, TrialConfig] = {}
-        self._digests: dict[str, str] = {}
+        self._task_ids: list[str] = []
         self._pending: dict[str, _Pending] = {}
         self._by_trial_name: dict[str, _Pending] = {}
         self._queue: TrialQueue | None = None
@@ -443,7 +446,7 @@ class HarborRuntime:
     async def prepare(self) -> list[TaskRef]:
         """Check the Harbor job, and let Harbor resolve its dataset and expand its trials."""
         if self._templates:
-            return [TaskRef(task_id, digest) for task_id, digest in self._digests.items()]
+            return [TaskRef(task_id) for task_id in self._task_ids]
         job = load_job_config(self._job_path)
         self._provider = provider = _provider_backed(job)
         if provider == "blaxel":
@@ -496,7 +499,6 @@ class HarborRuntime:
         config.job_name = f"prepare-{uuid4().hex}"
         config.jobs_dir = self._trials_dir / "preparation"
         templates: dict[str, TrialConfig] = {}
-        digests: dict[str, str] = {}
         for index, template in enumerate(await integration.expand_trials(config)):
             if template.install_only or template.is_regrade or template.verifier.disable:
                 raise ValueError("RL requires agent execution and an enabled Harbor verifier")
@@ -508,7 +510,6 @@ class HarborRuntime:
                 )
             task_id = f"{index}:{template.task.get_task_id().get_name()}"
             templates[task_id] = template
-            digests[task_id] = await integration.task_digest(template)
         if not templates:
             raise ValueError("the Harbor job resolved no trials")
         task_configs: dict[str, Any] = {}
@@ -543,7 +544,7 @@ class HarborRuntime:
         if sized:
             assert provider is not None
             _check_sandbox_sizes(environments, provider, self._provider_capacity[provider])
-        self._templates, self._digests = templates, digests
+        self._templates, self._task_ids = templates, list(templates)
         # Sampling trials never retry inside Harbor, because a retried trial's samples
         # cannot be separated from the failed try's inside one attempt lease.
         self._queue = integration.HookedTrialQueue(
@@ -563,7 +564,7 @@ class HarborRuntime:
             "The cookbook adds no grading retries of its own.",
             job.retry.max_retries,
         )
-        return [TaskRef(task_id, digest) for task_id, digest in digests.items()]
+        return [TaskRef(task_id) for task_id in templates]
 
     async def _timeouts(
         self, template: TrialConfig, *, environments: bool = False
@@ -643,11 +644,8 @@ class HarborRuntime:
             if inspect.iscoroutine(bound):
                 bound.close()
             raise AgentBindingError("bind_loops_services must be a synchronous setter")
-        if integration.trial_task_digest(trial) != pending.attempt.spec.task.digest:
-            raise PermanentRolloutFailure(
-                f"task {pending.attempt.spec.task.id} changed after prepare(), so its Harbor "
-                "digest no longer matches"
-            )
+        # The rollout records what the task held when this trial loaded it.
+        pending.task_digest = integration.trial_task_digest(trial)
         pending.source_dir = trial.paths.trial_dir
         integration.expose_reward(trial, pending.publisher(trial))
         integration.observe_stops(trial, pending.stop_failures.append)
@@ -771,7 +769,7 @@ class HarborRuntime:
                 self._check(_rewarded(*published))
             elif pending.execution.done():
                 self._check_sampled(pending, snapshot)
-            return EpisodeResult(metadata=metadata)
+            return EpisodeResult(metadata=metadata, task_digest=pending.task_digest)
         except BaseException:
             # A cancelled sample() returns promptly, and abort() waits for the trial.
             self._cancel(identity.attempt_id)

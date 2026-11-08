@@ -217,6 +217,8 @@ class EpisodeRuntime:
         self._attachments: dict[str, SandboxAttachment] = {}
         self._grading_attachments: dict[str, SandboxAttachment] = {}
         self._grading_ready: set[str] = set()
+        # Each task's digest, taken on its first attempt. `check` takes none.
+        self._digests: dict[str, str] = {}
 
     @property
     def capabilities(self) -> RuntimeCapabilities:
@@ -243,8 +245,18 @@ class EpisodeRuntime:
         )
 
     async def prepare(self) -> list[TaskRef]:
-        """Return a ``TaskRef`` for each loaded task, with a digest of the task's data."""
-        return [TaskRef(task.id, task_digest(task.data)) for task in self._tasks.values()]
+        """Return a ``TaskRef`` for each loaded task, by its ID."""
+        return [TaskRef(task.id) for task in self._tasks.values()]
+
+    def _task_digest(self, task_id: str) -> str:
+        """Return the digest that every attempt of ``task_id`` records.
+
+        The digest is taken from the canonical JSON of the task's data. The runtime
+        never changes a task's data, so it hashes each task once.
+        """
+        if task_id not in self._digests:
+            self._digests[task_id] = task_digest(self._tasks[task_id].data)
+        return self._digests[task_id]
 
     async def sample(self, attempt: AttemptContext) -> EpisodeResult:
         """Run one episode: admit it, provision its sandbox, then call ``setup()`` and ``run()``.
@@ -293,7 +305,10 @@ class EpisodeRuntime:
                 finally:
                     # Attachment access closes even if verified release fails.
                     state.execution_sandbox = None
-        return EpisodeResult(metadata=metadata or {})
+        return EpisodeResult(
+            metadata=metadata or {},
+            task_digest=self._task_digest(attempt.spec.task.id),
+        )
 
     async def grade(self, attempt: AttemptContext, rollout: Rollout) -> GradeResult:
         """Call the episode's ``grade()``, provisioning the grading sandbox on the first try.

@@ -529,10 +529,10 @@ When the rollout runtime is built, every line of the `tasks` file in
 
 `task.data` is then the validated model's JSON dump with the line's `id` kept, not the
 raw line. The dump comes from the model's schema, so a `model_dump` that the model
-overrides isn't used. The task's digest is taken from this dump. Defaults that the
-model fills in are part of what ran, so the run record covers them. Changing a default
-in a task model therefore changes the task digests. A resume then starts the task order
-from the beginning, as it does for any change to the task set.
+overrides isn't used. Each rollout's `task_digest` is taken from this dump. Defaults
+that the model fills in are part of what ran, so the record covers them. Changing a
+default in a task model therefore changes the recorded digests. A resume still keeps
+its place in the task order. Only a changed task list or `shuffle_seed` restarts it.
 
 A line's `id` names its task and doesn't belong to the model, so `check` refuses a task
 model with an `id` field. Read the ID as `task.id`.

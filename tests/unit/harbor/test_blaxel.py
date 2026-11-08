@@ -336,7 +336,7 @@ class OneSandboxEach:
         return self
 
     async def prepare(self):
-        return [TaskRef("task-sandbox", "sha256:" + "0" * 64)]
+        return [TaskRef("task-sandbox")]
 
     async def sample(self, attempt):
         attempt_id = attempt.spec.identity.attempt_id

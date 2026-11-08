@@ -2,7 +2,7 @@ import json
 
 import pytest
 from support.audit import AcceptanceError, audit_run
-from support.builders import make_config, make_rollout, make_sample, task, write_jsonl
+from support.builders import digest, make_config, make_rollout, make_sample, write_jsonl
 
 from loops_cookbook.rl.aggregation import aggregate_loss
 from loops_cookbook.rl.grpo import build_rows
@@ -23,7 +23,7 @@ def evidence(tmp_path):
             "attempt_id": f"a{index}",
             "group_id": "group",
             "task_id": "task",
-            "task_digest": task("task").digest,
+            "task_digest": digest("task"),
             "reward": reward,
             "sample_ids": [sample.sample_id],
             "policy_version": 7,

@@ -5,8 +5,8 @@ is the agent. The agent asks the model once with the cookbook's `llm()` client, 
 the training process, and the client records every token exactly.
 
 The cookbook runs your class as the rollout runtime, through
-`loops_cookbook.episodes:create_runtime`. It loads the tasks and records a digest of
-each one, provisions and releases the sandbox, and calls `close()` once. Your episode
+`loops_cookbook.episodes:create_runtime`. It loads the tasks, records each rollout's
+task digest, provisions and releases the sandbox, and calls `close()` once. Your episode
 therefore holds only the agent and its grader. See
 [the Episode API](../../../docs/reference/episode-api.md) for the details.
 

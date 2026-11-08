@@ -21,9 +21,6 @@ import harbor.trial.trial as trial_module
 from harbor.environments.factory import EnvironmentFactory
 from harbor.job import Job
 from harbor.models.job.config import JobConfig
-from harbor.models.job.lock import (
-    _build_lock_trial_task,  # pyright: ignore[reportPrivateUsage]
-)
 from harbor.models.task.verifier_mode import resolve_effective_verifier_env_config
 from harbor.models.trial.config import TrialConfig
 from harbor.models.verifier.result import VerifierResult
@@ -47,12 +44,6 @@ async def task_environment_dir(config: TrialConfig) -> Path:
     """Return the directory that Harbor builds the task's environment image from."""
     task, _download = await Trial._load_task(config)  # pyright: ignore[reportPrivateUsage]
     return task.paths.environment_dir
-
-
-async def task_digest(config: TrialConfig) -> str:
-    """Return the task content digest that Harbor records in ``TrialLock.task.digest``."""
-    _task, download = await Trial._load_task(config)  # pyright: ignore[reportPrivateUsage]
-    return _build_lock_trial_task(config.task, download).digest
 
 
 TrialSetup = Callable[[Any], None]
@@ -100,15 +91,40 @@ class Deadlines:
     environments: Mapping[str, Any] = field(default_factory=dict[str, Any])
 
 
+# This is set while a probe trial is created. A probe trial is read and closed, and
+# never run.
+_probing: ContextVar[bool] = ContextVar("probing", default=False)
+_write_trial_lock = Trial._write_trial_lock  # pyright: ignore[reportPrivateUsage]
+
+
+def _lock_unless_probing(self: Trial) -> Any:
+    # Harbor reads a trial's lock only when the trial runs, and writing a lock hashes
+    # the whole task. A probe never runs, so it writes no lock.
+    if _probing.get():
+        return None
+    return _write_trial_lock(self)
+
+
+def _install_probe_lock() -> None:
+    if Trial._write_trial_lock is not _lock_unless_probing:  # pyright: ignore[reportPrivateUsage]
+        Trial._write_trial_lock = _lock_unless_probing  # pyright: ignore[reportAttributeAccessIssue]
+
+
 async def deadlines(config: TrialConfig, *, environments: bool = False) -> Deadlines:
     """Return Harbor's effective deadlines for a trial, as Harbor itself resolves them.
 
     With ``environments``, the result also holds every environment the trial declares.
     The trial is created, read and closed without being run. Its environments are
-    constructed but never started. A user-agent bridge has no bearing on deadlines, so
-    none is created.
+    constructed but never started. Nothing of the task is hashed, because the probe
+    writes no lock and names no image. A user-agent bridge has no bearing on deadlines,
+    so none is created.
     """
-    trial = await Trial.create(config.model_copy(update={"user_agent": None}))
+    _install_probe_lock()
+    token = _probing.set(True)
+    try:
+        trial = await Trial.create(config.model_copy(update={"user_agent": None}))
+    finally:
+        _probing.reset(token)
     try:
         steps = trial.task.config.steps or []
         final = trial._step_verifier_timeout_sec(steps[-1]) if steps else None  # pyright: ignore[reportPrivateUsage]

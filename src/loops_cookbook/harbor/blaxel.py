@@ -43,7 +43,7 @@ from harbor.models.trial.paths import EnvironmentPaths
 from pydantic import SecretStr
 
 from loops_cookbook.evidence import JsonValue
-from loops_cookbook.harbor.attempts import attempt_for, release_sandbox
+from loops_cookbook.harbor.attempts import PREFLIGHT, attempt_for, release_sandbox
 from loops_cookbook.harbor.oom import oom_kills
 from loops_cookbook.providers.blaxel.api import image_build_specification
 from loops_cookbook.providers.blaxel.images import blaxel_image
@@ -99,13 +99,18 @@ class BlaxelEnvironment(NativeBlaxelEnvironment):
         deadlines = attempt.provider_deadlines.get("blaxel")
         if deadlines is None:
             raise RuntimeError("the cookbook's Blaxel environment needs [providers.blaxel].")
+        preflight = attempt.resources is PREFLIGHT
+        if preflight:
+            # A preflight environment never starts, so it needs no image name. Without
+            # this ID, Harbor's constructor would hash the whole environment to name one.
+            vars(self)["environment_id"] = "preflight"
         super().__init__(*args, **kwargs)
         if self._compose_mode:
             raise ValueError(
                 "the cookbook does not support Harbor's Blaxel compose mode. Use a "
                 "Dockerfile or docker_image task."
             )
-        if self._imported_image() is None and self._content_hash_covers_build():
+        if not preflight and self._imported_image() is None and self._content_hash_covers_build():
             self._image_name = content_image_name(
                 self.environment_id, self._build_specification(), self._context_modes()
             )

@@ -881,7 +881,7 @@ class Pipeline:
             "attempt_id": rollout.identity.attempt_id,
             "group_id": rollout.identity.group_id,
             "task_id": rollout.task.id,
-            "task_digest": rollout.task.digest,
+            "task_digest": rollout.task_digest,
             "reward": rollout.reward,
             "policy_version": rollout.minimum_policy_version,
             "sample_ids": [sample.sample_id for sample in rollout.samples],
@@ -914,7 +914,7 @@ class Pipeline:
                 "attempt_id": None if rollout is None else rollout.identity.attempt_id,
                 "group_id": group.group_id,
                 "task_id": group.task.id,
-                "task_digest": group.task.digest,
+                "task_digest": None if rollout is None else rollout.task_digest,
                 "reward": None if rollout is None else rollout.reward,
                 # As in a trained record, this is the oldest version it sampled at, not
                 # the trainer's version when it was dropped. It is None when the rollout

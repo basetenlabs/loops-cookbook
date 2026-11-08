@@ -25,8 +25,9 @@ async def test_tasks_are_named_by_their_id_or_their_position_and_digested_canoni
     runtime = build(tmp_path, tasks=({"q": 1, "id": "named"}, {"b": [1, 2], "a": "x"}))
     named, unnamed = await runtime.prepare()
     assert (named.id, unnamed.id) == ("named", "1")
-    assert unnamed.digest == task_digest({"a": "x", "b": [1, 2]})  # key order is not content
-    assert named.digest != unnamed.digest
+    # Key order isn't content, so the digest ignores it.
+    assert runtime._task_digest(unnamed.id) == task_digest({"a": "x", "b": [1, 2]})
+    assert runtime._task_digest(named.id) != runtime._task_digest(unnamed.id)
 
 
 @pytest.mark.parametrize(
@@ -61,8 +62,8 @@ async def test_a_declared_task_model_makes_the_validated_dump_the_data_and_the_d
     (task,) = await runtime.prepare()
     dump = {"id": "q1", "prompt": "2+2", "answer": "4", "points": 1}  # the default ran
     assert task.id == "q1"
-    assert task.digest == task_digest(dump)
-    assert task.digest != task_digest(raw)
+    assert runtime._task_digest(task.id) == task_digest(dump)
+    assert runtime._task_digest(task.id) != task_digest(raw)
 
 
 def test_the_task_id_is_the_lines_and_stays_in_the_data_the_episode_sees(tmp_path):
@@ -107,7 +108,7 @@ async def test_two_tasks_that_differ_only_in_what_a_model_would_hide_never_share
         episode=declaring(monkeypatch, "task model", Everything),
     )
     first, second = await runtime.prepare()
-    assert first.digest != second.digest
+    assert runtime._task_digest(first.id) != runtime._task_digest(second.id)
 
 
 def test_a_recursive_json_value_round_trips_as_the_tasks_data(tmp_path):

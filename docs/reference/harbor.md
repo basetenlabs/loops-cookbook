@@ -597,7 +597,11 @@ answers after the deadline. A gate that ignores its cancellation is handled like
 
 ## Resuming
 
-A checkpoint records each task's ID and Harbor content digest, and the digest of the
-job file. If you resume after editing a task or changing the set of tasks, the run
-restarts the task order from the beginning, with a warning. A changed job file is
-reported as a changed setting.
+Each rollout records what its task held. A rollout's `task_digest` is Harbor's content
+digest of the task as the rollout's trial loaded it, so an edited task shows in the
+rollout records.
+
+A checkpoint records each task's ID and the digest of the job file. If you resume with
+a changed set of tasks, meaning other IDs or another order, the run restarts the task
+order from the beginning, with a warning. Editing a task's content doesn't restart it.
+A changed job file is reported as a changed setting.

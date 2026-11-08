@@ -4,7 +4,6 @@ checked as training's runtime is, reported by ``loops check``, and closed with i
 from __future__ import annotations
 
 import json
-from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -33,10 +32,7 @@ class FileRuntime:
     async def prepare(self) -> list[TaskRef]:
         if "broken" in self.path.name:
             raise RuntimeError("the dataset would not load")
-        return [
-            TaskRef(task["id"], f"sha256:{sha256(task['text'].encode()).hexdigest()}")
-            for task in self.tasks
-        ]
+        return [TaskRef(task["id"]) for task in self.tasks]
 
     async def close(self) -> None:
         CLOSED.append(self.path.name)
@@ -143,7 +139,11 @@ max_concurrent_rollouts = 4
     assert sorted(CLOSED) == ["train.jsonl", "val.jsonl"]
 
 
-def test_tasks_shared_with_training_are_warned_about_by_id_or_content(check, tmp_path):
+def test_tasks_shared_with_training_are_warned_about_by_id(check, tmp_path):
+    """Shared tasks are matched by ID alone.
+
+    v1 holds a training task's content under another ID, so it isn't a shared task.
+    """
     val = tasks_file(
         tmp_path,
         "val.jsonl",
@@ -153,10 +153,10 @@ def test_tasks_shared_with_training_are_warned_about_by_id_or_content(check, tmp
         write_config(tmp_path, f'[eval.sets.val]\nrollout_runtime.files = {{ tasks = "{val}" }}')
     )
     assert code == 0, out
-    assert "eval set 'val' shares 2 task(s) with training (t0, v1)" in out
+    assert "eval set 'val' shares 1 task(s) with training (t0)" in out
     assert (
         "Eval set 'val': 3 tasks × 1 sample, 16 at once; before the first update and "
-        "no final eval without max_steps; 2 tasks shared with training" in out
+        "no final eval without max_steps; 1 task shared with training" in out
     )
 
 

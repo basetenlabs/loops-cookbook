@@ -55,6 +55,17 @@ async def test_a_stale_rollout_never_runs_its_final_verifier(tmp_path):
     assert live_trials(runtime) == 0
 
 
+async def test_a_rollout_records_the_digest_of_the_task_its_trial_loaded(tmp_path):
+    """The digest is Harbor's own content digest, from the sampling trial's lock."""
+    import json
+
+    r, _runtime, task = await harbor(tmp_path, shared_task(tmp_path))
+    graded = await r.rollout("g-r1", task)
+    [lock] = (tmp_path / "work" / "trials" / "trials").glob("*/lock.json")
+    assert graded.task_digest == json.loads(lock.read_text())["task"]["digest"]
+    assert graded.task_digest.startswith("sha256:")
+
+
 async def test_a_separate_verifier_task_regrades_from_the_saved_trial(tmp_path):
     r, _runtime, task = await harbor(tmp_path, HILL_CLIMB)
     graded = await r.rollout("g-r1", task)
@@ -866,12 +877,18 @@ async def test_a_task_without_an_agent_deadline_is_bounded_by_the_rollout_clock(
     assert live_trials(runtime) == 0
 
 
-async def test_a_task_changed_after_prepare_fails_before_sampling(tmp_path):
+async def test_a_task_edited_mid_run_trains_and_its_rollouts_record_what_changed(tmp_path):
+    """A task's content is the user's to change.
+
+    Each rollout records the digest of the task as its trial loaded it.
+    """
     task = shared_task(tmp_path)
-    r, _runtime, ref = await harbor(tmp_path, task, max_rollout_retries=2)
+    r, _runtime, ref = await harbor(tmp_path, task)
+    before = await r.rollout("g-r1", ref)
     (task / "tests" / "test.sh").write_text("#!/bin/sh\necho 1 > /logs/verifier/reward.txt\n")
-    assert await r.rollout("g-r1", ref) is Discard.ROLLOUT_FAILED
-    assert agents.RUNS == []  # the agent never ran, and nothing retried it
+    after = await r.rollout("g-r2", ref)
+    assert before.reward == after.reward == 1.0
+    assert before.task_digest != after.task_digest
 
 
 async def test_an_agent_without_the_binding_fails_at_trial_setup(tmp_path, monkeypatch):

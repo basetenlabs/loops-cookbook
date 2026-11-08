@@ -238,11 +238,12 @@ def _audit(run_dir: Path) -> AcceptanceReport:
             )
             rollout = Rollout(
                 identity=AttemptIdentity(run_dir.name, record["group_id"], identity, attempt),
-                task=TaskRef(record["task_id"], record["task_digest"]),
+                task=TaskRef(record["task_id"]),
                 samples=tuple(selected),
                 reward=record["reward"],
                 metadata={},
                 discarded_versions=left_out_versions,
+                task_digest=record["task_digest"],
             )
             minimum = rollout.minimum_policy_version
             _require(minimum is not None, "rollout lacks trainable generations")
