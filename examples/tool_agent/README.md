@@ -27,7 +27,7 @@ what it left there, not on what it said.
 - `tasks.jsonl`: eight file tasks, each a `ToolTask`: `files`, an `instruction`, and a
   shell `check` the agent never sees.
 - `train_blaxel.toml`: one Blaxel sandbox per episode, and the agent's limits in
-  `[runtime.config.options]`, validated as `ToolOptions`.
+  `[rollout_runtime.config.options]`, validated as `ToolOptions`.
 
 **What counts as what.**
 

@@ -13,7 +13,7 @@ siblings: an LLM judge ranking answers, pairwise preferences, a diversity bonus.
 **Files**
 
 - `judge_episode.py`: the episode, `RankedEpisode(Episode[Question, JudgeOptions])`.
-  - Each task line is validated as a `Question`, and `[runtime.config.options]` as
+  - Each task line is validated as a `Question`, and `[rollout_runtime.config.options]` as
     `JudgeOptions`, both at `loops check`: a bad or misspelt option is refused there.
   - `run()` asks the policy once and keeps the answer.
   - `grade()` gives each rollout a small reward of its own: 1 when the answer has 1 to
@@ -32,7 +32,7 @@ siblings: an LLM judge ranking answers, pairwise preferences, a diversity bonus.
 or a live episode. It gets each member's task, its transcript (the conversation at
 the model boundary, each turn marked with whether it trains), its `grade()` reward,
 and its metadata, and the validated `JudgeOptions`. It reaches the judge through its
-own OpenAI-compatible client, configured in `[runtime.config.options]`:
+own OpenAI-compatible client, configured in `[rollout_runtime.config.options]`:
 
 | Option | Meaning |
 | --- | --- |

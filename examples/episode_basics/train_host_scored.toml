@@ -3,14 +3,14 @@
 
 recipe = "rl"
 
-[runtime]
+[rollout_runtime]
 factory = "loops_cookbook.episodes:create_runtime"
 
-[runtime.config]
+[rollout_runtime.config]
 episode = "episodes:HostScoredEpisode"
 agent_timeout_seconds = 90   # cut before the reply: unversioned; after it: graded, 0 if no answer was kept
 
-[runtime.files]
+[rollout_runtime.files]
 tasks = "questions.jsonl"
 
 [model]
@@ -46,7 +46,7 @@ every_steps = 2   # and before the first update and after the last
 [eval.sets.val]
 samples_per_task = 4
 
-[eval.sets.val.runtime.files]
+[eval.sets.val.rollout_runtime.files]
 tasks = "questions_val.jsonl"   # other letters, the same prompt: it shows the eval
 # mechanics, not generalization, and its score falls as the policy learns "B"
 

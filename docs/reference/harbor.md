@@ -41,9 +41,9 @@ retry:
 - **Agent execution plus an enabled verifier.** `install_only`, regrade-only, and
   `verifier.disable` jobs are rejected by `check`.
 - **One numeric reward, or `reward_key`.** The verifier's reward map must have a
-  single entry, or you name the one to train on in `[runtime.config] reward_key`. Booleans,
+  single entry, or you name the one to train on in `[rollout_runtime.config] reward_key`. Booleans,
   non-finite values, and a missing reward are failures, not zero.
-- **A reward gate drops rewards, never zeroes them.** `[runtime.config] reward_gate` names an
+- **A reward gate drops rewards, never zeroes them.** `[rollout_runtime.config] reward_gate` names an
   async `(trial, verifier_result) -> str | None`, run once the reward is final and before the
   sandboxes still running stop; a separate verifier's agent sandbox is already released. A
   reason drops the trial from training as `grading_failed/<reason>`, without counting toward
@@ -384,7 +384,7 @@ does what `conversation.discard(reply)` does above;
 ## 3. Run
 
 Copy [patterns/harbor/train_template.toml](../../patterns/harbor/train_template.toml) as `train.toml` next to
-`job.yaml` and `my_agent.py`, set `base_model` and `[runtime.files] job`, put
+`job.yaml` and `my_agent.py`, set `base_model` and `[rollout_runtime.files] job`, put
 `BASETEN_API_KEY` in a `.env` in the same directory, then:
 
 ```sh
@@ -394,7 +394,7 @@ uv run loops run   train.toml --training.max_steps 1 --training.group_size 2 --t
 ```
 
 The config's directory is importable, which is how `import_path: my_agent:MyAgent`
-resolves. `[runtime.files]` and `resume_from` are relative to `train.toml`; `output_dir`
+resolves. `[rollout_runtime.files]` and `resume_from` are relative to `train.toml`; `output_dir`
 is relative to where you run, and so are the paths inside the job file, such as
 `tasks[].path`, which Harbor resolves itself. `loops run --help` documents every setting, and
 [`KNOB_GLOSSARY.md`](KNOB_GLOSSARY.md) groups them by table with the few that

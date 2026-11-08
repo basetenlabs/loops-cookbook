@@ -23,7 +23,10 @@ async def test_it_trains_through_the_shared_pipeline_and_the_runs_gateway(tmp_pa
     config = offline_config(
         PATTERN / "train.toml",
         tmp_path,
-        {"runtime.files": {"tasks": str(task_file(tmp_path, TASKS))}, "training.max_steps": 2},
+        {
+            "rollout_runtime.files": {"tasks": str(task_file(tmp_path, TASKS))},
+            "training.max_steps": 2,
+        },
     )
     outcome, trainer, _ = await train_offline(config)
     assert outcome.ok and outcome.steps == 2

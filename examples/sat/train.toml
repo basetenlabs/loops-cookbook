@@ -3,20 +3,20 @@
 
 recipe = "rl"
 
-[runtime]
+[rollout_runtime]
 factory = "loops_cookbook.episodes:create_runtime"
 
-[runtime.config]
+[rollout_runtime.config]
 episode = "sat_episode:SatEpisode"
 agent_timeout_seconds = 3600
 
-[runtime.config.options]
+[rollout_runtime.config.options]
 # Qwen3.6-35B-A3B before training: pass@1 11%, pass@8 67% at 21 variables (36% and
 # 92% at 15, 3% and 17% at 25).
 variables = 21
 clause_ratio = 4.26
 
-[runtime.files]
+[rollout_runtime.files]
 tasks = "problems.jsonl"
 
 [model]
@@ -58,7 +58,7 @@ every_steps = 5   # and before the first update and after the last
 samples_per_task = 2
 max_concurrent_rollouts = 128
 
-[eval.sets.val.runtime.files]
+[eval.sets.val.rollout_runtime.files]
 tasks = "problems_val.jsonl"   # seeds training never draws
 
 [compute]

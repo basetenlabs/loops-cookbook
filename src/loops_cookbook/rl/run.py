@@ -887,9 +887,9 @@ class Run:
         )
 
     def _runtime_files(self, overrides: Mapping[str, str] | None = None) -> dict[str, Path]:
-        """``[runtime.files]`` with ``overrides`` on top, relative paths resolved against
+        """``[rollout_runtime.files]`` with ``overrides`` on top, relative paths resolved against
         the config directory."""
-        files = {**self.config.runtime.files, **(overrides or {})}
+        files = {**self.config.rollout_runtime.files, **(overrides or {})}
         return {
             alias: (Path(path) if Path(path).is_absolute() else self.config_dir / path)
             for alias, path in sorted(files.items())
@@ -980,7 +980,7 @@ class Run:
             if not warned_images:
                 warned_images = True
                 logger.warning(
-                    "A prompt has images, but [runtime] has_images = false and router "
+                    "A prompt has images, but [rollout_runtime] has_images = false and router "
                     "replay records every generation, which Loops cannot do for an image "
                     "prompt. Its rollout fails; set has_images = true and "
                     "router_replay = false."
@@ -1214,7 +1214,7 @@ class Run:
         return {
             "training": json.loads(json.dumps(training)),
             "tasks": [[task.id, task.digest] for task in tasks],
-            "runtime_config_digest": _digest(_canonical(config.runtime.config)),
+            "runtime_config_digest": _digest(_canonical(config.rollout_runtime.config)),
             "runtime_file_digests": files,
             "runtime_evidence_digests": self._runtime_evidence.digests,
             "producers": {name: spec.trainable for name, spec in rollout.producers.items()},
@@ -1606,7 +1606,7 @@ class Run:
         factory = self._runtime_factory
         self._runtime_evidence = EvidenceRecord()
         runtime = build_runtime(
-            factory, config.runtime.config, self._runtime_context(self._runtime_evidence)
+            factory, config.rollout_runtime.config, self._runtime_context(self._runtime_evidence)
         )
         try:
             try:
@@ -1618,8 +1618,8 @@ class Run:
                 runtime.capabilities,
                 Preflight(
                     model_access=None
-                    if config.runtime.model_access is None
-                    else ModelAccessMode(config.runtime.model_access),
+                    if config.rollout_runtime.model_access is None
+                    else ModelAccessMode(config.rollout_runtime.model_access),
                     rollout_timeout_seconds=config.rollout.rollout_timeout_seconds,
                 ),
             )
@@ -1628,13 +1628,16 @@ class Run:
             )
             self.model_access = model_access_mode(
                 None
-                if config.runtime.model_access is None
-                else ModelAccessMode(config.runtime.model_access),
+                if config.rollout_runtime.model_access is None
+                else ModelAccessMode(config.rollout_runtime.model_access),
                 capabilities,
             )
-            if self.model_access is not ModelAccessMode.OPENAI_HTTP and config.runtime.openai:
+            if (
+                self.model_access is not ModelAccessMode.OPENAI_HTTP
+                and config.rollout_runtime.openai
+            ):
                 raise RuntimeConfigurationError(
-                    f"[runtime.openai] is set, and the runtime's model access is "
+                    f"[rollout_runtime.openai] is set, and the runtime's model access is "
                     f"{self.model_access.value!r}; it applies only to openai_http"
                 )
             self.group_grader = group_grader(runtime, capabilities)
@@ -1656,8 +1659,8 @@ class Run:
         config = self.config
         configured = (
             None
-            if config.runtime.model_access is None
-            else ModelAccessMode(config.runtime.model_access)
+            if config.rollout_runtime.model_access is None
+            else ModelAccessMode(config.rollout_runtime.model_access)
         )
         ids = {task.id for task in training}
         digests = {task.digest for task in training}
@@ -1667,10 +1670,10 @@ class Run:
                 metrics = MetricsSink()
                 runtime = build_runtime(
                     self._runtime_factory,
-                    config.runtime.config,
+                    config.rollout_runtime.config,
                     self._runtime_context(
                         EvidenceRecord(),
-                        files=settings.runtime.files,
+                        files=settings.rollout_runtime.files,
                         work_dir=self.out / "eval" / name / "runtime",
                         max_concurrent_rollouts=settings.max_concurrent_rollouts,
                         metrics=metrics,
@@ -1735,7 +1738,7 @@ class Run:
 
         It binds its listener when the first attempt asks for a connection.
         """
-        runtime = self.config.runtime
+        runtime = self.config.rollout_runtime
         if self.model_access is not ModelAccessMode.OPENAI_HTTP:
             return None
         settings = runtime.openai or OpenAISettings()

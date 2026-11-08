@@ -6,27 +6,27 @@
 
 recipe = "rl"
 
-[runtime]
+[rollout_runtime]
 factory = "loops_cookbook.episodes:create_runtime"
 
-[runtime.config]
+[rollout_runtime.config]
 episode = "tool_episode:ToolEpisode"
 agent_timeout_seconds = 180   # cut after a delivered reply: graded from what it left in the sandbox; before one: unversioned
 
 # The agent's own limits, validated at check as its ToolOptions.
-[runtime.config.options]
+[rollout_runtime.config.options]
 max_turns = 12
 command_timeout_seconds = 20
 max_output_chars = 2000
 
 # One Blaxel sandbox per episode, provisioned before setup() and released by the run.
-[runtime.config.sandbox]
+[rollout_runtime.config.sandbox]
 provider = "blaxel"
 image = "blaxel/base-image:latest"
 memory_mb = 2048
 ttl = "1h"         # required: it must outlast one episode
 
-[runtime.files]
+[rollout_runtime.files]
 tasks = "tasks.jsonl"
 
 [providers.blaxel]

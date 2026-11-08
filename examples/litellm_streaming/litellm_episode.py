@@ -9,7 +9,7 @@ events, so the chunks arrive together at the end rather than token by token; the
 assembles them as it would any stream.
 
 Each task is an ``AnswerTask``, an instruction with one expected answer, from the
-dataset that ``[runtime.files] tasks`` names; ``loops check`` refuses a line that is
+dataset that ``[rollout_runtime.files] tasks`` names; ``loops check`` refuses a line that is
 not one. The episode keeps the answer, and ``grade()`` scores it. Grading is pure, so
 it is declared safe to retry.
 """

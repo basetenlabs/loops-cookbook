@@ -208,7 +208,7 @@ def test_every_kind_of_field_the_allow_list_names_is_accepted_as_task_or_options
 
 @pytest.mark.parametrize(
     ("role", "where"),
-    [("task model", r"tasks\.jsonl:1"), ("options model", r"\[runtime\.config\.options\]")],
+    [("task model", r"tasks\.jsonl:1"), ("options model", r"\[rollout_runtime\.config\.options\]")],
 )
 def test_a_validated_value_that_does_not_dump_as_its_field_type_is_refused(
     tmp_path, monkeypatch, role, where

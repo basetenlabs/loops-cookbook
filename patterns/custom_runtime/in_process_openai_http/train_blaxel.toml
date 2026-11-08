@@ -6,18 +6,18 @@
 
 recipe = "rl"
 
-[runtime]
+[rollout_runtime]
 factory = "loops_cookbook.episodes:create_runtime"
 
-[runtime.config]
+[rollout_runtime.config]
 episode = "http_episode:SandboxAnswerEpisode"
 agent_timeout_seconds = 90   # cut before the reply: unversioned; after it: graded, 0 if no answer was kept
 
-[runtime.files]
+[rollout_runtime.files]
 tasks = "../../../tasks/hidden_answer_35b.jsonl"   # one hidden answer to learn (tasks/README)
 
 # One Blaxel sandbox per episode, provisioned before setup() and released by the run.
-[runtime.config.sandbox]
+[rollout_runtime.config.sandbox]
 provider = "blaxel"
 image = "blaxel/base-image:latest"
 memory_mb = 2048

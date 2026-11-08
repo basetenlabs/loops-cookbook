@@ -353,7 +353,7 @@ class SandboxSession(Protocol):
 
 
 class SandboxSpec(BaseModel):
-    """``[runtime.config.sandbox]`` beside its ``provider``: the sandbox, as its kind types it.
+    """``[rollout_runtime.config.sandbox]`` beside its ``provider``: the sandbox, as its kind types it.
 
     A kind's spec declares its keys flat, each with its default or required, and
     forbids any other, so ``loops check`` refuses a misspelt key. It validates
@@ -395,7 +395,7 @@ class SandboxKind[ClientT]:
 
     # The provider this kind's sandboxes come from, as a message names it.
     provider: ClassVar[str]
-    # What [runtime.config.sandbox] says beside provider; by default, nothing.
+    # What [rollout_runtime.config.sandbox] says beside provider; by default, nothing.
     spec: ClassVar[type[SandboxSpec]] = SandboxSpec
 
     def __init__(

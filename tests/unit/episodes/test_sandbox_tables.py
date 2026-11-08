@@ -135,7 +135,7 @@ def test_a_blaxel_sandbox_table_is_the_kinds_flat_spec_checked_when_it_is_built(
         return
     with pytest.raises(
         RuntimeConfigurationError,
-        match=rf"(?s)\[runtime.config.sandbox\] is not a valid.*{problem}",
+        match=rf"(?s)\[rollout_runtime.config.sandbox\] is not a valid.*{problem}",
     ):
         build(tmp_path, limits=limits, **config)
 

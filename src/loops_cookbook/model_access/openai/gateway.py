@@ -55,7 +55,7 @@ _MAX_HEADER_VALUE = 256
 
 @dataclass(frozen=True, slots=True)
 class GatewaySettings:
-    """``[runtime.openai]``: where the gateway listens, and what it advertises."""
+    """``[rollout_runtime.openai]``: where the gateway listens, and what it advertises."""
 
     bind: str
     advertised_base_url: str | None
@@ -64,7 +64,7 @@ class GatewaySettings:
     shutdown_seconds: float
 
     def host_port(self) -> tuple[str, int]:
-        """``bind`` split; ``[runtime.openai]`` has already checked it is host:port."""
+        """``bind`` split; ``[rollout_runtime.openai]`` has already checked it is host:port."""
         host, _, port = self.bind.rpartition(":")
         return host.strip("[]"), int(port)
 

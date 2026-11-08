@@ -1,6 +1,6 @@
 """Episodes, models and sandbox specs the factory tests declare, and ``build()``.
 
-The tests name an episode by path, as ``[runtime.config] episode`` does:
+The tests name an episode by path, as ``[rollout_runtime.config] episode`` does:
 ``f"{DECLARED}:Name"``.
 """
 
@@ -126,7 +126,7 @@ def context(
     )
 
 
-ABSENT = object()  # a setting the [runtime.config] table leaves out
+ABSENT = object()  # a setting the [rollout_runtime.config] table leaves out
 
 
 def build(tmp_path, *, tasks=({"id": "t"},), limits=None, evidence=None, **config):

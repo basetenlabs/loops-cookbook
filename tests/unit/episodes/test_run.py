@@ -110,10 +110,10 @@ async def test_an_episode_class_trains_through_the_shared_pipeline_in_its_own_sa
     run_settings = settings(config, tmp_path, "SandboxedEpisode")
     run_settings = run_settings.model_copy(
         update={
-            "runtime": run_settings.runtime.model_copy(
+            "rollout_runtime": run_settings.rollout_runtime.model_copy(
                 update={
                     "config": {
-                        **run_settings.runtime.config,
+                        **run_settings.rollout_runtime.config,
                         "sandbox": {"provider": "fake"},
                     }
                 }
@@ -153,8 +153,10 @@ async def test_the_validated_options_are_run_evidence_and_a_resume_compares_them
     RUBRIC[0] = "exact"
     options = {"url": "http://judge"}
     run_settings = settings(config, tmp_path, "RubricEpisode")
-    runtime = {**run_settings.runtime.config, "options": options}
-    first_settings = settings(config, tmp_path, "RubricEpisode", **{"runtime.config": runtime})
+    runtime = {**run_settings.rollout_runtime.config, "options": options}
+    first_settings = settings(
+        config, tmp_path, "RubricEpisode", **{"rollout_runtime.config": runtime}
+    )
     outcome, _, run = await train_offline(first_settings, trainer=Checkpointing())
     assert outcome.ok
     ran = {"url": "http://judge", "rubric": "exact"}  # the default ran
@@ -166,7 +168,7 @@ async def test_the_validated_options_are_run_evidence_and_a_resume_compares_them
     manifest = run.out / "checkpoints" / "step-0.json"
     assert json.loads(manifest.read_text())["contract"]["runtime_evidence_digests"] == recorded
 
-    # The same [runtime.config], and a default that now says otherwise.
+    # The same [rollout_runtime.config], and a default that now says otherwise.
     RUBRIC[0] = "strict"
     resumed_trainer = Checkpointing()
     resumed_trainer.policy_version = 1
@@ -177,7 +179,7 @@ async def test_the_validated_options_are_run_evidence_and_a_resume_compares_them
                 tmp_path,
                 "RubricEpisode",
                 max_steps=2,
-                **{"runtime.config": runtime, "training.resume_from": str(manifest)},
+                **{"rollout_runtime.config": runtime, "training.resume_from": str(manifest)},
             ),
             trainer=resumed_trainer,
         )
@@ -216,9 +218,9 @@ async def test_an_options_default_read_from_the_environment_never_reaches_the_ru
 ):
     monkeypatch.setenv("JUDGE_TOKEN", "tok-5e3f9a")
     run_settings = settings(config, tmp_path, "TokenEpisode")
-    runtime = {**run_settings.runtime.config, "options": {"url": "http://judge"}}
+    runtime = {**run_settings.rollout_runtime.config, "options": {"url": "http://judge"}}
     outcome, _, run = await train_offline(
-        settings(config, tmp_path, "TokenEpisode", **{"runtime.config": runtime}),
+        settings(config, tmp_path, "TokenEpisode", **{"rollout_runtime.config": runtime}),
         trainer=Checkpointing(),
     )
     assert outcome.ok
@@ -244,7 +246,7 @@ def write_config(tmp_path, *tables, episode="AnswerEpisode", tasks=TASKS):
 def test_check_builds_the_episode_runtime_and_reports_its_capabilities(loops_check, tmp_path):
     code, out, err = loops_check(write_config(tmp_path))
     assert code == 0, err
-    assert f"Runtime: {FACTORY}; tasks: 2" in out
+    assert f"Rollout runtime: {FACTORY}; tasks: 2" in out
     assert "model access direct (AnswerEpisode.model_access)" in out
     assert (
         "runtime-acquired phases sampling; grading retries 0 (AnswerEpisode.grading_retries)" in out
@@ -274,7 +276,7 @@ def test_check_prints_the_rollout_clock_the_run_keeps_and_where_it_came_from(
 def test_check_refuses_a_rollout_clock_below_what_the_agent_deadline_needs(
     loops_check, tmp_path, agent_timeout
 ):
-    deadline = {"runtime": {"config": {"agent_timeout_seconds": agent_timeout}}}
+    deadline = {"rollout_runtime": {"config": {"agent_timeout_seconds": agent_timeout}}}
     code, _, err = loops_check(write_config(tmp_path, deadline))  # the rollout clock: 30
     assert code == 2
     assert "[rollout] rollout_timeout_seconds (30s) is below" in err
@@ -310,9 +312,12 @@ class SandboxedEpisode(AnswerEpisode, Episode[None, None]):
         return await super().run(sample)
 
 
-OPTIONS = {"runtime": {"config": {"options": {"url": "http://judge"}}}}
+OPTIONS = {"rollout_runtime": {"config": {"options": {"url": "http://judge"}}}}
 FAKE = {"adapter": "support.resources:create_fake", "instance": "check"}
-SANDBOX = {"runtime": {"config": {"sandbox": {"provider": "fake"}}}, "providers": {"fake": FAKE}}
+SANDBOX = {
+    "rollout_runtime": {"config": {"sandbox": {"provider": "fake"}}},
+    "providers": {"fake": FAKE},
+}
 
 
 def test_check_builds_an_episode_that_declares_its_task_and_options_models(loops_check, tmp_path):
@@ -332,7 +337,7 @@ def test_check_refuses_a_task_line_the_task_model_refuses_naming_file_and_line(
 
 
 def test_check_refuses_a_runtime_configuration_error_with_its_message(loops_check, tmp_path):
-    tables = {"runtime": {"config": {"options": {"url": 3}}}}
+    tables = {"rollout_runtime": {"config": {"options": {"url": 3}}}}
     code, _, err = loops_check(write_config(tmp_path, tables, episode="DeclaredEpisode"))
     assert code == 2
     assert "is not a valid Judge" in err and "Traceback" not in err
@@ -384,7 +389,7 @@ def test_check_matches_a_sandbox_to_its_adapters_kind_not_to_the_providers_name(
     pytest.importorskip("blaxel")
     monkeypatch.setitem(PROVIDERS, "check", FakeSandboxProvider())
     tables = {
-        "runtime": {
+        "rollout_runtime": {
             "config": {
                 "sandbox": {"provider": name, "image": "img:1", "memory_mb": 2048, "ttl": "1h"}
             }
@@ -433,7 +438,7 @@ async def test_an_episode_run_keeps_the_derived_rollout_clock_unless_one_is_set(
         tmp_path,
         "LingeringEpisode",
         **{
-            "runtime.config": {
+            "rollout_runtime.config": {
                 "episode": f"{__name__}:LingeringEpisode",
                 "agent_timeout_seconds": 0.2,
             },

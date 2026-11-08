@@ -55,7 +55,7 @@ def train(tmp_path):
             EXAMPLE / "train_blaxel.toml",
             tmp_path,
             {
-                "runtime.files": {"job": str(job)},
+                "rollout_runtime.files": {"job": str(job)},
                 "providers": {},
                 "training.max_steps": 1,
                 # One wave of four agent programs: each is a Python process and a Harbor trial.
@@ -81,7 +81,7 @@ def test_the_example_declares_http_model_access_and_the_blaxel_environment():
     assert _validate_agent_binding(job.agents[0]) is ModelAccessMode.OPENAI_HTTP
     assert job.environment.import_path == "loops_cookbook.harbor.blaxel:BlaxelEnvironment"
     config = cli.load_training_config(EXAMPLE / "train_blaxel.toml")
-    assert config.runtime.model_access is None  # the class states it
+    assert config.rollout_runtime.model_access is None  # the class states it
     assert "blaxel" in config.providers
 
 

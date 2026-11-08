@@ -16,7 +16,7 @@ file is kept. A list replaces the file's list. A flag for a setting the config's
 recipe does not have is refused. Run `loops run --help` for every setting,
 grouped by the TOML section it lives in.
 
-The directory holding the config is importable, so `[runtime].factory`,
+The directory holding the config is importable, so `[rollout_runtime].factory`,
 `[model].renderer`, and a Harbor job's agent can name modules beside it. Credentials
 come from a `.env` beside the config or in the working directory (see .env.example).
 A symlinked config is the file it points to: its paths, modules and `.env` are beside

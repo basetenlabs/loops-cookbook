@@ -96,12 +96,12 @@ overrides what the model would have written, the further off-policy the sample i
 ### Over HTTP
 
 When the runtime's model access is `openai_http` (an `Episode` class or a Harbor agent
-declares it as `model_access`; `[runtime] model_access` is only for a runtime that
+declares it as `model_access`; `[rollout_runtime] model_access` is only for a runtime that
 supports several), a runtime calls
 `services.model_access.http_connection(producer)` instead of `llm()`, and hands the
 agent an OpenAI-compatible base URL, a key, and a model name. The key is bound to
 that attempt and producer; nothing in a request can change either. The run has one
-gateway, which listens on `[runtime.openai].bind` (loopback and an ephemeral port by
+gateway, which listens on `[rollout_runtime.openai].bind` (loopback and an ephemeral port by
 default), advertises `advertised_base_url` and one model, `model_name` (default
 `[model] base_model`), and it serves
 `POST /v1/chat/completions` and `GET /v1/models`, streamed or not, and

@@ -1,4 +1,4 @@
-"""Reward gates for the Harbor runtime tests, named by ``[runtime.config].reward_gate``."""
+"""Reward gates for the Harbor runtime tests, named by ``[rollout_runtime.config].reward_gate``."""
 
 import asyncio
 import threading

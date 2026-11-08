@@ -1084,7 +1084,10 @@ async def test_runtime_file_digests_cover_directories_and_resolve_against_the_co
     (tmp_path / "tasks").mkdir()
     (tmp_path / "tasks" / "a.json").write_text("{}")
     run, _, _ = rl_run(
-        KeepingTrainer(), config_dir=tmp_path, max_steps=1, **{"runtime.files": {"tasks": "tasks"}}
+        KeepingTrainer(),
+        config_dir=tmp_path,
+        max_steps=1,
+        **{"rollout_runtime.files": {"tasks": "tasks"}},
     )
     assert (await asyncio.wait_for(run.execute(), timeout=5)).ok
     contract = json.loads(manifest_path(run.out, 0).read_text())["contract"]
@@ -1985,10 +1988,12 @@ def test_eval_rollouts_count_toward_the_open_file_limit(config):
     from loops_cookbook.rl.run import check_open_file_limit
     from loops_cookbook.runtime.context import RuntimeConfigurationError
 
-    sets = {"val": {"runtime": {"files": {"tasks": "val.jsonl"}}, "max_concurrent_rollouts": 64}}
+    sets = {
+        "val": {"rollout_runtime": {"files": {"tasks": "val.jsonl"}}, "max_concurrent_rollouts": 64}
+    }
     with pytest.raises(RuntimeConfigurationError, match="eval rollouts"):
         check_open_file_limit(
-            config(**{"runtime.files": {"tasks": "t.jsonl"}, "eval.sets": sets}),
+            config(**{"rollout_runtime.files": {"tasks": "t.jsonl"}, "eval.sets": sets}),
             limits=(256, 4096),
         )
 
@@ -2000,10 +2005,12 @@ def test_an_eval_sets_group_graders_count_toward_the_open_file_limit(config, ver
     from loops_cookbook.rl.run import check_open_file_limit
     from loops_cookbook.runtime.context import RuntimeConfigurationError
 
-    sets = {"val": {"runtime": {"files": {"tasks": "val.jsonl"}}, "max_concurrent_rollouts": 5}}
+    sets = {
+        "val": {"rollout_runtime": {"files": {"tasks": "val.jsonl"}}, "max_concurrent_rollouts": 5}
+    }
     evals_only = config(
         **{
-            "runtime.files": {"tasks": "t.jsonl"},
+            "rollout_runtime.files": {"tasks": "t.jsonl"},
             "eval.sets": sets,
             "rollout.max_concurrent_verifiers": verifiers,
         }

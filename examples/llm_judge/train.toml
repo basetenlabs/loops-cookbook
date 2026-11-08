@@ -5,23 +5,23 @@
 
 recipe = "rl"
 
-[runtime]
+[rollout_runtime]
 factory = "loops_cookbook.episodes:create_runtime"
 
-[runtime.config]
+[rollout_runtime.config]
 episode = "judge_episode:RankedEpisode"
 agent_timeout_seconds = 60
 
 # The episode's own settings, validated at check as its JudgeOptions: its judge,
 # never the policy. No secret goes here: the key stays in the environment.
-[runtime.config.options]
+[rollout_runtime.config.options]
 judge_base_url = "https://inference.baseten.co/v1"   # any OpenAI-compatible endpoint
 judge_model = "openai/gpt-oss-120b"
 judge_api_key_env = "BASETEN_API_KEY"                # the variable that holds its key
 rank_weight = 0.8                                    # the rest is grade()'s length reward
 max_words = 60
 
-[runtime.files]
+[rollout_runtime.files]
 tasks = "tasks.jsonl"
 
 [model]

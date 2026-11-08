@@ -3,11 +3,11 @@
 
 recipe = "rl"
 
-[runtime]
+[rollout_runtime]
 factory = "loops_cookbook.harbor:create_runtime"
 has_images = true
 
-[runtime.files]
+[rollout_runtime.files]
 job = "job.yaml"
 
 [providers.blaxel]

@@ -11,7 +11,7 @@ Choosing a pattern as a user is in [patterns/](../patterns/).
 
 ## The idea
 
-A **pattern** is runtime × agent placement × model access, and one copyable directory
+A **pattern** is rollout runtime × agent placement × model access, and one copyable directory
 in `patterns/<runtime>/` (`in_process_direct`, `in_process_openai_http`, `local`) with one `train_<backend>.toml` per
 environment backend, all on the shared tasks in `tasks/`. Only four things change
 between patterns: where the agent runs, how it reaches the model, where the sandbox
@@ -24,8 +24,8 @@ every shipped config must pass `check` (`tests/test_shipped_configs.py`).
 | Placement | Mechanics | Code |
 | --- | --- | --- |
 | **in-process** | The agent is a coroutine on the training process's one event loop. Deadlines cancel it cooperatively, so a blocking call freezes the whole run, and a hook that won't stop stops the run (doc 1, rule 6). | `episodes/api.py` (`AgentTurn`), `harbor/runtime.py` |
-| **local** | Another program on the training machine, started through the attempt's `AttemptProcessSupervisor`: its own process group, stdin closed, an environment of a short allowlist plus exactly what the runtime passes, `SecretStr` values redacted from kept output. Cancelling ends the group: `SIGTERM`, `process_kill_grace_seconds`, `SIGKILL`, then a 5 s wait. A nonzero exit is returned, not raised. No process starts once a hook is being stopped or the attempt has ended. | `runtime/processes.py` |
-| **remote** | Inside the sandbox. **Not supported.** The gateway listens on the training machine's loopback by default; a sandbox — Docker included, whose loopback isn't the host's — can't reach it. | `[runtime.openai]` `bind`, `advertised_base_url` |
+| **local** | Another program on the training machine, started through the attempt's `AttemptProcessSupervisor`: its own process group, stdin closed, an environment of a short allowlist plus exactly what the rollout runtime passes, `SecretStr` values redacted from kept output. Cancelling ends the group: `SIGTERM`, `process_kill_grace_seconds`, `SIGKILL`, then a 5 s wait. A nonzero exit is returned, not raised. No process starts once a hook is being stopped or the attempt has ended. | `runtime/processes.py` |
+| **remote** | Inside the sandbox. **Not supported.** The gateway listens on the training machine's loopback by default; a sandbox — Docker included, whose loopback isn't the host's — can't reach it. | `[rollout_runtime.openai]` `bind`, `advertised_base_url` |
 
 A local program is trusted: it receives the provider's usage environment, and for Blaxel
 that carries the workspace-wide `BL_API_KEY`. The cookbook never has it create or
@@ -92,7 +92,7 @@ alone, so Harbor's sandboxes go through the same registry.
 3. **An HTTP key is one attempt and one producer, and dies at seal.** —
    `tests/unit/model_access/test_gateway_delivery.py::test_a_credentials_producer_cannot_be_changed_by_the_request`,
    `::test_a_credential_admits_nothing_after_seal_abort_or_gateway_close`.
-4. **A mode offers only itself.** A `direct` runtime can't open HTTP and vice versa. —
+4. **A mode offers only itself.** A `direct` rollout runtime can't open HTTP and vice versa. —
    `test_gateway_serving.py::test_asking_http_access_for_a_client_states_the_runtimes_mode`,
    `test_lease.py::test_asking_direct_access_for_a_connection_states_the_runtimes_mode`.
 5. **Every shipped config passes `check`**, including with every commented setting
@@ -108,7 +108,7 @@ alone, so Harbor's sandboxes go through the same registry.
 | Decision | Why | Rejected |
 | --- | --- | --- |
 | **Patterns are directories users copy**, not a framework they configure. | Users read and change the code; duplication inside a pattern is deliberate. | A pattern registry or a base class per pattern. |
-| **One task set across patterns.** | Any two patterns of a runtime diff down to the axis that changed. | A task per pattern. |
+| **One task set across patterns.** | Any two patterns of a rollout runtime diff down to the axis that changed. | A task per pattern. |
 | **`direct` is in-process only.** | A Python client can't cross a process boundary; everything else speaks HTTP. | A custom RPC for local agents. |
 | **OpenAI Chat Completions as the HTTP surface.** | Every agent framework already speaks it; stock clients need nothing special. | A cookbook-specific protocol. |
 | **The gateway binds loopback by default.** | Nothing off the machine can reach a credential-bearing endpoint by accident. Remote placement will need an explicit `bind`. | Binding all interfaces. |

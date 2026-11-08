@@ -32,7 +32,7 @@ TTL = r"^[1-9][0-9]*[smhdw]$"
 
 
 class BlaxelSandbox(SandboxSpec):
-    """``[runtime.config.sandbox]`` for a Blaxel sandbox, beside ``provider = "blaxel"``."""
+    """``[rollout_runtime.config.sandbox]`` for a Blaxel sandbox, beside ``provider = "blaxel"``."""
 
     image: str = Field(min_length=1, description="The image it runs.")
     memory_mb: int = Field(gt=0, description="Its memory, as Harbor's memory_mb.")

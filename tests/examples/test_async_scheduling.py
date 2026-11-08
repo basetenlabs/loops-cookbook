@@ -19,7 +19,7 @@ async def test_the_smoke_trains_offline_within_two_steps_of_the_policy(tmp_path)
     config = offline_config(
         EXAMPLE / "train.toml",
         tmp_path,
-        {"runtime.files": {"tasks": str(task_file(tmp_path, tasks))}},
+        {"rollout_runtime.files": {"tasks": str(task_file(tmp_path, tasks))}},
     )
     outcome, trainer, _ = await train_offline(config)
     assert outcome.ok and outcome.steps == config.training.max_steps

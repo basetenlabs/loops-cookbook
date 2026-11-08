@@ -900,4 +900,4 @@ async def test_asking_direct_access_for_a_connection_states_the_runtimes_mode():
     with pytest.raises(ModelAccessError) as refused:
         await DirectModelAccess(held, Renderers(Renderer())).http_connection()
     message = str(refused.value)
-    assert "declares direct" in message and "[runtime]" not in message
+    assert "declares direct" in message and "[rollout_runtime]" not in message

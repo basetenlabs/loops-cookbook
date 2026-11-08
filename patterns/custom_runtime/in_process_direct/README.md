@@ -16,9 +16,9 @@ infrastructure) and you are writing the episode logic in Python.
   scores it; `SandboxAnswerEpisode` writes the answer into the attempt's sandbox, and
   `grade()` scores what the sandbox holds. Its one task, a hidden answer to guess, is
   the dataset [tasks/hidden_answer_35b.jsonl](../../../tasks/hidden_answer_35b.jsonl) that
-  `[runtime.files] tasks` names.
+  `[rollout_runtime.files] tasks` names.
 - `train.toml`: no environment, with `AnswerEpisode`.
-- `train_blaxel.toml`: one Blaxel sandbox per episode, from `[runtime.config.sandbox]`,
+- `train_blaxel.toml`: one Blaxel sandbox per episode, from `[rollout_runtime.config.sandbox]`,
   with `SandboxAnswerEpisode`, an `Episode[AnswerTask, None]` with `execution_kind = Blaxel`, so `loops
   check` refuses it without that table or with another provider's. The run provisions
   the sandbox before `setup()`, whose `setup.sandbox.client()` attaches to it within

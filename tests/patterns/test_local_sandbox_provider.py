@@ -54,7 +54,7 @@ from loops_cookbook.rl.recipe import assemble
 
 async def main():
     settings = cli.load_training_config(Path({config!r}), {{
-        "runtime.config": {{
+        "rollout_runtime.config": {{
             "episode": "local_episode:DirectoryAgentEpisode",
             "agent_timeout_seconds": 90,
             "sandbox": {{"provider": "local_sandbox"}},
@@ -64,7 +64,7 @@ async def main():
                 "grade_against": "files",
             }},
         }},
-        "runtime.files": {{"tasks": {tasks!r}}},
+        "rollout_runtime.files": {{"tasks": {tasks!r}}},
         "compute.sampler_replica_affinity": True,
         "output.output_dir": {runs!r},
         "training.max_steps": 1,

@@ -4,9 +4,9 @@ Every setting the cookbook reads. Settings live in `train.toml` under the sectio
 shown, and the CLI exposes each key of a table that is always present by its dotted
 path, such as `--rollout.max_concurrent_rollouts`.
 
-A runtime's own settings are opaque to the training config and live in
-`[runtime.config]`; the built-in runtimes' and providers' tables are listed after
-the training config's. For Harbor, `[runtime.config]` is only `reward_key`, and
+A rollout runtime's own settings are opaque to the training config and live in
+`[rollout_runtime.config]`; the built-in rollout runtimes' and providers' tables are listed after
+the training config's. For Harbor, `[rollout_runtime.config]` is only `reward_key`, and
 agent behaviour and environment configuration belong to the Harbor job. A custom
 provider defines its own `[providers.<name>]`. For the settings that only make sense
 together, see [`settings-that-interact.md`](settings-that-interact.md).
@@ -22,20 +22,20 @@ new setting follows the same rule.
 
 <!-- generated from the settings models; `python -m loops_cookbook.docs` rewrites it -->
 
-## `[runtime]`
+## `[rollout_runtime]`
 
-Where episodes come from: the runtime factory and what it may resolve.
+Where episodes come from: the rollout runtime factory and what it may resolve.
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
-| `factory` | string | *required* | Runtime factory as module:callable. Harbor: loops_cookbook.harbor:create_runtime; a custom runtime: its module beside this file. |
-| `model_access` | string | `None` | How the agent reaches the model. direct: the cookbook's llm() client, for in-process agents; openai_http: an OpenAI-compatible Chat Completions endpoint per attempt. Unset: the one the runtime declares (an Episode class's model_access, a Harbor job's agents'); set only for a runtime that supports several. |
+| `factory` | string | *required* | Rollout runtime factory as module:callable. Harbor: loops_cookbook.harbor:create_runtime; a custom rollout runtime: its module beside this file. |
+| `model_access` | string | `None` | How the agent reaches the model. direct: the cookbook's llm() client, for in-process agents; openai_http: an OpenAI-compatible Chat Completions endpoint per attempt. Unset: the one the rollout runtime declares (an Episode class's model_access, a Harbor job's agents'); set only for a rollout runtime that supports several. |
 | `openai` | table | `None` | The Chat Completions gateway; only with model_access = openai_http. |
-| `config` | table | empty | Opaque runtime settings, handed to the factory unchanged. |
-| `files` | table | empty | Files the runtime may resolve, as alias = path. Relative to this config file, or to the shell when passed as a command-line flag. |
+| `config` | table | empty | Opaque rollout runtime settings, handed to the factory unchanged. |
+| `files` | table | empty | Files the rollout runtime may resolve, as alias = path. Relative to this config file, or to the shell when passed as a command-line flag. |
 | `has_images` | boolean | `False` | Whether the agent's prompts carry images. Loops cannot record an image prompt, so router replay needs this false. |
 
-## `[runtime.openai]`
+## `[rollout_runtime.openai]`
 
 The Chat Completions gateway, with model_access = openai_http.
 
@@ -121,14 +121,14 @@ How much runs at once, how long each episode may take, and when to give up.
 | `max_consecutive_rollout_failures` | integer, ≥ 0 | `64` | Abort after this many consecutive failures in one stage: sampling, grading and cleanup infrastructure, or a group grader; 0 disables. |
 | `shuffle_seed` | integer | `0` | Seed for the task order. |
 | `shutdown_drain_seconds` | number, > 0 | `120` | Time allowed for in-flight attempts to settle on shutdown, and again for the run's resource creates and releases to finish; what is left is cut off, given a few seconds to stop, and reported for `loops cleanup`. An operation that ignores being cut off is reported, and holds the process until it stops. |
-| `producers` | table | `{'main': {'trainable': True}}` | Every producer a runtime may use, by name, and whether its generations receive gradient; a call that names no producer uses main, and an undeclared name is refused. Setting the table replaces the default, so list main if calls rely on it. |
-| `rollout_timeout_seconds` | number, > 0 | `None` | Backstop on a rollout's time holding sampling capacity, less resource-service time such as a sandbox create; a runtime bounds its own agent below it. Unset: the runtime's derived clock (Episodes derive one from their agent deadline); required for a runtime that derives none. |
+| `producers` | table | `{'main': {'trainable': True}}` | Every producer a rollout runtime may use, by name, and whether its generations receive gradient; a call that names no producer uses main, and an undeclared name is refused. Setting the table replaces the default, so list main if calls rely on it. |
+| `rollout_timeout_seconds` | number, > 0 | `None` | Backstop on a rollout's time holding sampling capacity, less resource-service time such as a sandbox create; a rollout runtime bounds its own agent below it. Unset: the rollout runtime's derived clock (Episodes derive one from their agent deadline); required for a rollout runtime that derives none. |
 | `setup_timeout_seconds` | number, > 0 | *required* | Bound on an attempt's time before sealing outside sampling and verification capacity. Required. |
-| `max_rollout_retries` | integer, ≥ 0 | `0` | Extra attempts a rollout may use after an episode failure before it has a valid rollout. A last resort: runtimes retry their own steps, and model-call failures are never retried here because the Loops SDK already retried them. |
+| `max_rollout_retries` | integer, ≥ 0 | `0` | Extra attempts a rollout may use after an episode failure before it has a valid rollout. A last resort: rollout runtimes retry their own steps, and model-call failures are never retried here because the Loops SDK already retried them. |
 
 ## `[rollout.producers.<name>]`
 
-One producer a runtime may name, keyed by that name.
+One producer a rollout runtime may name, keyed by that name.
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -136,7 +136,7 @@ One producer a runtime may name, keyed by that name.
 
 ## `[rollout.grading]`
 
-Each grade() try's deadline; how many tries a failure earns is the runtime's.
+Each grade() try's deadline; how many tries a failure earns is the rollout runtime's.
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -144,12 +144,12 @@ Each grade() try's deadline; how many tries a failure earns is the runtime's.
 
 ## `[rollout.cleanup]`
 
-Deadlines for the runtime's cleanup hooks.
+Deadlines for the rollout runtime's cleanup hooks.
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
 | `timeout_seconds` | number, > 0 | `600` | Deadline for each finish(), abort(), and close(). Generous: it covers a Harbor trial's teardown, and one set too long only delays the report of a hook that hangs. |
-| `cancellation_grace_seconds` | number, > 0 | `5` | How long a cancelled runtime hook may take to stop before the run fails. |
+| `cancellation_grace_seconds` | number, > 0 | `5` | How long a cancelled rollout runtime hook may take to stop before the run fails. |
 | `process_kill_grace_seconds` | number, > 0 | `10` | How long an agent process may take to exit after SIGTERM before it is killed; spent before a cancelled hook's own grace starts. |
 
 ## `[compute]`
@@ -201,7 +201,7 @@ Held-out evals during training, each on a sampler pinned to one step's weights. 
 
 ## `[eval.sets.<name>]`
 
-One held-out task set: training's runtime with these files. A key at the path of a training setting overrides that setting for this set.
+One held-out task set: training's rollout runtime with these files. A key at the path of a training setting overrides that setting for this set.
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -209,13 +209,13 @@ One held-out task set: training's runtime with these files. A key at the path of
 | `max_tasks` | integer, ≥ 1 | `None` | Evaluate the first N tasks; unset: all. |
 | `max_concurrent_rollouts` | integer, ≥ 1 | `16` | This set's rollouts at once, on top of training's: they share training's sandbox providers, so those see training's limit plus every set's. |
 
-## `[eval.sets.<name>.runtime]`
+## `[eval.sets.<name>.rollout_runtime]`
 
-Overrides [runtime] for this set.
+Overrides [rollout_runtime] for this set.
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
-| `files` | table | *required* | Replaces these [runtime.files] entries for this set; the runtime, its config and every other file are training's. |
+| `files` | table | *required* | Replaces these [rollout_runtime.files] entries for this set; the rollout runtime, its config and every other file are training's. |
 
 ## `[eval.sets.<name>.sampling]`
 
@@ -225,9 +225,9 @@ Overrides [sampling] for this set.
 | --- | --- | --- | --- |
 | `temperature` | number, ≥ 0 | `None` | Unset: [sampling].temperature. |
 
-## `[runtime.config]` for Episodes
+## `[rollout_runtime.config]` for Episodes
 
-With factory = "loops_cookbook.episodes:create_runtime". Its tasks file is the `tasks` alias under `[runtime.files]`.
+With factory = "loops_cookbook.episodes:create_runtime". Its tasks file is the `tasks` alias under `[rollout_runtime.files]`.
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -237,7 +237,7 @@ With factory = "loops_cookbook.episodes:create_runtime". Its tasks file is the `
 | `grading_sandbox` | table | `None` | Optional separate sandbox, provisioned on first grading admission. |
 | `options` | table | `None` | The episode's own non-secret settings, validated with its options model. |
 
-## `[runtime.config.sandbox]` for Episodes
+## `[rollout_runtime.config.sandbox]` for Episodes
 
 An Episode's sandbox. The keys beside `provider` are the provider's sandbox spec, below for Blaxel and Daytona.
 
@@ -245,7 +245,7 @@ An Episode's sandbox. The keys beside `provider` are the provider's sandbox spec
 | --- | --- | --- | --- |
 | `provider` | string | *required* | The [providers] entry that provides it. |
 
-## `[runtime.config.sandbox]` on Blaxel
+## `[rollout_runtime.config.sandbox]` on Blaxel
 
 Beside provider = "blaxel".
 
@@ -255,7 +255,7 @@ Beside provider = "blaxel".
 | `memory_mb` | integer, > 0 | *required* | Its memory, as Harbor's memory_mb. |
 | `ttl` | string | *required* | How long Blaxel keeps it, such as 1h, required as Harbor's Blaxel ttl is: a backstop, as the run releases it. A whole number and one unit: s, m, h, d or w. |
 
-## `[runtime.config.sandbox]` on Daytona
+## `[rollout_runtime.config.sandbox]` on Daytona
 
 Beside provider = "daytona". Its lifecycle is `[providers.daytona]`'s.
 
@@ -267,7 +267,7 @@ Beside provider = "daytona". Its lifecycle is `[providers.daytona]`'s.
 | `memory_gib` | integer, > 0 | `None` | Its memory in GiB. Unset, [providers.daytona] memory_gib. |
 | `disk_gib` | integer, > 0 | `None` | Its disk in GiB, the image not counted. Unset, [providers.daytona] disk_gib. |
 
-## `[runtime.config.grading_sandbox]` for Episodes
+## `[rollout_runtime.config.grading_sandbox]` for Episodes
 
 An Episode's optional separate verifier sandbox, provisioned only on grading admission. The keys beside `provider` are the provider's sandbox spec.
 
@@ -275,7 +275,7 @@ An Episode's optional separate verifier sandbox, provisioned only on grading adm
 | --- | --- | --- | --- |
 | `provider` | string | *required* | The [providers] entry that provides it. |
 
-## `[runtime.config.grading_sandbox]` on Blaxel
+## `[rollout_runtime.config.grading_sandbox]` on Blaxel
 
 Beside provider = "blaxel"; independent of the execution sandbox spec.
 
@@ -301,7 +301,7 @@ The built-in Blaxel provider. Its credentials, BL_WORKSPACE and BL_API_KEY, come
 | `confirm_absent_timeout_seconds` | number, > 0 | `60` | Bound on confirming a deleted sandbox is gone. |
 | `list_timeout_seconds` | number, > 0 | `60` | Bound on each page of the workspace listing a label sweep reads; the whole listing is not bounded, since it grows with the workspace. |
 | `attach_timeout_seconds` | number, > 0 | `30` | Bound on attaching a client to a created sandbox. |
-| `labels` | table | empty | Labels every sandbox, image builders included, carries besides the run's ownership labels, such as an owner to find a team's sandboxes by. They win over the same keys from a Harbor job's or [runtime.config.sandbox]'s labels. |
+| `labels` | table | empty | Labels every sandbox, image builders included, carries besides the run's ownership labels, such as an owner to find a team's sandboxes by. They win over the same keys from a Harbor job's or [rollout_runtime.config.sandbox]'s labels. |
 
 ## `[providers.daytona]`
 
@@ -323,7 +323,7 @@ The built-in Daytona provider; see [daytona.md](daytona.md). Its credential, DAY
 | `auto_stop_minutes` | integer, ≥ 0 | `120` | Minutes without a Daytona API call (a command counts; a process inside does not) after which Daytona stops a sandbox whose request sets none; with auto_delete_minutes 0 it is then deleted. It must outlast an attempt's longest quiet spell, such as a long model turn or a wait for grading. 0 disables it, which needs ttl_minutes. |
 | `auto_delete_minutes` | integer, ≥ 0 | `0` | Minutes a stopped sandbox is kept before Daytona deletes it; 0 deletes it as it stops. |
 | `ttl_minutes` | integer, ≥ 0 | *required* | Wall-clock minutes after which Daytona destroys a sandbox whatever its state: a backstop for one the run lost. It must outlast the longest attempt, as a sandbox still working at it is destroyed; 0 sets none. |
-| `labels` | table | empty | Labels every sandbox carries besides the run's ownership labels, such as an owner to find a team's sandboxes by. They win over the same keys from a Harbor job's or [runtime.config.sandbox]'s labels. |
+| `labels` | table | empty | Labels every sandbox carries besides the run's ownership labels, such as an owner to find a team's sandboxes by. They win over the same keys from a Harbor job's or [rollout_runtime.config.sandbox]'s labels. |
 | `max_sandbox_cpu` | integer, > 0 | `None` | The most vCPUs Daytona gives one sandbox; a larger task is refused before the run. |
 | `max_sandbox_memory_gib` | integer, > 0 | `None` | The most memory one sandbox may have, in GiB. |
 | `max_sandbox_disk_gib` | integer, > 0 | `None` | The most disk one sandbox may have, in GiB. |

@@ -25,7 +25,7 @@ TASKS = [
 
 async def train(config_path, tmp_path, **run_options):
     overrides = {
-        "runtime.files": {"tasks": str(task_file(tmp_path, TASKS))},
+        "rollout_runtime.files": {"tasks": str(task_file(tmp_path, TASKS))},
         "training.max_steps": 2,
     }
     return await train_offline(offline_config(config_path, tmp_path, overrides), **run_options)
@@ -55,7 +55,7 @@ async def test_on_blaxel_each_attempt_answers_into_its_own_sandbox_which_the_run
     assert len(set(creates)) == len(records) == 32
     assert all(files == {ANSWER: files[ANSWER]} for files in blaxel.files.values())
     assert set(blaxel.files) == set(creates)  # each attempt answered into its own sandbox
-    # train_blaxel.toml's flat [runtime.config.sandbox], as Blaxel's create configuration
+    # train_blaxel.toml's flat [rollout_runtime.config.sandbox], as Blaxel's create configuration
     asked = {(c["image"], c["memory"], c["ttl"]) for c in blaxel.api.created}
     assert asked == {("blaxel/base-image:latest", 2048, "1h")}
     assert all(client.closed for client in blaxel.clients)  # the layer closed every client

@@ -3,14 +3,14 @@
 
 recipe = "rl"
 
-[runtime]
+[rollout_runtime]
 factory = "loops_cookbook.episodes:create_runtime"
 
-[runtime.config]
+[rollout_runtime.config]
 episode = "episodes:SharedSandboxEpisode"
 agent_timeout_seconds = 90   # cut before the reply: unversioned; after it: graded, 0 if no answer was kept
 
-[runtime.config.sandbox]
+[rollout_runtime.config.sandbox]
 provider = "blaxel"
 image = "blaxel/base-image:latest"
 memory_mb = 2048
@@ -19,7 +19,7 @@ ttl = "10m"
 [providers.blaxel]
 region = "us-was-1"
 
-[runtime.files]
+[rollout_runtime.files]
 tasks = "questions.jsonl"
 
 [model]
