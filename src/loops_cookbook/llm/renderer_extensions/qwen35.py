@@ -24,6 +24,8 @@ class Qwen35CompatibilityRenderer(Qwen35Renderer):
     It inherits the pinned template, reasoning parser, stop tokens and exact bridge.
     """
 
+    reads_calls_whole = True  # a block is read whole or reported, never in part
+
     def parse_response(self, token_ids, *, tools=None, prompt_ids=None):
         parsed = super().parse_response(token_ids, tools=tools, prompt_ids=prompt_ids)
         return replace(parsed, tool_calls=xml_arguments_as_written(parsed.tool_calls, tools))

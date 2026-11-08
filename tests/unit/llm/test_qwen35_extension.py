@@ -135,6 +135,13 @@ def test_a_call_to_an_undeclared_tool_is_reported_with_its_arguments():
     assert _xml_call(candidate, {}).status == "ok"
 
 
+def test_a_function_tag_written_in_a_value_is_just_text():
+    """Only another parameter's opening tag, or a second call's token, is ambiguous."""
+    value = 'grep -n "<function=" agent.py'
+    result = parse(call("command", value))
+    assert result.status == "ok" and result.arguments == {"command": value}
+
+
 def test_no_argument_call_is_representable_not_invented():
     candidate = call()
     candidate.raw = "<function=bash></function>"

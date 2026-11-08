@@ -21,6 +21,12 @@ from loops_cookbook.model_access.openai.access import HttpModelAccess
 from loops_cookbook.model_access.openai.gateway import Gateway, GatewaySettings
 
 from .conftest import (
+    NEMOTRON_MODEL as NEMOTRON_SUPER,
+)
+from .conftest import (
+    NEMOTRON_REVISION as NEMOTRON_SUPER_REVISION,
+)
+from .conftest import (
     NEMOTRON_SUPER_VL,
     NEMOTRON_SUPER_VL_REVISIONS,
     NEMOTRON_ULTRA,
@@ -170,7 +176,18 @@ def same(left: object, right: object) -> bool:
     return json.dumps(left, sort_keys=True) == json.dumps(right, sort_keys=True)
 
 
-def parsed_back(renderer, tokenizer, arguments, user, end_token, prefix=None):
+def _template(tokenizer, messages, options, add_generation_prompt=True):
+    text = tokenizer.apply_chat_template(
+        messages,
+        tools=TOOLS,
+        tokenize=False,
+        add_generation_prompt=add_generation_prompt,
+        **(options or {}),
+    )
+    return tokenizer.encode(text, add_special_tokens=False)
+
+
+def parsed_back(renderer, tokenizer, arguments, user, end_token, prefix=None, options=None):
     """Render ``arguments`` in an assistant turn with the template, then parse it as a reply.
 
     With ``prefix``, the reply is that text followed by the turn's call as the template
@@ -179,14 +196,17 @@ def parsed_back(renderer, tokenizer, arguments, user, end_token, prefix=None):
     after the prompt.
     """
     messages = [{"role": "user", "content": user}]
-    prompt = renderer.render(messages, TOOLS).ids
+    # The template renders both, so the parse is checked against what the template
+    # writes, not against the renderer; the renderer's parity is its own contract.
+    prompt = _template(tokenizer, messages, options)
+    assert list(renderer.render(messages, TOOLS).ids) == prompt
     call = {"id": "c1", "type": "function", "function": {"name": "act", "arguments": arguments}}
     history = [
         *messages,
         {"role": "assistant", "content": "", "tool_calls": [call]},
         {"role": "tool", "tool_call_id": "c1", "content": "ok"},
     ]
-    ids = list(renderer.render(history, TOOLS).ids)
+    ids = _template(tokenizer, history, options, add_generation_prompt=False)
     end_id = tokenizer.convert_tokens_to_ids(end_token)
     if prefix is None:
         assert ids[: len(prompt)] == list(prompt)
@@ -271,8 +291,8 @@ async def test_glm_echoed_call_continues_from_its_sampled_tokens(glm_tokenizer):
 QWEN35 = "loops_cookbook.llm.renderer_extensions.qwen35:renderer"
 # A string that holds Qwen3.5 and Nemotron 3 markup cannot be told apart from the call.
 XML_MARKUP = ("<parameter=", "</parameter>", "<function=", "</function>", "tool_call>", "<|")
-# Each model name maps to its revision, cache variable, renderer setting, chat options and
-# reply prefix.
+# Each model name maps to its revision, cache variable, renderer setting, chat options,
+# reply prefix, and whether the template writes booleans and null the way Python does.
 XML_MODELS = {
     "Qwen/Qwen3.5-9B": (
         "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
@@ -280,6 +300,31 @@ XML_MODELS = {
         QWEN35,
         {"enable_thinking": False},
         "",
+        True,
+    ),
+    "Qwen/Qwen3.6-35B-A3B": (
+        "995ad96eacd98c81ed38be0c5b274b04031597b0",
+        "LOOPS_QWEN_TOKENIZER_CACHE",
+        None,
+        {"enable_thinking": False},
+        "",
+        False,
+    ),
+    "Qwen/Qwen3.8-27B": (
+        "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+        "LOOPS_QWEN_TOKENIZER_CACHE",
+        None,
+        {"enable_thinking": False},
+        "",
+        False,
+    ),
+    NEMOTRON_SUPER: (
+        NEMOTRON_SUPER_REVISION,
+        "LOOPS_NEMOTRON_TOKENIZER_CACHE",
+        None,
+        {},
+        "</think>\n",
+        True,
     ),
     NEMOTRON_ULTRA: (
         NEMOTRON_ULTRA_REVISION,
@@ -287,6 +332,7 @@ XML_MODELS = {
         None,
         {},
         "</think>\n",
+        True,
     ),
     NEMOTRON_SUPER_VL: (
         NEMOTRON_SUPER_VL_REVISIONS[NEMOTRON_SUPER_VL],
@@ -294,31 +340,39 @@ XML_MODELS = {
         None,
         {},
         "</think>\n",
+        True,
     ),
 }
 
 
 @pytest.fixture(scope="module", params=sorted(XML_MODELS))
 def xml_model(request):
-    """Return the tokenizer, renderer and reply prefix for each XML-format model.
+    """Return each XML-format model's tokenizer, renderer, reply prefix and null spelling.
 
-    The models are Qwen3.5 through the cookbook's extension, and both Nemotron 3
-    extensions as the cookbook selects them.
+    The models are Qwen3.5 through the opt-in extension, and Qwen3.6, Qwen3.8 and the
+    Nemotron extensions as the cookbook selects them. The last value says whether the
+    template writes booleans and null the way Python does.
     """
-    revision, variable, setting, options, prefix = XML_MODELS[request.param]
+    revision, variable, setting, options, prefix, python_null = XML_MODELS[request.param]
     tokenizer = pinned_tokenizer(request.param, revision, variable)
     renderer = create_renderer(
         request.param, tokenizer=tokenizer, renderer=setting, chat_template_kwargs=options
     )
-    return tokenizer, renderer, prefix
+    return tokenizer, renderer, prefix, python_null, options
 
 
 @pytest.mark.parametrize("seed", range(300))
 def test_xml_random_calls_parse_back_to_themselves(xml_model, seed):
-    """Parse random calls back, including booleans and null written as ``True`` and ``None``."""
-    tokenizer, renderer, prefix = xml_model
-    arguments = random_arguments(random.Random(seed), XML_MARKUP, python_null=True)
-    result, reply = parsed_back(renderer, tokenizer, arguments, "Act.", "<|im_end|>", prefix)
+    """Parse random calls back with booleans and null as each template writes them.
+
+    Qwen3.5's and Nemotron's templates write ``True`` and ``None``. Qwen3.6's and
+    Qwen3.8's templates write JSON.
+    """
+    tokenizer, renderer, prefix, python_null, options = xml_model
+    arguments = random_arguments(random.Random(seed), XML_MARKUP, python_null=python_null)
+    result, reply = parsed_back(
+        renderer, tokenizer, arguments, "Act.", "<|im_end|>", prefix, options
+    )
     assert result.status.value == "ok"
     assert same(result.arguments, arguments), (result.arguments, arguments)
     assert reply.native_message is not None
@@ -326,8 +380,9 @@ def test_xml_random_calls_parse_back_to_themselves(xml_model, seed):
 
 
 async def test_xml_echoed_call_continues_from_its_sampled_tokens(xml_model):
-    tokenizer, renderer, prefix = xml_model
-    written = {"i": "3", "oi": "None"}  # as these templates write a non-string
+    tokenizer, renderer, prefix, python_null, _ = xml_model
+    # These are the non-string values as each template writes them.
+    written = {"i": "3", "oi": "None" if python_null else "null"}
     body = "".join(
         f"<parameter={key}>\n{written.get(key, value)}\n</parameter>\n"
         for key, value in EDIT.items()

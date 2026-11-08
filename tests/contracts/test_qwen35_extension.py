@@ -144,16 +144,15 @@ def test_multiple_calls_and_unrepresentable_call_are_not_silently_dropped(tokeni
     assert result.tool_calls[-1].status == "unclosed_block"
 
 
-def test_default_prime_reports_the_bad_argument_and_the_call_keeps_its_message(tokenizer):
+def test_default_prime_reports_the_bad_argument_and_withholds_the_message(tokenizer):
+    """Prime's parser may read a block it marks ``invalid_json`` in part, so the message
+    is withheld and the turn continues from the sampled tokens. The extension reads the
+    block whole and keeps the message."""
     old = PrimeRenderer(Qwen35Renderer(tokenizer, Qwen35RendererConfig(enable_thinking=False)))
     prompt = old.render([{"role": "user", "content": "Run a command."}], TOOLS).ids
     parsed = old.parse(prompt, completion(tokenizer, "parameter=command"), TOOLS)
     assert parsed.tool_calls[0].status == "invalid_json"
-    # The call was read whole, so it renders back to what the model wrote. The tool
-    # judges it.
-    assert parsed.native_message["tool_calls"][0]["function"]["arguments"] == {
-        "parameter=command": "echo ok"
-    }
+    assert parsed.native_message is None
 
 
 def xml_call(key="command", value="ls", *, closed=True, function="bash"):

@@ -26,7 +26,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from renderers import Nemotron3UltraRendererConfig
+from renderers import Nemotron3RendererConfig, Nemotron3UltraRendererConfig
 from renderers.base import MultiModalData, PlaceholderRange
 from renderers.nemotron3 import Nemotron3Renderer, Nemotron3UltraRenderer, Nemotron35Renderer
 
@@ -42,6 +42,12 @@ def ultra(tokenizer, chat_template_kwargs):
     """Build the renderer for Nemotron 3 Ultra."""
     config = Nemotron3UltraRendererConfig(**dict(chat_template_kwargs))
     return PrimeRenderer(UltraRenderer(tokenizer, config))
+
+
+def nano_super(tokenizer, chat_template_kwargs):
+    """Build the renderer for Nemotron 3 Nano and Super, which share Prime's renderer."""
+    config = Nemotron3RendererConfig(**dict(chat_template_kwargs))
+    return PrimeRenderer(SuperRenderer(tokenizer, config))
 
 
 def super_vl(tokenizer, chat_template_kwargs, *, processor=None):
@@ -62,12 +68,28 @@ def _without_hint(config: Nemotron3UltraRendererConfig) -> Nemotron3UltraRendere
     return config.model_copy(update={"medium_effort": False})
 
 
+class SuperRenderer(Nemotron3Renderer):
+    """Extend Prime's Nemotron 3 Super and Nano renderer to read tool arguments as written.
+
+    It reads them back as the template wrote them, using
+    ``arguments.xml_arguments_as_written``.
+    """
+
+    reads_calls_whole = True  # a block is read whole or reported, never in part
+
+    def parse_response(self, token_ids, *, tools=None, prompt_ids=None):
+        parsed = super().parse_response(token_ids, tools=tools, prompt_ids=prompt_ids)
+        return replace(parsed, tool_calls=xml_arguments_as_written(parsed.tool_calls, tools))
+
+
 class UltraRenderer(Nemotron3UltraRenderer):
     """Extend Prime's Ultra renderer to bridge under ``medium_effort``.
 
     It also reads tool arguments back as the template wrote them, using
     ``arguments.xml_arguments_as_written``.
     """
+
+    reads_calls_whole = True  # a block is read whole or reported, never in part
 
     def parse_response(self, token_ids, *, tools=None, prompt_ids=None):
         parsed = super().parse_response(token_ids, tools=tools, prompt_ids=prompt_ids)
@@ -94,6 +116,8 @@ class SuperVLRenderer(Nemotron35Renderer):
     It also reads tool arguments back as the template wrote them, using
     ``arguments.xml_arguments_as_written``.
     """
+
+    reads_calls_whole = True  # a block is read whole or reported, never in part
 
     def parse_response(self, token_ids, *, tools=None, prompt_ids=None):
         parsed = super().parse_response(token_ids, tools=tools, prompt_ids=prompt_ids)

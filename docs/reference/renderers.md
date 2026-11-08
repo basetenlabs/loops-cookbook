@@ -19,9 +19,9 @@ cookbook supports. If you don't set `[model] renderer`, the cookbook selects a r
 by the tokenizer's name. For the models in the first table below, it selects its own
 renderer. For any other model, Prime selects a renderer from the tokenizer's name.
 
-Qwen3.5 and Qwen3.6, such as Qwen3.6-35B-A3B, get Prime's renderer, which matches their
-templates. `tests/contracts/test_qwen_renderer.py` checks its prompts, and the image
-tests check its images.
+Qwen3.5 gets Prime's renderer, which matches its template.
+`tests/contracts/test_qwen_renderer.py` checks its prompts, and the image tests check
+its images. Qwen3.6, Qwen3.8, GLM-5.3 and GLM-5.3-Flash get the cookbook's renderer.
 
 The cookbook ships its own renderer for the models in this table. Each one is tested
 against the model's own chat template.
@@ -31,7 +31,10 @@ against the model's own chat template.
 | Muse Spark Open | `loops_cookbook.llm.renderer_extensions.muse_spark:renderer` | Prime has no renderer for this model's format. Prompts come from the model's chat template, and the cookbook's renderer adds the parser and the bridge. The template sets `current_date` to today by default, so set it in `renderer_chat_template_kwargs`. |
 | GLM-5.3, GLM-5.3-Flash | `loops_cookbook.llm.renderer_extensions.glm53:renderer` | Prime's GLM-5.3 renderers strip the whitespace that the template keeps around reasoning. Prime's Flash renderer writes one `<\|image\|>` per image, and the trainer needs one per vision token. The cookbook's renderer matches the template and the image processor. It also reads tool arguments as the template wrote them, as described below. |
 | Nemotron 3.5 Super VL (BF16, NVFP4) | `loops_cookbook.llm.renderer_extensions.nemotron:super_vl` | Prime doesn't recognise the model. Prime's Nemotron 3.5 renderer was written for 3.5 Lightning. It has no `medium_effort` option, and it renders an image that follows text differently from the template. The cookbook's renderer renders text and images as the template and the image processor do. It also reads tool arguments as the template wrote them. |
+| Nemotron 3 Nano, Nemotron 3 Super (BF16) | `loops_cookbook.llm.renderer_extensions.nemotron:nano_super` | It renders as Prime does. It also reads tool arguments as the template wrote them. |
 | Nemotron 3 Ultra (BF16, FP8, NVFP4) | `loops_cookbook.llm.renderer_extensions.nemotron:ultra` | It renders as Prime does. Under `medium_effort`, it also extends a conversation turn by turn, where Prime renders every turn again. It reads tool arguments as the template wrote them. |
+| Qwen3.6-27B, Qwen3.6-35B-A3B | `loops_cookbook.llm.renderer_extensions.qwen36:qwen36` | It renders as Prime does. It also reads tool arguments as the template wrote them. |
+| Qwen3.8-27B | `loops_cookbook.llm.renderer_extensions.qwen36:qwen38` | It renders as Prime does. It also reads tool arguments as the template wrote them. |
 
 A Nemotron 3.5 Super VL config therefore needs only the model:
 
@@ -50,16 +53,26 @@ cookbook never selects it for you:
 
 Prime's parsers strip every tool argument value. An argument that holds file text
 loses its indentation and final newline, while the call still reports `ok`. Prime's
-parsers also refuse a call when a value is not the JSON its schema asks for.
+parsers also mark a call `invalid_json` when a value is not the JSON its schema asks for.
+The cookbook's renderers read a block whole or report it, so a call they mark
+`unknown_tool` keeps its message and reaches the agent with its arguments, for the
+agent's tool layer to judge (see [model access](model-access.md)). Prime's own parsers
+may read part of a block they mark `invalid_json` or `unknown_tool`, so for a model on
+Prime's parser only an `ok` call keeps its message; the turn continues from the sampled
+tokens, as before.
 
 The cookbook's renderers in the tables above read each argument back exactly as the
-chat template wrote it. A string comes back as written. A value of another declared
-type comes back as its JSON. Anything else comes back as its text, and the tool accepts
-or refuses it. That covers an untyped value and text that its declared type can't
-read.
+chat template wrote it. A string comes back as written. A value the schema declares as
+something other than a string comes back as its JSON, whether or not its content
+satisfies the schema: a list whose items miss a required key is still the list, and
+the tool refuses it. Text that isn't JSON, and the value of an untyped parameter, come
+back as text, except that `True`, `False` and `None` are read where the schema admits
+no string, since models write them under every template. Where the schema admits a
+string as well, text it refuses as JSON is the string. The tool accepts or refuses
+every value.
 
-Models that use Prime's own parsers still get stripped values and refused calls. They
-are Qwen3.6, Qwen3.8, and Qwen3.5 or Nemotron without the cookbook's renderer.
+A model that uses Prime's own parser still gets stripped values. That means Qwen3.5
+without the opt-in renderer, or any model that the tables don't list.
 
 The cookbook selects its renderers by the tokenizer's name. If you load the tokenizer
 from a local directory or from another repository, as the next section describes, set
@@ -171,6 +184,18 @@ Ultra and Nemotron 3.5 Super VL accept `{ medium_effort = true }`. There is no
 universal setting for keeping reasoning in the history. Each model's renderer decides
 how it renders earlier `reasoning_content`.
 
+Prime's Qwen3.5, Qwen3.6 and Qwen3.8 renderers differ from the Qwen templates in one
+deliberate way. It applies when `enable_thinking = false` and `preserve_thinking` is
+off. Qwen3.8 turns `preserve_thinking` on by default. In that case the renderers write
+the empty `<think>\n\n</think>\n\n` block on every past assistant turn that carries
+no reasoning. The template strips that block from turns at or before the last user
+query.
+
+The generation prompt prefills the block, so every turn the model sampled holds it.
+Keeping it means a history rendered again stays the tokens that were sampled. A served
+model sees the template's form, without the block on past turns. That gap comes from
+the prefill, not from the renderer.
+
 ## Adding a renderer for an unsupported model
 
 Write a factory next to your training config, and point `[model] renderer` at it:
@@ -214,8 +239,16 @@ class Renderer(Protocol):
     def render(self, messages, tools) -> RenderedPrompt | Sequence[int]: ...
     def parse(self, prompt_ids, completion_ids, tools) -> ParsedReply: ...
     # optional:
-    def bridge(self, prompt_ids, completion_ids, new_messages, tools, *,
-               previous_messages, previous_prompt_input) -> RenderedPrompt | Sequence[int] | None: ...
+    def bridge(
+        self,
+        prompt_ids,
+        completion_ids,
+        new_messages,
+        tools,
+        *,
+        previous_messages,
+        previous_prompt_input,
+    ) -> RenderedPrompt | Sequence[int] | None: ...
 ```
 
 - `render` must be deterministic. It must produce exactly what the model saw in
@@ -234,11 +267,12 @@ class Renderer(Protocol):
   (`missing_name`). No message would render back to what the model wrote for those, so
   the agent appends the reply's `history_message` instead. `history_message` is the
   turn as the model wrote it, and the conversation only ever continues it from the
-  sampled tokens. A call that the renderer read whole keeps its message whatever its
-  `status` says, because the tool judges `unknown_tool` and `invalid_json`. The client
-  treats either mismatch as a `RendererFailure`, which fails the attempt. One mismatch
-  is `None` when every call renders back. The other is a message when some call
-  doesn't.
+  sampled tokens. A renderer that reads a block whole, which the cookbook's own declare
+  with `reads_calls_whole`, keeps the message of a call it marks `unknown_tool` or
+  `invalid_json`, because the tool judges those. A parser that may read a block in part,
+  as Prime's own do, keeps the message only for an `ok` call. The client treats either
+  mismatch as a `RendererFailure`, which fails the attempt. One mismatch is `None` when
+  every call is `ok`. The other is a message when some call doesn't render back.
 - The client sends `stop_sequences` with every sampling request. A caller's own stops
   of the same kind, token IDs or strings, are joined with them. When the caller's stops
   are of the other kind, the request carries the caller's stops as given, because one
@@ -337,10 +371,10 @@ Put images in the content list of a user or tool message, in any shape that Prim
 accepts:
 
 ```python
-{"type": "image", "image": png_bytes}                       # bytes, PNG or JPEG
+{"type": "image", "image": png_bytes}  # bytes, PNG or JPEG
 {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}
-{"type": "image", "image": pil_image}                       # re-encoded as JPEG
-{"type": "image", "path": "/tmp/screen.png"}                # or url: "https://..."
+{"type": "image", "image": pil_image}  # re-encoded as JPEG
+{"type": "image", "path": "/tmp/screen.png"}  # or url: "https://..."
 ```
 
 PNG and JPEG payloads, given as bytes or as base64 data URIs, are sent as they are.

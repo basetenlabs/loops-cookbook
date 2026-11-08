@@ -344,6 +344,54 @@ def test_the_cookbook_client_gets_exact_values(glm_tokenizer):
     assert reply.native_message["tool_calls"][0]["function"]["arguments"] == arguments
 
 
+@pytest.mark.parametrize(
+    "body,status",
+    [
+        ("<arg_key>path</arg_key><arg_value>a.py</arg_value>", "ok"),
+        # Whitespace between pairs, as a model may write it, reads; anything else does not.
+        ("<arg_key>path</arg_key> <arg_value>a.py</arg_value>\n", "ok"),
+        (
+            "<arg_key>path</arg_key><arg_value>a</arg_value><arg_key>path</arg_key><arg_value>b</arg_value>",
+            "malformed_structure",
+        ),
+        (
+            "<arg_key>path</arg_key><arg_value>a.py</arg_value><arg_value>stray</arg_value>",
+            "malformed_structure",
+        ),
+        (
+            "<arg_key>path</arg_key><arg_value>a.py</arg_value>junk<arg_key>new</arg_key><arg_value>x</arg_value>",
+            "malformed_structure",
+        ),
+        ("<arg_key>path</arg_key>text<arg_value>a.py</arg_value>", "malformed_structure"),
+        ("<arg_key>pa<arg_value>th</arg_key><arg_value>a.py</arg_value>", "malformed_structure"),
+        (
+            "<tool_call>read<arg_key>path</arg_key><arg_value>a.py</arg_value>",
+            "malformed_structure",
+        ),
+    ],
+    ids=[
+        "plain",
+        "whitespace",
+        "duplicate key",
+        "stray value",
+        "text between",
+        "text in pair",
+        "marker in key",
+        "opener in name",
+    ],
+)
+@pytest.mark.parametrize("tool", ["edit", "bsah"], ids=["declared", "unknown"])
+def test_a_block_is_read_whole_or_reported(glm_tokenizer, body, status, tool):
+    """On every status the walk reads, a block that is not name and pairs is malformed,
+    never read in part: Prime's own walk skips what it cannot place."""
+    completion = _completion(glm_tokenizer, f"<tool_call>{tool}{body}</tool_call>")
+    [call] = GLM53Renderer(glm_tokenizer).parse_response(completion, tools=[EDIT_TOOL]).tool_calls
+    expected = "unknown_tool" if status == "ok" and tool == "bsah" else status
+    assert call.status.value == expected
+    if status == "ok":
+        assert call.arguments == {"path": "a.py"}
+
+
 def test_prime_still_strips_argument_values(glm_tokenizer):
     """Check that Prime still strips argument values.
 

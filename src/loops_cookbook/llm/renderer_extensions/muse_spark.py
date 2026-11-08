@@ -16,9 +16,10 @@ import re
 from renderers.base import ParsedResponse, ParsedToolCall, RenderedTokens, ToolCallParseStatus
 from renderers.configs import DefaultRendererConfig
 from renderers.default import DefaultRenderer
-from renderers.parsing import _build_param_type_index, _coerce_arg_value, _extract_tool_names
+from renderers.parsing import _extract_tool_names
 
 from loops_cookbook.llm.prime import PrimeRenderer
+from loops_cookbook.llm.renderer_extensions.arguments import read_argument, tool_parameters
 
 _START, _MESSAGE, _EOM, _EOT, _END = (
     "<|start|>",
@@ -49,6 +50,8 @@ def renderer(tokenizer, chat_template_kwargs):
 class MuseSparkRenderer(DefaultRenderer):
     """Renders with Muse Spark Open's template, and parses and bridges its format by hand."""
 
+    reads_calls_whole = True  # a block is read whole or reported, never in part
+
     def __init__(self, tokenizer, kwargs):
         super().__init__(tokenizer, DefaultRendererConfig(**kwargs))
         self._stops = [self._id(_EOT), self._id(_END)]
@@ -64,10 +67,10 @@ class MuseSparkRenderer(DefaultRenderer):
         """Parse the turn's messages after the prompt's ``<|start|>assistant``.
 
         Reasoning is every ``self`` message, and content is every ``commentary`` and
-        ``user`` message. Each other message is one tool call. Its arguments are typed by
-        the tool's schema, as Prime types them. A string parameter is kept verbatim, and
-        any other is read as JSON. A value that is not the JSON its schema asks for makes
-        the call ``INVALID_JSON``.
+        ``user`` message. Each other message is one tool call. Its arguments are read as
+        the template wrote them, using ``arguments.read_argument``. The template writes a
+        string or number as it is, and a boolean, null, list or object as JSON. Text that
+        no declared type can read stays the text, and the tool accepts or refuses it.
         """
         text = self._tokenizer.decode(token_ids, skip_special_tokens=False)
         reasoning = []
@@ -205,17 +208,12 @@ def _tool_call(recipient, body, tools):
         # a namespace "bash.bash" can only mean bash. Nothing else is renamed, so
         # "bash.command" stays unknown.
         name = head
+    schemas, root = tool_parameters(tools).get(name, ({}, {}))
+    arguments = {key: read_argument(text, schemas.get(key), root=root) for key, text in parameters}
+    status = ToolCallParseStatus.OK
     if names is not None and name not in names:
-        return ParsedToolCall(raw=body, name=name, status=ToolCallParseStatus.UNKNOWN_TOOL)
-    schemas = _build_param_type_index(tools).get(name, {})
-    arguments = {}
-    invalid = False
-    for key, text in parameters:
-        schema = schemas.get(key)
-        arguments[key], fallback = _coerce_arg_value(text, schema)
-        # An undeclared key is for the tool to reject, not invalid JSON.
-        invalid |= fallback and schema is not None
-    status = ToolCallParseStatus.INVALID_JSON if invalid else ToolCallParseStatus.OK
+        # Read whole, so its message stands; the status says the tool is undeclared.
+        status = ToolCallParseStatus.UNKNOWN_TOOL
     return ParsedToolCall(raw=body, name=name, arguments=arguments, status=status)
 
 

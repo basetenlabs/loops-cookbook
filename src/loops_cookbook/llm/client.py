@@ -836,7 +836,7 @@ class Conversation:
                 f"the renderer could not count the reasoning tokens: {type(error).__name__}: {error}"
             ) from error
         if parsed.native_message is None:
-            if all(renders_back(call) for call in parsed.tool_calls):
+            if all(call.status == ToolCallParseStatus.OK for call in parsed.tool_calls):
                 raise RendererFailure(
                     "the renderer returned no native assistant message and reported no "
                     "tool call it could not parse"
