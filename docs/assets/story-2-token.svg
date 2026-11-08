@@ -82,7 +82,7 @@
 <text x="486.0" y="702.4749999999999" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">rl/grpo.py</text>
 <rect x="70" y="590" width="250" height="150" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
 <text x="120.12" y="640.975" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">Datums → trainer</text>
-<text x="93.60000000000001" y="667.375" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">target = completion tokens</text>
+<text x="93.60000000000001" y="667.375" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">only completion tokens train</text>
 <text x="109.2" y="684.925" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">everything else masked</text>
 <text x="128.7" y="702.4749999999999" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">grpo.build_rows</text>
 <polyline points="1100,665 1030,665" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#h)"/>
