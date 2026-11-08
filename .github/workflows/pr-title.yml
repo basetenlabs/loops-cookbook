@@ -1,12 +1,13 @@
 name: pr-title
 # develop takes squash merges, so a PR's title becomes its commit on develop. The
 # title should be a Conventional Commit: "type: summary". See CONTRIBUTING.md. The
-# check is advisory: a title in another form gets a warning, and the job passes. PRs
-# into main are releases; release-title.yml checks them.
+# check is advisory: a title in another form gets a warning, and the job passes. A PR
+# in a stack targets the branch below it, so the check runs on PRs into any branch but
+# main. PRs into main are releases; release-title.yml checks them.
 on:
   pull_request:
     types: [opened, edited, reopened, synchronize]
-    branches: [develop]
+    branches-ignore: [main]
 
 permissions:
   pull-requests: read
