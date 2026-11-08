@@ -31,6 +31,7 @@ from renderers.base import MultiModalData, PlaceholderRange
 from renderers.nemotron3 import Nemotron3Renderer, Nemotron3UltraRenderer, Nemotron35Renderer
 
 from loops_cookbook.llm.prime import PrimeRenderer
+from loops_cookbook.llm.renderer_extensions.arguments import xml_arguments_as_written
 
 _PROCESSOR_OUTPUTS = ("pixel_values", "imgs_sizes", "num_tokens", "num_patches")
 _IMAGE_MARKERS = ("<image>", "<img>", "</img>")
@@ -62,7 +63,15 @@ def _without_hint(config: Nemotron3UltraRendererConfig) -> Nemotron3UltraRendere
 
 
 class UltraRenderer(Nemotron3UltraRenderer):
-    """Prime's Ultra renderer, which also bridges under ``medium_effort``."""
+    """Extend Prime's Ultra renderer to bridge under ``medium_effort``.
+
+    It also reads tool arguments back as the template wrote them, using
+    ``arguments.xml_arguments_as_written``.
+    """
+
+    def parse_response(self, token_ids, *, tools=None, prompt_ids=None):
+        parsed = super().parse_response(token_ids, tools=tools, prompt_ids=prompt_ids)
+        return replace(parsed, tool_calls=xml_arguments_as_written(parsed.tool_calls, tools))
 
     def __init__(self, tokenizer, config: Nemotron3UltraRendererConfig):
         super().__init__(tokenizer, config)
@@ -80,7 +89,15 @@ class UltraRenderer(Nemotron3UltraRenderer):
 
 
 class SuperVLRenderer(Nemotron35Renderer):
-    """Prime's Nemotron 3.5 renderer, with Ultra's options and the template's image text."""
+    """Extend Prime's Nemotron 3.5 renderer with Ultra's options and the template's image text.
+
+    It also reads tool arguments back as the template wrote them, using
+    ``arguments.xml_arguments_as_written``.
+    """
+
+    def parse_response(self, token_ids, *, tools=None, prompt_ids=None):
+        parsed = super().parse_response(token_ids, tools=tools, prompt_ids=prompt_ids)
+        return replace(parsed, tool_calls=xml_arguments_as_written(parsed.tool_calls, tools))
 
     _config_cls = Nemotron3UltraRendererConfig
     supports_multimodal_bridge = True

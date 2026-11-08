@@ -86,19 +86,42 @@ the tests skip unless `LOOPS_MUSE_TOKENIZER_CACHE` points at a hub cache that ho
 pinned snapshot, or `LOOPS_DOWNLOAD_CONTRACT_MODELS=1` downloads it with an `HF_TOKEN`
 that has access.
 
+## Tool arguments as the template wrote them (`arguments.py`)
+
+Prime's parsers strip every argument value before they type it. File text loses its
+indentation and final newline, while the call still reports `ok`. Prime's parsers also
+mark a call `invalid_json` when a value is not the JSON its schema asks for, or when an
+untyped value is not JSON. The GLM-5.3, Nemotron and opt-in Qwen3.5 extensions read
+each argument back as the chat template wrote it instead.
+
+Every template writes a string as it is. GLM-5.3 writes any other value as JSON.
+Qwen3.5 and Nemotron 3 write other values with Jinja's `string` filter, which gives
+`True` and `None`. The schema therefore decides how to read a value. A value is read
+as JSON only when the schema admits that JSON's type, and a JSON string is never used.
+Anything else stays the text, and the tool accepts or refuses it. A `$ref` is followed
+within the tool's parameters, which is how pydantic writes an enum or a nested model.
+
+A call read whole keeps its message in history whatever its status. Its status is
+`unknown_tool` when tools are declared and none of them has the call's name. Only a
+call that was cut off, broke its structure or has no name loses its message.
+
+`tests/contracts/test_tool_argument_round_trip.py` renders random arguments through each
+real template and parses them back. Each family's contract tests have a
+`test_prime_still_strips...` test, which fails once Prime keeps values whole. When that
+happens, remove the overrides.
+
 ## Qwen3.5 tool-call parsing (`qwen35.py`)
 
 The Qwen3.5 extension is opt-in. It renders exactly as Prime's Qwen3.5 renderer does,
-and it changes only how tool calls are parsed. The template writes `<parameter=NAME>`,
-and the vLLM Qwen3 parser also accepts whitespace after `=`. Prime puts that whitespace
-in the parameter name, so the extension removes it. Use the extension with the model's
-own tokenizer.
+and it changes only how tool calls are parsed, as described above. The template writes
+`<parameter=NAME>`, and the vLLM Qwen3 parser also accepts whitespace after `=`. Prime
+puts that whitespace in the parameter name, so the extension removes it. Use the
+extension with the model's own tokenizer.
 
 The extension still refuses malformed or ambiguous calls. For example, it reports
 tool-call markup inside a parameter value as `malformed_structure`. In well-formed
-markup, the extension keeps tool and parameter names exactly as the model wrote them,
-so the tool layer reports an unknown tool or argument. The raw text and the token spans
-stay as they were sampled.
+markup, the extension keeps tool and parameter names exactly as the model wrote them.
+The raw text and the token spans stay as they were sampled.
 
 `tests/contracts/test_qwen35_extension.py` runs the extension on the Qwen3.5-9B
 tokenizer at revision `c202236235762e1c871ad0ccb60c8ee5ba337b9a`.
@@ -132,8 +155,10 @@ images within one message, so the new turns' tokens don't depend on earlier imag
 Its bridge renders the new messages' images and reports the earlier images'
 placeholders ahead of them.
 
-`ultra` is Prime's Ultra renderer with only that bridge change, so the cookbook also
-selects it for Ultra FP8, which Prime maps to the same template.
+`ultra` is Prime's Ultra renderer with that bridge change and the argument reading
+described above. The cookbook also selects it for Ultra FP8 and NVFP4, because their
+templates match Ultra BF16's byte for byte. Without that selection, Prime would give
+NVFP4 its `DefaultRenderer`.
 
 `tests/contracts/test_nemotron_extension.py` pins Ultra BF16 and Super VL BF16. It
 also pins Super VL NVFP4's processor, because that checkpoint ships its own processor

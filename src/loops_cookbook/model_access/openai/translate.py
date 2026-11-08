@@ -15,10 +15,10 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from pydantic import BaseModel, RootModel
-from renderers.base import ToolCallParseStatus
 
 from loops_cookbook.llm.client import LLMResponse, UnsupportedParameterError, canonical_arguments
 from loops_cookbook.llm.images import SIGNATURES, image_format
+from loops_cookbook.llm.rendering import renders_back
 from loops_cookbook.model_access.openai.policy import ChatRequest, InvalidRequestError, text_parts
 from loops_cookbook.model_access.openai.schema.models import (
     ChatCompletionMessageToolCall,
@@ -401,9 +401,7 @@ def completion(
     """
     sample_id = reply.sample.sample_id
     written = reply.history_message
-    if written is not None and any(
-        call.status != ToolCallParseStatus.OK for call in reply.tool_calls
-    ):
+    if written is not None and not all(renders_back(call) for call in reply.tool_calls):
         calls = [
             ChatCompletionMessageToolCall.model_validate(call)
             for call in _sequence(written.get("tool_calls"))

@@ -144,12 +144,16 @@ def test_multiple_calls_and_unrepresentable_call_are_not_silently_dropped(tokeni
     assert result.tool_calls[-1].status == "unclosed_block"
 
 
-def test_default_prime_stays_strict_for_bad_argument(tokenizer):
+def test_default_prime_reports_the_bad_argument_and_the_call_keeps_its_message(tokenizer):
     old = PrimeRenderer(Qwen35Renderer(tokenizer, Qwen35RendererConfig(enable_thinking=False)))
     prompt = old.render([{"role": "user", "content": "Run a command."}], TOOLS).ids
     parsed = old.parse(prompt, completion(tokenizer, "parameter=command"), TOOLS)
-    assert parsed.native_message is None
     assert parsed.tool_calls[0].status == "invalid_json"
+    # The call was read whole, so it renders back to what the model wrote. The tool
+    # judges it.
+    assert parsed.native_message["tool_calls"][0]["function"]["arguments"] == {
+        "parameter=command": "echo ok"
+    }
 
 
 def xml_call(key="command", value="ls", *, closed=True, function="bash"):
@@ -171,7 +175,8 @@ def xml_call(key="command", value="ls", *, closed=True, function="bash"):
             [("bash", {"command": "ls"}), ("bash", {"command": "pwd"})],
         ),
         (xml_call("file_path", "notes.txt") + "<|im_end|>", [("bash", {"file_path": "notes.txt"})]),
-        # Names are kept as written; the tool layer reports unknown arguments or tools.
+        # Names are kept as written. The tool reports an undeclared argument, and an
+        # undeclared tool is ``unknown_tool``. Both calls keep their messages.
         (
             xml_call("parameter=command") + "<|im_end|>",
             [("bash", {"parameter=command": "ls"})],
@@ -236,3 +241,66 @@ def test_argument_values_keep_whitespace_inside_template_separators(tokenizer):
     text = "<tool_call>\n<function=edit>\n<parameter=old_string>abc</parameter>\n</function>\n</tool_call><|im_end|>"
     parsed = new.parse(prompt, tokenizer.encode(text, add_special_tokens=False), tools)
     assert parsed.tool_calls[0].arguments == {"old_string": "abc"}
+
+
+TYPED_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "edit",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string"},
+                    "old_string": {"type": "string"},
+                    "new_string": {"type": "string"},
+                    "count": {"type": "integer"},
+                    "all": {"type": "boolean"},
+                    "limit": {"type": ["integer", "null"]},
+                    "lines": {"type": "array", "items": {"type": "integer"}},
+                },
+            },
+        },
+    }
+]
+
+
+@pytest.mark.parametrize(
+    "tools,key,text",
+    [
+        # A declared type that can't read the text.
+        (TYPED_TOOLS, "count", "30s"),
+        # An undeclared argument.
+        (TYPED_TOOLS, "timeout", " 600"),
+        # With no tools, nothing says what any value was.
+        ((), "count", " 3 "),
+    ],
+)
+def test_text_no_type_reads_reaches_the_tool_as_text(tokenizer, tools, key, text):
+    new = extension(tokenizer)
+    prompt = new.render([{"role": "user", "content": "Edit a file."}], tools).ids
+    raw = (
+        f"<tool_call>\n<function=edit>\n<parameter={key}>\n{text}\n</parameter>\n</function>\n"
+        "</tool_call><|im_end|>"
+    )
+    parsed = new.parse(prompt, tokenizer.encode(raw, add_special_tokens=False), tools)
+    [result] = parsed.tool_calls
+    assert result.status == "ok"
+    assert result.arguments == {key: text}
+    assert parsed.native_message is not None
+
+
+def test_prime_still_strips_string_arguments(tokenizer):
+    """Pass text that no type reads on to the tool, where Prime strips or refuses it.
+
+    When this fails, Prime keeps string values as the template wrote them, so revisit
+    the extension's parse.
+    """
+    old = PrimeRenderer(Qwen35Renderer(tokenizer, Qwen35RendererConfig(enable_thinking=False)))
+    prompt = old.render([{"role": "user", "content": "Edit a file."}], TYPED_TOOLS).ids
+    raw = (
+        "<tool_call>\n<function=edit>\n<parameter=old_string>\n    x\n\n</parameter>\n"
+        "</function>\n</tool_call><|im_end|>"
+    )
+    parsed = old.parse(prompt, tokenizer.encode(raw, add_special_tokens=False), TYPED_TOOLS)
+    assert parsed.tool_calls[0].arguments == {"old_string": "x"}

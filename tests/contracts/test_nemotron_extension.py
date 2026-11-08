@@ -158,8 +158,14 @@ def test_a_tool_call_parses_and_an_unknown_tool_is_reported(model):
     assert parsed.native_message is not None
     parsed = built.parse(prompt, tokenizer.encode(bad, add_special_tokens=False), TOOLS)
     [unknown] = parsed.tool_calls
-    assert unknown.name == "bsah" and unknown.status.value != "ok"
-    assert parsed.native_message is None
+    assert (unknown.name, unknown.arguments, unknown.status.value) == (
+        "bsah",
+        {"command": "ls"},
+        "unknown_tool",
+    )
+    # The call was read whole, so it renders back to what the model wrote and keeps its
+    # message.
+    assert parsed.native_message["tool_calls"][0]["function"]["name"] == "bsah"
 
 
 def test_reasoning_tokens_are_counted_on_the_sampled_tokens(model):
@@ -569,3 +575,70 @@ def test_each_super_vl_checkpoint_gets_the_cookbook_renderer(name):
         name, NEMOTRON_SUPER_VL_REVISIONS[name], "LOOPS_NEMOTRON_TOKENIZER_CACHE"
     )
     assert describe(create_renderer(name, tokenizer=tokenizer)) == "SuperVLRenderer"
+
+
+EDIT_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "edit",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string"},
+                    "old_string": {"type": "string"},
+                    "new_string": {"type": "string"},
+                    "count": {"type": "integer"},
+                    "all": {"type": "boolean"},
+                    "limit": {"type": ["integer", "null"]},
+                    "lines": {"type": "array", "items": {"type": "integer"}},
+                },
+            },
+        },
+    }
+]
+
+
+@pytest.mark.parametrize(
+    "tools,key,text",
+    [
+        # A declared type that can't read the text.
+        (EDIT_TOOLS, "count", "30s"),
+        # An undeclared argument.
+        (EDIT_TOOLS, "timeout", " 600"),
+        # With no tools, nothing says what any value was.
+        ((), "count", " 3 "),
+    ],
+)
+def test_text_no_type_reads_reaches_the_tool_as_text(model, tools, key, text):
+    tokenizer = model[1]
+    built = cookbook(model, {})
+    prompt = built.render([SYSTEM, TASK], tools).ids
+    raw = (
+        f"<tool_call>\n<function=edit>\n<parameter={key}>\n{text}\n</parameter>\n</function>\n"
+        "</tool_call><|im_end|>"
+    )
+    parsed = built.parse(prompt, tokenizer.encode(raw, add_special_tokens=False), tools)
+    [result] = parsed.tool_calls
+    assert result.status.value == "ok"
+    assert result.arguments == {key: text}
+    assert parsed.native_message is not None
+
+
+def test_prime_still_strips_string_arguments(model):
+    """Pass text that no type reads on to the tool, where Prime strips or refuses it.
+
+    When this fails, Prime keeps string values as the template wrote them, so revisit
+    the extensions' parse.
+    """
+    from renderers import Nemotron3UltraRendererConfig
+    from renderers.nemotron3 import Nemotron3UltraRenderer
+
+    tokenizer = model[1]
+    prime = Nemotron3UltraRenderer(tokenizer, Nemotron3UltraRendererConfig())
+    raw = (
+        "<tool_call>\n<function=edit>\n<parameter=old_string>\n    x\n\n</parameter>\n"
+        "</function>\n</tool_call><|im_end|>"
+    )
+    parsed = prime.parse_response(tokenizer.encode(raw, add_special_tokens=False), tools=EDIT_TOOLS)
+    assert parsed.tool_calls[0].arguments == {"old_string": "x"}

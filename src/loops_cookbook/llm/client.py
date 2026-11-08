@@ -30,6 +30,7 @@ from loops_cookbook.llm.rendering import (
     RendererFailure,
     RenderingError,
     UnsupportedContextError,
+    renders_back,
 )
 from loops_cookbook.llm.transcript import TranscriptRecorder
 
@@ -835,7 +836,7 @@ class Conversation:
                 f"the renderer could not count the reasoning tokens: {type(error).__name__}: {error}"
             ) from error
         if parsed.native_message is None:
-            if all(call.status == ToolCallParseStatus.OK for call in parsed.tool_calls):
+            if all(renders_back(call) for call in parsed.tool_calls):
                 raise RendererFailure(
                     "the renderer returned no native assistant message and reported no "
                     "tool call it could not parse"
@@ -853,7 +854,7 @@ class Conversation:
                 self._unrendered[sample.sample_id] = _Turn.of(standin)
                 self._previous_history = [*history, deepcopy(standin)]
             return response
-        if any(call.status != ToolCallParseStatus.OK for call in parsed.tool_calls):
+        if not all(renders_back(call) for call in parsed.tool_calls):
             raise RendererFailure(
                 "the renderer returned a native assistant message for a tool call it could "
                 "not parse; no message renders back to what the model wrote"

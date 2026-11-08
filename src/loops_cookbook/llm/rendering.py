@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Literal, Protocol, TypedDict
 
 from baseten.loops.models import ModelInput
-from renderers.base import ParsedToolCall
+from renderers.base import ParsedToolCall, ToolCallParseStatus
 
 from loops_cookbook.evidence import JsonValue, TokenSpan
 
@@ -127,6 +127,30 @@ class ParsedReply:
     tool_calls: tuple[ParsedToolCall, ...]
     reasoning_complete: bool | None
     native_message: Message | None = None
+
+
+# These statuses mark a call cut off before it closed, a call whose structure broke and
+# a call without a name.
+_UNRENDERABLE = frozenset(
+    {
+        ToolCallParseStatus.UNCLOSED_BLOCK,
+        ToolCallParseStatus.MALFORMED_STRUCTURE,
+        ToolCallParseStatus.MISSING_NAME,
+    }
+)
+
+
+def renders_back(call: ParsedToolCall) -> bool:
+    """Return whether a message holding ``call`` renders back to the tokens the model wrote.
+
+    It does when the parser read the whole call, meaning its name and every argument.
+    The call's status may still say what the parser made of it, such as ``unknown_tool``
+    or ``invalid_json``, and the tool judges that. A call read only in part has no such
+    message, so the next turn can only continue from the sampled tokens.
+    """
+    return (
+        bool(call.name) and isinstance(call.arguments, Mapping) and call.status not in _UNRENDERABLE
+    )
 
 
 @dataclass(frozen=True, slots=True)

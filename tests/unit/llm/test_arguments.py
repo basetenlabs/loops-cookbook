@@ -13,6 +13,20 @@ UNION = {"anyOf": [{"type": "integer"}, {"type": "string"}]}
 ENUM = {"enum": ["low", 3]}
 ARRAY = {"type": "array"}
 REF = {"$ref": "#/$defs/thing"}
+# These are the schemas pydantic writes for a ``str`` Enum, a nested model and an
+# optional nested model.
+DEFS = {
+    "$defs": {
+        "Mode": {"enum": ["read", "write"], "type": "string"},
+        "Sub": {"type": "object", "properties": {"x": {"type": "integer"}}},
+        "Loop": {"anyOf": [{"$ref": "#/$defs/Loop"}, {"type": "null"}]},
+    }
+}
+MODE = {"$ref": "#/$defs/Mode"}
+SUB = {"$ref": "#/$defs/Sub"}
+OPTIONAL_SUB = {"anyOf": [{"$ref": "#/$defs/Sub"}, {"type": "null"}]}
+LOOP = {"$ref": "#/$defs/Loop"}
+ALL_OF = {"allOf": [{"$ref": "#/$defs/Mode"}], "default": "read"}
 UNTYPED = {"description": "says nothing of its type"}
 
 
@@ -75,4 +89,27 @@ def test_each_value_reads_back_as_written(text, schema, value):
 )
 def test_python_spellings_read_where_the_template_writes_them(text, schema, value):
     result = read_argument(text, schema, python_scalars=True)
+    assert json.dumps(result) == json.dumps(value)
+
+
+@pytest.mark.parametrize(
+    "text,schema,value",
+    [
+        # A ref is followed within the tool's parameters, so a string enum stays a string.
+        ("read", MODE, "read"),
+        ("1", MODE, "1"),
+        ("null", MODE, "null"),
+        ("1", ALL_OF, "1"),
+        ('{"x": 1}', SUB, {"x": 1}),
+        ("1", SUB, "1"),
+        ('{"x": 1}', OPTIONAL_SUB, {"x": 1}),
+        ("null", OPTIONAL_SUB, None),
+        ("1", OPTIONAL_SUB, "1"),
+        # A ref that leads nowhere, or back to itself, admits any type.
+        ("1", REF, 1),
+        ("1", LOOP, 1),
+    ],
+)
+def test_a_ref_is_read_within_the_tools_parameters(text, schema, value):
+    result = read_argument(text, schema, root=DEFS)
     assert json.dumps(result) == json.dumps(value)

@@ -38,6 +38,7 @@ COOKBOOK_RENDERERS: dict[str, str] = {
     "zai-org/GLM-5.3-Flash-BF16": _GLM53,
     "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16": _ULTRA,
     "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-FP8": _ULTRA,
+    "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4": _ULTRA,
     "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16": _SUPER_VL,
     "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4": _SUPER_VL,
     "meta-models/Muse-Spark-Open-816B-A42B-NVFP4": _MUSE_SPARK,

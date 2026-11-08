@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import json
 import random
+from enum import Enum
 
 import pytest
+from pydantic import BaseModel
 from support.leases import lease
 
 from loops_cookbook.evidence import AttemptIdentity
@@ -18,10 +20,44 @@ from loops_cookbook.llm.factory import create_renderer
 from loops_cookbook.model_access.openai.access import HttpModelAccess
 from loops_cookbook.model_access.openai.gateway import Gateway, GatewaySettings
 
+from .conftest import (
+    NEMOTRON_SUPER_VL,
+    NEMOTRON_SUPER_VL_REVISIONS,
+    NEMOTRON_ULTRA,
+    NEMOTRON_ULTRA_REVISION,
+    pinned_tokenizer,
+)
 from .test_invalid_output_continuation import Sampler, _post
 
 GLM53 = "loops_cookbook.llm.renderer_extensions.glm53:renderer"
+
+
+class Mode(str, Enum):
+    read = "read"
+    write = "write"
+
+
+class Sub(BaseModel):
+    x: int
+    label: str = ""
+
+
+class Declared(BaseModel):
+    """Declare tool arguments the way pydantic writes them.
+
+    Pydantic writes ``anyOf`` for an optional value, and a ``$ref`` into ``$defs`` for a
+    ``str`` Enum or a nested model.
+    """
+
+    path: str | None = None
+    mode: Mode = Mode.read
+    sub: Sub | None = None
+    lines: list[int] = []
+
+
+PYDANTIC = Declared.model_json_schema()
 SCHEMAS = {
+    **PYDANTIC["properties"],
     "s": {"type": "string"},
     "i": {"type": "integer"},
     "x": {"type": "number"},
@@ -38,7 +74,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "act",
-            "parameters": {"type": "object", "properties": SCHEMAS},
+            "parameters": {"type": "object", "properties": SCHEMAS, "$defs": PYDANTIC["$defs"]},
         },
     }
 ]
@@ -86,18 +122,23 @@ def _json(rng: random.Random, depth: int = 0) -> object:
     return {f"k{n}": _json(rng, depth + 1) for n in range(rng.randint(0, 3))}
 
 
-def random_arguments(rng: random.Random, markup: tuple[str, ...]) -> dict[str, object]:
+def random_arguments(
+    rng: random.Random, markup: tuple[str, ...], *, python_null: bool = False
+) -> dict[str, object]:
     """Return random arguments that the template writes unambiguously.
 
     A string that reads as another type the schema admits is left out. The template writes
     it exactly as that type, so it cannot round-trip. Examples are ``7`` in an
-    integer-or-string union and ``null`` in an optional string.
+    integer-or-string union, ``null`` in an optional string, and ``None`` where the
+    template writes null the way Python does.
     """
 
     def string_not(*kinds: type) -> str:
         while True:
             text = _text(rng, markup)
             value = _reads_as_json(text)
+            if python_null and text.strip() == "None":
+                continue
             if not (value is None or isinstance(value, kinds)) or isinstance(value, str):
                 return text
 
@@ -112,6 +153,10 @@ def random_arguments(rng: random.Random, markup: tuple[str, ...]) -> dict[str, o
         "e": lambda: rng.choice(["low", "high", 3]),
         "a": lambda: [_json(rng, 1) for _ in range(rng.randint(0, 4))],
         "o": lambda: {f"k{n}": _json(rng, 1) for n in range(rng.randint(0, 4))},
+        "path": lambda: rng.choice([None, string_not()]),
+        "mode": lambda: rng.choice(["read", "write"]),
+        "sub": lambda: rng.choice([None, {"x": rng.randint(-5, 5), "label": rng.choice(PIECES)}]),
+        "lines": lambda: [rng.randint(0, 99) for _ in range(rng.randint(0, 3))],
     }
     keys = [key for key in makers if rng.random() < 0.7]
     return {key: makers[key]() for key in keys}
@@ -125,7 +170,14 @@ def same(left: object, right: object) -> bool:
     return json.dumps(left, sort_keys=True) == json.dumps(right, sort_keys=True)
 
 
-def parsed_back(renderer, tokenizer, arguments, user, end_token):
+def parsed_back(renderer, tokenizer, arguments, user, end_token, prefix=None):
+    """Render ``arguments`` in an assistant turn with the template, then parse it as a reply.
+
+    With ``prefix``, the reply is that text followed by the turn's call as the template
+    wrote it. That suits templates that render past reasoning differently from a
+    generation prompt. Without ``prefix``, the reply is the turn exactly as rendered
+    after the prompt.
+    """
     messages = [{"role": "user", "content": user}]
     prompt = renderer.render(messages, TOOLS).ids
     call = {"id": "c1", "type": "function", "function": {"name": "act", "arguments": arguments}}
@@ -134,10 +186,19 @@ def parsed_back(renderer, tokenizer, arguments, user, end_token):
         {"role": "assistant", "content": "", "tool_calls": [call]},
         {"role": "tool", "tool_call_id": "c1", "content": "ok"},
     ]
-    ids = renderer.render(history, TOOLS).ids
-    assert ids[: len(prompt)] == prompt
-    end = ids.index(tokenizer.convert_tokens_to_ids(end_token), len(prompt)) + 1
-    reply = renderer.parse(prompt, ids[len(prompt) : end], TOOLS)
+    ids = list(renderer.render(history, TOOLS).ids)
+    end_id = tokenizer.convert_tokens_to_ids(end_token)
+    if prefix is None:
+        assert ids[: len(prompt)] == list(prompt)
+        completion = ids[len(prompt) : ids.index(end_id, len(prompt)) + 1]
+    else:
+        start_id = tokenizer.convert_tokens_to_ids("<tool_call>")
+        start = max(i for i, token in enumerate(ids) if token == start_id)
+        completion = (
+            tokenizer.encode(prefix, add_special_tokens=False)
+            + ids[start : ids.index(end_id, start) + 1]
+        )
+    reply = renderer.parse(prompt, completion, TOOLS)
     [result] = reply.tool_calls
     return result, reply
 
@@ -204,4 +265,77 @@ async def test_glm_echoed_call_continues_from_its_sampled_tokens(glm_tokenizer):
         f"<tool_call>act{body}</tool_call>",
         "I will edit it.</think>",
         "<|observation|>",
+    )
+
+
+QWEN35 = "loops_cookbook.llm.renderer_extensions.qwen35:renderer"
+# A string that holds Qwen3.5 and Nemotron 3 markup cannot be told apart from the call.
+XML_MARKUP = ("<parameter=", "</parameter>", "<function=", "</function>", "tool_call>", "<|")
+# Each model name maps to its revision, cache variable, renderer setting, chat options and
+# reply prefix.
+XML_MODELS = {
+    "Qwen/Qwen3.5-9B": (
+        "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
+        "LOOPS_QWEN_TOKENIZER_CACHE",
+        QWEN35,
+        {"enable_thinking": False},
+        "",
+    ),
+    NEMOTRON_ULTRA: (
+        NEMOTRON_ULTRA_REVISION,
+        "LOOPS_NEMOTRON_TOKENIZER_CACHE",
+        None,
+        {},
+        "</think>\n",
+    ),
+    NEMOTRON_SUPER_VL: (
+        NEMOTRON_SUPER_VL_REVISIONS[NEMOTRON_SUPER_VL],
+        "LOOPS_NEMOTRON_TOKENIZER_CACHE",
+        None,
+        {},
+        "</think>\n",
+    ),
+}
+
+
+@pytest.fixture(scope="module", params=sorted(XML_MODELS))
+def xml_model(request):
+    """Return the tokenizer, renderer and reply prefix for each XML-format model.
+
+    The models are Qwen3.5 through the cookbook's extension, and both Nemotron 3
+    extensions as the cookbook selects them.
+    """
+    revision, variable, setting, options, prefix = XML_MODELS[request.param]
+    tokenizer = pinned_tokenizer(request.param, revision, variable)
+    renderer = create_renderer(
+        request.param, tokenizer=tokenizer, renderer=setting, chat_template_kwargs=options
+    )
+    return tokenizer, renderer, prefix
+
+
+@pytest.mark.parametrize("seed", range(300))
+def test_xml_random_calls_parse_back_to_themselves(xml_model, seed):
+    """Parse random calls back, including booleans and null written as ``True`` and ``None``."""
+    tokenizer, renderer, prefix = xml_model
+    arguments = random_arguments(random.Random(seed), XML_MARKUP, python_null=True)
+    result, reply = parsed_back(renderer, tokenizer, arguments, "Act.", "<|im_end|>", prefix)
+    assert result.status.value == "ok"
+    assert same(result.arguments, arguments), (result.arguments, arguments)
+    assert reply.native_message is not None
+    assert same(reply.native_message["tool_calls"][0]["function"]["arguments"], arguments)
+
+
+async def test_xml_echoed_call_continues_from_its_sampled_tokens(xml_model):
+    tokenizer, renderer, prefix = xml_model
+    written = {"i": "3", "oi": "None"}  # as these templates write a non-string
+    body = "".join(
+        f"<parameter={key}>\n{written.get(key, value)}\n</parameter>\n"
+        for key, value in EDIT.items()
+    )
+    await _echo_continues(
+        tokenizer,
+        renderer,
+        f"<tool_call>\n<function=act>\n{body}</function>\n</tool_call>",
+        prefix,
+        "<|im_end|>",
     )
