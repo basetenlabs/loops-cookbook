@@ -272,8 +272,7 @@ the training datums and the audit.
 
 Gemma 4 follows Prime's Qwen convention, so it should work, but it hasn't been run.
 Kimi K2.5 renders a single placeholder per image and relies on the engine to expand it,
-so the cookbook rejects Kimi image parts with a clear error. Kimi is on the
-[roadmap](../../ROADMAP.md).
+so the cookbook rejects Kimi image parts with a clear error.
 
 ### Install the vision extra
 

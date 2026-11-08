@@ -1,6 +1,19 @@
-# Loops cookbook
+# Loops Cookbook
 
-The Loops cookbook is a starting point for post-training models on
+![Baseten Loops](docs/assets/loops-banner.png)
+
+[![PyPI](https://img.shields.io/pypi/v/baseten-loops-cookbook)](https://pypi.org/project/baseten-loops-cookbook/)
+[![Python](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fbasetenlabs%2Floops-cookbook%2Fmain%2Fpyproject.toml)](https://pypi.org/project/baseten-loops-cookbook/)
+[![CI](https://github.com/basetenlabs/loops-cookbook/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/basetenlabs/loops-cookbook/actions/workflows/ci.yml?query=branch%3Adevelop)
+[![License](https://img.shields.io/pypi/l/baseten-loops-cookbook)](LICENSE)
+
+[Quickstart](#run-your-first-rl-job) ·
+[Examples](examples/) ·
+[Loops docs](https://docs.baseten.co/loops/overview) ·
+[Changelog](https://github.com/basetenlabs/loops-cookbook/releases) ·
+[Contributing](CONTRIBUTING.md)
+
+The Loops Cookbook is a starting point for post-training models on
 [Baseten Loops](https://docs.baseten.co/loops/overview). It gives Loops users working
 reinforcement learning (RL) and supervised fine-tuning (SFT) templates to copy and
 adapt. Each template is built on top of the
@@ -94,8 +107,10 @@ uv add baseten-loops-cookbook             # SFT, or RL with a custom rollout run
 ```
 
 The package includes the [examples](examples/), [patterns](patterns/) and
-[tasks](tasks/) from this repository. Run one by its path in this repository, from any
-directory:
+[tasks](tasks/) from this repository. To run one, give its path in this repository,
+such as `examples/terminal_bench/train.toml`. This works from any directory, without a
+clone. If a file exists at that path, the cookbook runs it instead, so you can copy an
+example and edit it.
 
 ```sh
 uv run loops check examples/terminal_bench/train.toml
@@ -290,7 +305,6 @@ files, and which packages make up the public API.
 - [docs/README.md](docs/README.md) explains how the cookbook is built, for developers
   who change it.
 - [tests/README.md](tests/README.md) describes the test layout and the live tests.
-- [ROADMAP.md](ROADMAP.md) lists what is planned.
 
 ## Contributing
 

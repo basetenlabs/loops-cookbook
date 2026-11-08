@@ -1,4 +1,4 @@
-# Working in the Loops cookbook
+# Working in the Loops Cookbook
 
 This repository is Baseten's cookbook for Loops. It gives Loops users a working
 starting point for reinforcement learning (RL) and supervised fine-tuning (SFT) on top
