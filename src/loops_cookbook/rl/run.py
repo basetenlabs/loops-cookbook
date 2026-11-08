@@ -869,6 +869,9 @@ class Run:
         # The rollout clock the run keeps, which is configured or the rollout runtime's.
         # preflight() sets it.
         self.rollout_timeout_seconds: float | None = None
+        # How many tokens the image probe rendered to. preflight() sets it when the
+        # config declares images.
+        self.image_tokens: int | None = None
         # How attempts reach the model, which is configured or the rollout runtime's.
         # preflight() sets it.
         self.model_access: ModelAccessMode | None = None
@@ -1840,14 +1843,18 @@ class Run:
         )
 
     def _renderers(self) -> Renderers:
-        """Build the run renderer and one per ``[model.reasoning_efforts]`` value, each probed.
+        """Build the run renderer and one per ``[model.reasoning_efforts]`` value.
 
         Every renderer comes from the same factory. An effort only overrides the
-        template options that its table entry names.
+        template options that its table entry names. When ``[rollout_runtime] has_images``
+        is true, each renderer renders an image probe here, before any Loops resource
+        exists.
         """
         model = self.config.model
+        images = self.config.rollout_runtime.has_images
         base = self._renderer_factory(self.config)
-        _warn_without_images(base)
+        if images:
+            self.image_tokens = _require_images(base)
         by_effort: dict[str, Renderer] = {}
         for effort, overrides in sorted(model.reasoning_efforts.items()):
             options = {**model.renderer_chat_template_kwargs, **overrides}
@@ -1857,8 +1864,9 @@ class Run:
                 }
             )
             by_effort[effort] = self._renderer_factory(variant)
-            _warn_without_images(by_effort[effort])
-        return Renderers(base, by_effort, self._render_pool)
+            if images:
+                _require_images(by_effort[effort])
+        return Renderers(base, by_effort, self._render_pool, images=images)
 
     def _start_eval(
         self, step: int, path: str | None, version: int, *, final: bool = False
@@ -2647,19 +2655,23 @@ def check_open_file_limit(config: Config, *, training: bool = True, limits=None)
         )
 
 
-def _warn_without_images(renderer: Renderer) -> None:
-    """Probe image support before any Loops resource exists.
+def _require_images(renderer: Renderer) -> int:
+    """Return how many tokens a 32x32 image probe renders to through ``renderer``.
 
-    A vision-capable model on a text-only task must keep working without the
-    ``vision`` extra, so a failing probe is only a warning. The first real image part
-    still raises.
+    The run declared image prompts with ``[rollout_runtime] has_images``. So the run
+    refuses a renderer that takes no images, or a missing image processor, here instead
+    of at the first image that a rollout sends.
     """
     try:
-        probe_image_tokens(renderer)
-    except Exception as error:  # noqa: BLE001 - processor errors vary by backend
-        logger.warning(
-            "Image inputs are unavailable for this renderer (%s: %s). Text-only "
-            "training is unaffected. Run `uv sync --extra vision` if this job sends images.",
-            type(error).__name__,
-            first_sentence(str(error)),
+        tokens = probe_image_tokens(renderer)
+    except Exception as error:  # Processor errors vary by backend.
+        raise ValueError(
+            f"[rollout_runtime] has_images = true, but the renderer can't render an image "
+            f"({type(error).__name__}: {first_sentence(str(error))}). If the vision extra is "
+            "missing, run `uv sync --extra vision`."
+        ) from error
+    if tokens is None:
+        raise ValueError(
+            f"[rollout_runtime] has_images = true, but {type(renderer).__name__} takes no images."
         )
+    return tokens

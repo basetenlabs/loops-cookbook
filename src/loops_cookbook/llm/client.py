@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from renderers.base import ParsedToolCall, ToolCallParseStatus
 
 from loops_cookbook.evidence import JsonValue, Sample, TrajectoryError
-from loops_cookbook.llm.images import image_bytes, image_payload, is_image_part
+from loops_cookbook.llm.images import image_bytes, image_parts, image_payload, is_image_part
 from loops_cookbook.llm.render_pool import RenderPool
 from loops_cookbook.llm.rendering import (
     ParsedReply,
@@ -29,6 +29,7 @@ from loops_cookbook.llm.rendering import (
     Renderer,
     RendererFailure,
     RenderingError,
+    UnsupportedContextError,
 )
 from loops_cookbook.llm.transcript import TranscriptRecorder
 
@@ -417,12 +418,15 @@ class Renderers:
     The run's renderer factory builds each one once, at startup. A request selects a
     renderer and never changes its template options. When ``pool`` is set, a
     conversation renders a thread-safe renderer's prompts on the pool's threads
-    instead of on the event loop.
+    instead of on the event loop. The run's ``[rollout_runtime] has_images`` sets
+    ``images``. When it is false, a conversation refuses a request that has an image part
+    before it renders the request.
     """
 
     base: Renderer
     by_effort: Mapping[str, Renderer] = field(default_factory=dict[str, Renderer])
     pool: RenderPool | None = None
+    images: bool = True
 
     async def call[T](self, renderer: Renderer, call: Callable[[], T]) -> T:
         """Run ``call``, a call on ``renderer``, through the pool when there is one."""
@@ -698,6 +702,12 @@ class Conversation:
         params.stop = _effective_stop(params.stop, renderer.stop_sequences)
         self._busy = True
         try:
+            # Refuse before canonical() decodes data URIs or loads paths and URLs.
+            if not self._llm.renderers.images and image_parts(messages):
+                raise UnsupportedContextError(
+                    "this request has images, but [rollout_runtime] has_images = false. Set "
+                    "has_images = true if this rollout runtime's prompts carry images."
+                )
             history = deepcopy(self._images.canonical(messages))
             declarations = deepcopy(list(tools or ()))
             rendered: RenderedPrompt | None = None

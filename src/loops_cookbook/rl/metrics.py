@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from math import isfinite
 from statistics import median
 
+from loops_cookbook.console import some_names
 from loops_cookbook.evidence import JsonValue, Rollout
 
 logger = logging.getLogger(__name__)
@@ -149,7 +150,7 @@ def rollout_metrics(rollouts: Sequence[Rollout], *, limit: int = 32) -> dict[str
             "Dropped %d agent metadata key(s) from step metrics as identifiers: %s. A "
             "label whose value differs per rollout makes a metric name, not a metric.",
             len(identifiers),
-            _named(identifiers),
+            some_names(sorted(identifiers)),
         )
     if over_limit:
         logger.warning(
@@ -158,14 +159,8 @@ def rollout_metrics(rollouts: Sequence[Rollout], *, limit: int = 32) -> dict[str
             "[output] rollout_metrics_limit to keep them.",
             len(over_limit),
             limit,
-            _named(over_limit),
+            some_names(sorted(over_limit)),
         )
     if identifiers or over_limit:
         out["rollout/dropped_keys"] = float(len(identifiers) + len(over_limit))
     return out
-
-
-def _named(names: Sequence[str], shown: int = 5) -> str:
-    names = sorted(names)
-    listed = ", ".join(names[:shown])
-    return f"{listed} and {len(names) - shown} more" if len(names) > shown else listed

@@ -81,7 +81,7 @@ class Answer(Episode[None, None]):
     assert trainers == [], "check must never construct a Loops trainer"
     assert report.config.training.group_size == 8
     assert report.rollout_timeout_seconds > 0
-    assert report.images.error is None
+    assert report.images.tokens is None  # its config declares no images
     assert report.reasoning_efforts == ()
     assert [task.id for task in report.tasks] == ["question"]
     assert report.output_dir.parent == tmp_path / "results" / "preflight"

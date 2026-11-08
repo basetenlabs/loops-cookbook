@@ -41,6 +41,7 @@ from harbor.utils.import_path import import_symbol
 from pydantic import BaseModel
 
 from loops_cookbook.cancellation import Waited, outlast
+from loops_cookbook.console import some_names
 from loops_cookbook.evidence import JsonValue, Rollout, TaskRef, TrajectoryError, json_value
 from loops_cookbook.harbor import attempts, integration
 from loops_cookbook.harbor.oom import ReportsOomKills
@@ -1394,29 +1395,56 @@ def _report_sandbox_sizes(job: JobConfig, tasks: Mapping[str, Any]) -> None:
     override = job.environment.override_memory_mb
     override_cpus = job.environment.override_cpus
     sizes: collections.Counter[int] = collections.Counter()
+    # Group the tasks by what they declare, so a large dataset logs one warning, not one
+    # per task.
+    too_big: collections.defaultdict[tuple[int, int], list[str]] = collections.defaultdict(list)
+    unapplied: collections.defaultdict[tuple[int, int], list[str]] = collections.defaultdict(list)
     for task_id, task in tasks.items():
         memory = override or task.environment.memory_mb or integration.blaxel_default_memory_mb()
-        disk = memory // 2
         sizes[memory] += 1
         declared = task.environment.storage_mb
-        if declared is not None and declared > disk:
-            logger.warning(
+        if declared is not None and declared > memory // 2:
+            too_big[declared, memory].append(task_id)
+            logger.debug(
                 "Task %s declares storage_mb %d, but its Blaxel sandbox has %d MB of memory "
                 "and so %d MB of disk",
                 task_id,
                 declared,
                 memory,
-                disk,
+                memory // 2,
             )
         cpus = override_cpus if override_cpus is not None else task.environment.cpus
         if cpus is not None:
-            logger.warning(
+            unapplied[cpus, memory].append(task_id)
+            logger.debug(
                 "Task %s declares %d cpus; Blaxel does not apply it, and its sandbox's "
                 "CPU follows its %d MB of memory",
                 task_id,
                 cpus,
                 memory,
             )
+    if too_big:
+        logger.warning(
+            "%d task(s) declare more storage_mb than their Blaxel sandbox's disk, which is "
+            "half its memory. The groups are %s. Run with --verbose to name each task.",
+            sum(map(len, too_big.values())),
+            "; ".join(
+                f"storage_mb {declared} on {memory} MB of memory, which gives "
+                f"{memory // 2} MB of disk, for {some_names(ids)}"
+                for (declared, memory), ids in sorted(too_big.items())
+            ),
+        )
+    if unapplied:
+        logger.warning(
+            "%d task(s) declare cpus, which Blaxel does not apply. A Blaxel sandbox's CPU "
+            "follows its memory instead. The groups are %s. Run with --verbose to name each "
+            "task.",
+            sum(map(len, unapplied.values())),
+            "; ".join(
+                f"{cpus} cpus on {memory} MB of memory, for {some_names(ids)}"
+                for (cpus, memory), ids in sorted(unapplied.items())
+            ),
+        )
     logger.info(
         "Blaxel sandboxes (disk is half the memory): %s",
         ", ".join(f"{count} task(s) at {memory} MB" for memory, count in sorted(sizes.items())),

@@ -1167,19 +1167,23 @@ async def test_shutdown_cancels_outstanding_attempts_cleans_them_up_then_closes(
     assert closing["slots/sampling"] == 0 and closing["slots/verification"] == 0
 
 
-async def test_each_declared_reasoning_effort_gets_its_own_renderer_from_the_factory(
-    config, monkeypatch
-):
-    from loops_cookbook.rl import run as run_module
+async def test_each_declared_reasoning_effort_gets_its_own_renderer_from_the_factory(config):
+    built, renderers_built = [], []
 
-    built, probed = [], []
+    class ImageRenderer(Renderer):
+        supports_images = True
+        rendered = 0
+
+        def render(self, messages, tools):
+            self.rendered += 1
+            return super().render(messages, tools)
 
     def factory(settings):
         built.append(dict(settings.model.renderer_chat_template_kwargs))
-        return Renderer()
+        renderers_built.append(ImageRenderer())
+        return renderers_built[-1]
 
-    monkeypatch.setattr(run_module, "_warn_without_images", probed.append)
-    settings = config(max_steps=1)
+    settings = config(max_steps=1, has_images=True, router_replay=False)
     settings = settings.model_copy(
         update={
             "model": settings.model.model_copy(
@@ -1203,7 +1207,8 @@ async def test_each_declared_reasoning_effort_gets_its_own_renderer_from_the_fac
         {"enable_thinking": False, "x": 1},  # none
     ]
     assert sorted(renderers.by_effort) == ["high", "none"]
-    assert len(probed) == 3  # every renderer is probed for images at preflight
+    # With images declared, every renderer renders the image probe once at preflight.
+    assert [r.rendered for r in renderers_built] == [1, 1, 1]
     assert renderers.pool is not None  # conversations render off the event loop
 
 
