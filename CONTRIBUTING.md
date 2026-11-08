@@ -1,6 +1,7 @@
 # Contributing
 
-Open pull requests (PRs) against `develop`. CI must pass before a PR merges.
+Open pull requests (PRs) against `develop`. CI must pass before a PR merges, and a code
+owner from [.github/CODEOWNERS](.github/CODEOWNERS) must approve it.
 
 ## Commits and PR titles
 
