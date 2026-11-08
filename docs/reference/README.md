@@ -1,18 +1,18 @@
 # Reference
 
-How the pieces behave in detail. Start from the [docs](../README.md); come here for the
-exact rules.
+These pages give the exact rules for how each part of the cookbook behaves. Start from
+the [docs](../README.md), and come here when you need the details.
 
-- [training.md](training.md): the loop, rollouts to training rows, groups and advantages, the training step, outputs, and settings by what they control.
-- [model-access.md](model-access.md): how an agent's model call becomes training evidence, directly and over HTTP.
-- [scheduling.md](scheduling.md): sampling and grading slots, pre-start places, sync and async.
-- [resources.md](resources.md): provider resources, the journal and `loops cleanup`, and agent processes.
-- [failures.md](failures.md): what each way your code can end means, retries, deadlines, and the systemic stop.
-- [episode-api.md](episode-api.md): the `Episode` API, typed tasks and options, the lifecycle, and group grading.
-- [harbor.md](harbor.md): the Harbor runtime.
-- [daytona.md](daytona.md): the Daytona provider, its Harbor environment, and choosing between Blaxel and Daytona.
-- [sft.md](sft.md): the SFT recipe: the data contracts, which tokens train, the training step, metrics, and the run directory.
-- [renderers.md](renderers.md): model chat-template support and adding a renderer.
-- [library.md](library.md): using the cookbook from Python: `load()`, `check()`, `train()` and the public packages.
-- [KNOB_GLOSSARY.md](KNOB_GLOSSARY.md): every setting, by table (generated).
-- [settings-that-interact.md](settings-that-interact.md): settings that only make sense together.
+- [training.md](training.md) covers the training loop, how a rollout becomes training rows, groups and advantages, the training step, resuming and forking a run, evals, the loss, the outputs, and the settings grouped by what they control.
+- [model-access.md](model-access.md) explains how an agent's model call becomes training evidence, both directly and over HTTP.
+- [scheduling.md](scheduling.md) covers sampling and grading slots, pre-start places, and sync and async admission.
+- [resources.md](resources.md) covers provider resources, the journal and `loops cleanup`, and agent processes.
+- [failures.md](failures.md) explains what each way your code can end means, along with retries, deadlines and the systemic stop.
+- [episode-api.md](episode-api.md) covers the `Episode` API, typed tasks and options, the lifecycle, and group grading.
+- [harbor.md](harbor.md) describes the Harbor rollout runtime.
+- [daytona.md](daytona.md) describes the Daytona provider and its Harbor environment, and how to choose between Blaxel and Daytona.
+- [sft.md](sft.md) describes the supervised fine-tuning (SFT) recipe, including its data contracts, which tokens train, the training step, the metrics and the run directory.
+- [renderers.md](renderers.md) covers which model chat templates the cookbook supports, and how to add a renderer.
+- [library.md](library.md) explains how to use the cookbook from Python, with `load()`, `check()`, `train()` and the public packages.
+- [KNOB_GLOSSARY.md](KNOB_GLOSSARY.md) lists every setting, by table. It is generated from the settings models.
+- [settings-that-interact.md](settings-that-interact.md) covers the settings that only make sense together.

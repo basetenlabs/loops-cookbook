@@ -1,40 +1,24 @@
-# Custom runtime, in-process, direct
+# Custom rollout runtime, in-process, direct
 
-The smallest custom environment: an `Episode` subclass whose `run()` is the agent. It
-asks the model once with the cookbook's `llm()` client, inside the training process,
-and every token is recorded exactly. The cookbook runs the class as the runtime
-(`loops_cookbook.episodes:create_runtime`): it loads and digests the tasks, provisions
-and releases the sandbox, and calls `close()` once, so the episode is only the agent
-and its grader. See [the Episode API](../../../docs/reference/episode-api.md).
+This is the simplest pattern. You write one `Episode` subclass, and its `run()` method
+is the agent. The agent asks the model once with the cookbook's `llm()` client, inside
+the training process, and the client records every token exactly.
 
-**Use it when** your tasks are not Harbor tasks (a gym-style environment, your own
-infrastructure) and you are writing the episode logic in Python.
+The cookbook runs your class as the rollout runtime, through
+`loops_cookbook.episodes:create_runtime`. It loads the tasks and records a digest of
+each one, provisions and releases the sandbox, and calls `close()` once. Your episode
+therefore holds only the agent and its grader. See
+[the Episode API](../../../docs/reference/episode-api.md) for the details.
 
-**Files**
+Use this pattern when your tasks aren't Harbor tasks and you're writing the episode
+logic in Python. Your tasks might come from a gym-style environment or from your own
+infrastructure, for example.
 
-- `direct_episode.py`: the episode. `AnswerEpisode` keeps its answer, and `grade()`
-  scores it; `SandboxAnswerEpisode` writes the answer into the attempt's sandbox, and
-  `grade()` scores what the sandbox holds. Its one task, a hidden answer to guess, is
-  the dataset [tasks/hidden_answer_35b.jsonl](../../../tasks/hidden_answer_35b.jsonl) that
-  `[rollout_runtime.files] tasks` names.
-- `train.toml`: no environment, with `AnswerEpisode`.
-- `train_blaxel.toml`: one Blaxel sandbox per episode, from `[rollout_runtime.config.sandbox]`,
-  with `SandboxAnswerEpisode`, an `Episode[AnswerTask, None]` with `execution_kind = Blaxel`, so `loops
-  check` refuses it without that table or with another provider's. The run provisions
-  the sandbox before `setup()`, whose `setup.sandbox.client()` attaches to it within
-  `[providers.blaxel] attach_timeout_seconds`, and closes the client and releases the
-  sandbox after the episode.
+## Run it
 
-A deadline (`agent_timeout_seconds`) that cuts `run()` before the reply arrives leaves
-nothing to train: the rollout is discarded as `unversioned` and counts as a sampling
-failure. One cut after the reply is graded, as 0 when no answer was kept. So is an
-answer missing from a sandbox still there after the read, however `run()`
-ended: `grading.execution_sandbox.read_file()` asks. A sandbox that is gone, or any other failed
-read, fails grading, to be retried.
-`grade()` is pure, so the episode declares `grading_retries = 2`: a failed grade is
-tried twice more.
-
-**Run** from the repository root with `BASETEN_API_KEY` in `.env`, and Blaxel credentials (`BL_WORKSPACE`, `BL_API_KEY`) for the Blaxel config (`uv sync --extra blaxel`):
+Run these commands from the repository root, with `BASETEN_API_KEY` set in `.env`. The
+Blaxel config also needs `BL_WORKSPACE` and `BL_API_KEY` in `.env`, and the Blaxel
+extra, which `uv sync --extra blaxel` installs.
 
 ```sh
 uv run loops check patterns/custom_runtime/in_process_direct/train.toml
@@ -42,5 +26,44 @@ uv run loops run   patterns/custom_runtime/in_process_direct/train.toml
 uv run loops run   patterns/custom_runtime/in_process_direct/train_blaxel.toml
 ```
 
-`check` launches nothing; `run` provisions Loops resources, which stay provisioned
-until you deactivate the run. The run ID is logged on exit.
+`loops check` launches nothing. `loops run` trains Qwen3.6-35B-A3B on serverless Loops.
+When the command exits, it leaves the Loops run up, and it logs the run ID and the
+`loops deactivate` command that ends the run.
+
+## How it works
+
+The pattern has three files:
+
+- `direct_episode.py` holds two episodes. `AnswerEpisode` keeps the model's answer, and
+  its `grade()` scores that answer. `SandboxAnswerEpisode` writes the answer into the
+  attempt's sandbox, and its `grade()` scores what the sandbox holds. Both train on one
+  task, a hidden answer to guess, from the dataset
+  [tasks/hidden_answer_35b.jsonl](../../../tasks/hidden_answer_35b.jsonl). The configs
+  name that dataset in `[rollout_runtime.files] tasks`.
+- `train.toml` runs `AnswerEpisode` with no sandbox.
+- `train_blaxel.toml` runs `SandboxAnswerEpisode` with one Blaxel sandbox per episode,
+  configured in `[rollout_runtime.config.sandbox]`.
+
+`SandboxAnswerEpisode` is an `Episode[AnswerTask, None]` with `execution_kind = Blaxel`,
+which declares that it needs a Blaxel sandbox. So `loops check` refuses a config that
+has no `[rollout_runtime.config.sandbox]` table, or one that names another provider's
+sandbox there. The run provisions the sandbox before `setup()` runs. In `setup()`,
+`setup.sandbox.client()` attaches to the sandbox within
+`[providers.blaxel] attach_timeout_seconds`. After the episode, the run closes the
+client and releases the sandbox.
+
+## When the deadline passes or the answer is missing
+
+The run stops `run()` when the agent's deadline, `agent_timeout_seconds`, passes. If
+that happens before the model replies, there is nothing to train on. The cookbook
+discards the rollout as `unversioned` and counts it as a sampling failure. If it
+happens after the model replies, the cookbook grades the rollout as usual, and an
+episode that kept no answer scores 0.
+
+`SandboxAnswerEpisode` also scores 0 when its answer is missing from a sandbox that
+still exists, however `run()` ended. `read_file()` tells the two cases apart. When the
+file is missing, it asks whether the sandbox is still alive. If the sandbox is gone, or
+the read fails in any other way, grading fails and the run retries it.
+
+`grade()` is pure, so it is safe to run again. The episode therefore declares
+`grading_retries = 2`, and the run tries a failed grade up to twice more.
