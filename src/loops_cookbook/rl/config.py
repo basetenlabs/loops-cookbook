@@ -732,6 +732,13 @@ class ResourcesSettings(_Section):
 
 
 class Config(_Section):
+    """The settings for an RL run, with one field for each table of the config file.
+
+    ``loops check`` and ``loops run`` load it from the TOML file and the command-line
+    flags. Validation refuses settings that can't work together before anything is
+    provisioned, such as a ``max_trajectory_tokens`` above the model's ``max_seq_len``.
+    """
+
     recipe: Literal["rl"] = Field(
         default="rl",
         description=RECIPE_DESCRIPTION,

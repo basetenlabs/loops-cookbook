@@ -116,6 +116,12 @@ class EvalSettings(Section):
 
 
 class Config(Section):
+    """The settings for an SFT run, with one field for each table of the config file.
+
+    ``loops check`` and ``loops run`` load it from the TOML file and the command-line
+    flags.
+    """
+
     recipe: Literal["sft"] = Field(
         default="sft",
         description=RECIPE_DESCRIPTION,

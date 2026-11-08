@@ -402,6 +402,10 @@ class _Progress:
 
 
 def build_renderer(config: Config) -> TrainingRenderer:
+    """Build the renderer that ``config`` names, and refuse one that SFT can't train with.
+
+    A refused renderer raises ``ValueError`` that names it.
+    """
     renderer = create_renderer(
         config.model.base_model,
         tokenizer_source=config.model.tokenizer_source,
@@ -610,6 +614,12 @@ Status = Literal["completed", "interrupted", "failed", "loops_run_ended"]
 
 @dataclass(frozen=True)
 class Outcome:
+    """How an SFT run ended, which ``Run.execute`` returns and ``loops run`` reports.
+
+    ``next_step`` is the step after the last update Loops applied, which is where a
+    resume would start.
+    """
+
     status: Status
     steps: int
     """The number of updates this invocation completed, not counting restored ones."""
@@ -618,6 +628,7 @@ class Outcome:
 
     @property
     def ok(self) -> bool:
+        """Whether the run completed."""
         return self.status == "completed"
 
 
@@ -658,6 +669,12 @@ def check_resume(resume: Manifest, data_digest: str, schedule: Schedule) -> None
 
 
 class Run:
+    """One SFT run, which renders the data, trains on it and records everything in its directory.
+
+    ``sft.recipe.assemble`` builds it, and ``execute`` runs it. A run given a resume
+    manifest continues that run in the same directory.
+    """
+
     def __init__(
         self,
         config: Config,
@@ -684,6 +701,7 @@ class Run:
 
     @property
     def loops_url(self) -> str | None:
+        """The Loops run's page on Baseten, or ``None`` before the trainer has an ID."""
         return loops_url(self._loops_run_id())
 
     def _loops_run_id(self) -> str | None:

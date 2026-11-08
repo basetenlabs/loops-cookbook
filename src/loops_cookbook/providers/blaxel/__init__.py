@@ -51,6 +51,7 @@ class BlaxelSandbox(SandboxSpec):
     )
 
     def specification(self) -> dict[str, JsonValue]:
+        """Return the Blaxel adapter's sandbox request, which names ``memory_mb`` as ``memory``."""
         return {"sandbox": {"image": self.image, "memory": self.memory_mb, "ttl": self.ttl}}
 
 

@@ -614,6 +614,8 @@ def _continues(ids: tuple[int, ...] | TokenSpan, previous: Sample) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class TaskRef:
+    """A task as the cookbook knows it, by its ID and a ``sha256:`` digest of what it holds."""
+
     id: str
     digest: str  # Exactly sha256:<64 lowercase hex characters>.
 
@@ -625,6 +627,11 @@ class TaskRef:
 
 @dataclass(frozen=True, slots=True)
 class AttemptIdentity:
+    """The IDs that name one attempt: its run, its group, its rollout and the attempt itself.
+
+    A rollout tried again keeps its ``rollout_id`` and gets a new ``attempt_id``.
+    """
+
     run_id: str
     group_id: str
     rollout_id: str
@@ -637,6 +644,12 @@ class AttemptIdentity:
 
 @dataclass(frozen=True, slots=True)
 class Sample:
+    """One generation that the cookbook captured at the model boundary.
+
+    It holds the generation's tokens, behavior logprobs and policy version.
+    ``trainable`` says whether its producer's generations receive gradient.
+    """
+
     sample_id: str
     producer: str
     conversation_id: str
@@ -726,6 +739,12 @@ class Sample:
 
 @dataclass(frozen=True, slots=True)
 class Rollout:
+    """One attempt's sealed sampling evidence, with its reward once it is graded.
+
+    Only the attempt driver builds one. A rollout runtime reads it in ``grade()`` and
+    ``finish()``, and a group grader in each member's evidence.
+    """
+
     identity: AttemptIdentity
     task: TaskRef
     samples: tuple[Sample, ...]
@@ -753,6 +772,7 @@ class Rollout:
 
     @property
     def policy_versions(self) -> list[int]:
+        """The policy versions of the rollout's trainable generations, in order."""
         return [sample.policy_version for sample in self.samples if sample.trainable]
 
     @property
@@ -771,6 +791,11 @@ class Rollout:
 
     @property
     def internal_delta(self) -> int:
+        """How many policy versions apart the trainable generations are, or 0 when there are none.
+
+        A rollout whose delta is over ``max_policy_delta_in_trajectory`` is discarded
+        before grading.
+        """
         versions = self.policy_versions
         return max(versions) - min(versions) if versions else 0
 

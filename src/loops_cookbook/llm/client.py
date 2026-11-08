@@ -147,26 +147,32 @@ class LLMResponse:
 
     @property
     def usage(self) -> TokenUsage:
+        """The generation's prompt and completion token counts."""
         return TokenUsage(len(self.sample.prompt_ids), len(self.sample.completion_ids))
 
     @property
     def response_id(self) -> str:
+        """The generation's sample ID, which ``Conversation.discard`` matches against."""
         return self.sample.sample_id
 
     @property
     def reasoning_complete(self) -> bool | None:
+        """Whether the reasoning closed, or ``None`` if the renderer reports no reasoning state."""
         return self.parsed.reasoning_complete if self.parsed is not None else None
 
     @property
     def content(self) -> str | None:
+        """The reply's text, outside its reasoning and tool calls."""
         return self.parsed.content if self.parsed is not None else None
 
     @property
     def reasoning_content(self) -> str | None:
+        """The reply's reasoning text, or ``None`` when it has none."""
         return self.parsed.reasoning_content if self.parsed is not None else None
 
     @property
     def tool_calls(self):
+        """Every tool call the model wrote, each with the ``status`` the renderer gave it."""
         return self.parsed.tool_calls if self.parsed is not None else ()
 
     @property
@@ -212,10 +218,12 @@ class LLMResponse:
 
     @property
     def stop_reason(self) -> str | None:
+        """Why the sampler stopped, such as ``"length"`` at its token limit."""
         return self.sample.stop_reason
 
     @property
     def reasoning(self) -> str | None:
+        """The same text as ``reasoning_content``."""
         return self.reasoning_content
 
     @property
@@ -448,6 +456,7 @@ class LoopsLLM:
 
     @property
     def producer(self) -> str:
+        """The producer every conversation from this client samples as."""
         return self._channel.producer
 
     @property
@@ -457,6 +466,7 @@ class LoopsLLM:
 
     @property
     def renderers(self) -> Renderers:
+        """The run's renderer and the one for each declared ``reasoning_effort``."""
         return self._renderers
 
     @property
@@ -588,10 +598,12 @@ class Conversation:
 
     @property
     def conversation_id(self) -> str:
+        """The conversation's ID, which is a new UUID when the caller gave none."""
         return self._conversation_id
 
     @property
     def producer(self) -> str:
+        """The producer this conversation samples as."""
         return self._llm.producer
 
     async def generate(

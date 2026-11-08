@@ -185,6 +185,8 @@ class _EpisodeState:
 
 
 class EpisodeRuntime:
+    """The rollout runtime that runs an ``Episode`` class, as ``create_runtime`` builds it."""
+
     def __init__(
         self,
         episode: type[Episode[Any, Any]],
@@ -218,6 +220,12 @@ class EpisodeRuntime:
 
     @property
     def capabilities(self) -> RuntimeCapabilities:
+        """What the episode class declares: its model access, grading retries and group grading.
+
+        The rollout runtime always holds sampling itself. An episode without ``grade()``
+        also declares verification, which it never holds, because its grading needs no
+        slot.
+        """
         return RuntimeCapabilities(
             model_access_modes=frozenset({self._episode.model_access}),
             # Without grade(), grading is a no-op that needs no verification slot. The
@@ -235,9 +243,16 @@ class EpisodeRuntime:
         )
 
     async def prepare(self) -> list[TaskRef]:
+        """Return a ``TaskRef`` for each loaded task, with a digest of the task's data."""
         return [TaskRef(task.id, task_digest(task.data)) for task in self._tasks.values()]
 
     async def sample(self, attempt: AttemptContext) -> EpisodeResult:
+        """Run one episode: admit it, provision its sandbox, then call ``setup()`` and ``run()``.
+
+        ``run()`` runs under a sampling hold and the agent's deadline. An episode whose
+        ``sandbox_lifetime`` is ``"sampling"`` has its sandbox released once ``run()``
+        returns.
+        """
         services = attempt.services
         await services.capacity.admit()
         sandbox = (
@@ -281,6 +296,11 @@ class EpisodeRuntime:
         return EpisodeResult(metadata=metadata or {})
 
     async def grade(self, attempt: AttemptContext, rollout: Rollout) -> GradeResult:
+        """Call the episode's ``grade()``, provisioning the grading sandbox on the first try.
+
+        An episode without ``grade()`` gives no reward here, because its
+        ``grade_group()`` gives it.
+        """
         # An episode without grade() has grade_group(), which gives the reward.
         if not self._grades:
             return GradeResult(reward=None)
@@ -306,6 +326,11 @@ class EpisodeRuntime:
         return result if isinstance(result, GradeResult) else GradeResult(reward=result)
 
     async def grade_group(self, members: Sequence[MemberEvidence]) -> Sequence[float]:
+        """Call the episode class's ``grade_group()`` with each member's evidence.
+
+        Each member gives its task, transcript, reward and metadata. The metadata is a
+        private copy, so the trained rollout keeps its own.
+        """
         group = [
             GroupMember(
                 task=self._tasks[member.rollout.task.id].copy(),
@@ -322,13 +347,15 @@ class EpisodeRuntime:
     async def finish(
         self, attempt: AttemptContext, rollout: Rollout, disposition: EpisodeDisposition
     ) -> None:
+        """Close the attempt's episode, then its sandbox clients, then delete its directory."""
         await self._close(attempt)
 
     async def abort(self, attempt: AttemptContext, reason: AttemptAbortReason) -> None:
+        """Close the attempt's episode, sandbox clients and directory, as ``finish()`` does."""
         await self._close(attempt)
 
     async def close(self) -> None:
-        return None
+        """Do nothing, because each attempt's episode and sandbox close with the attempt."""
 
     async def _close(self, attempt: AttemptContext) -> None:
         """Close the attempt's episode, then its sandbox clients, then delete its directory.

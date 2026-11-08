@@ -28,6 +28,7 @@ class LoopsAgent(BaseAgent):
     _loops_services: AttemptServices | None = None
 
     def bind_loops_services(self, services: AttemptServices) -> None:
+        """Keep the attempt's services, which the Harbor rollout runtime binds before ``setup``."""
         self._loops_services = services
 
     @property
@@ -38,6 +39,7 @@ class LoopsAgent(BaseAgent):
         return self._loops_services
 
     def llm(self, producer: str | None = None) -> LoopsLLM:
+        """Return the direct client that samples as ``producer``, or as the default producer."""
         return self.services.model_access.llm(producer)
 
     def conversation(

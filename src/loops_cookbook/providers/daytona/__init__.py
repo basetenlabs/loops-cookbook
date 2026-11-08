@@ -74,6 +74,7 @@ class DaytonaSandbox(SandboxSpec):
         return self
 
     def specification(self) -> dict[str, JsonValue]:
+        """Return the Daytona adapter's sandbox request, which leaves out every unset key."""
         sandbox: dict[str, JsonValue] = {}
         if self.image is not None:
             sandbox["image"] = {"base": self.image}

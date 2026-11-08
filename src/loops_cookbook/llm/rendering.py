@@ -29,11 +29,15 @@ text, images, tool references, or the bundled output of a tool part.
 
 
 class SystemMessage(TypedDict):
+    """One system message in a conversation's history."""
+
     role: Literal["system"]
     content: Content
 
 
 class UserMessage(TypedDict):
+    """One user message in a conversation's history."""
+
     role: Literal["user"]
     content: Content
 
@@ -110,6 +114,14 @@ def token_ids(values: Sequence[int]) -> TokenSpan:
 
 @dataclass(frozen=True, slots=True)
 class ParsedReply:
+    """What a renderer read from one completion.
+
+    ``reasoning_complete`` is ``None`` when the renderer reports no reasoning state.
+    ``native_message`` is the assistant message to append to history. It is ``None``
+    when a tool call did not parse, because no message renders back to what the model
+    wrote.
+    """
+
     content: str
     reasoning_content: str | None
     tool_calls: tuple[ParsedToolCall, ...]
@@ -142,6 +154,7 @@ class RenderedPrompt:
 
     @classmethod
     def text(cls, ids: Sequence[int]) -> RenderedPrompt:
+        """Build a text-only prompt from its token IDs."""
         ids = token_ids(ids)
         return cls(ids, ModelInput.from_ints(list(ids)))
 
@@ -188,15 +201,24 @@ class Renderer(Protocol):
     """
 
     @property
-    def stop_sequences(self) -> tuple[str, ...] | tuple[int, ...]: ...
+    def stop_sequences(self) -> tuple[str, ...] | tuple[int, ...]:
+        """The strings or token IDs that end the model's turn."""
+        ...
 
     def render(
         self, messages: Sequence[Message], tools: Sequence[Tool]
-    ) -> RenderedPrompt | Sequence[int]: ...
+    ) -> RenderedPrompt | Sequence[int]:
+        """Render ``messages`` and the declared ``tools`` into the prompt the model continues."""
+        ...
 
     def parse(
         self,
         prompt_ids: Sequence[int],
         completion_ids: Sequence[int],
         tools: Sequence[Tool],
-    ) -> ParsedReply: ...
+    ) -> ParsedReply:
+        """Read the reply to ``prompt_ids`` from its sampled ``completion_ids``.
+
+        The client treats anything this raises as the renderer's own failure.
+        """
+        ...

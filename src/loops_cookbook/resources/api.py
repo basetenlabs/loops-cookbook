@@ -28,6 +28,14 @@ class ResourceScope(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class ResourceRequest:
+    """What a rollout runtime asks a provider for: a kind of resource and its specification.
+
+    ``logical_key`` names the resource within its owner, so asking again with the same
+    key returns the live resource. Asking with a different specification, or a
+    different ``identity`` when it is set, is refused. ``depends_on`` names, by resource
+    ID, the resources that must not be released before this one.
+    """
+
     provider: str
     kind: str
     logical_key: str
@@ -85,11 +93,18 @@ class ProviderDeadlines:
             raise ValueError("provider deadlines must be positive and finite")
 
     def create_for(self, kind: str) -> float:
+        """Return the create deadline for ``kind``, or ``create_seconds`` if it has none."""
         return self.create_seconds_by_kind.get(kind, self.create_seconds)
 
 
 @dataclass(frozen=True, slots=True)
 class ResourceIntent:
+    """The immutable record of a resource about to be created, journaled before any provider call.
+
+    The adapter creates it as ``desired_name``, carrying ``ownership_labels``. A lookup
+    by that name and those labels can then find it after a crash.
+    """
+
     resource_id: str
     scope: ResourceScope
     owner_id: str
@@ -101,6 +116,12 @@ class ResourceIntent:
 
 @dataclass(frozen=True, slots=True)
 class ProviderResource:
+    """A resource as its provider identifies it, by its provider ID, name and labels.
+
+    ``metadata`` holds anything else the adapter records about it. The registry
+    journals all of it.
+    """
+
     provider_id: str
     name: str
     labels: Mapping[str, str]
@@ -113,11 +134,19 @@ class ProviderResource:
 
 @dataclass(frozen=True, slots=True)
 class ResourceHandle:
+    """A live resource: the intent it was created from, and the provider's resource."""
+
     intent: ResourceIntent
     resource: ProviderResource
 
 
 class CreationDisposition(str, Enum):
+    """Whether a create that failed may have left a resource at the provider.
+
+    Only ``DEFINITELY_NOT_CREATED`` lets the registry forget the resource. It looks up
+    an ``AMBIGUOUS`` create by identity, and releases a ``DEFINITELY_CREATED`` resource.
+    """
+
     DEFINITELY_NOT_CREATED = "definitely_not_created"
     DEFINITELY_CREATED = "definitely_created"
     AMBIGUOUS = "ambiguous"
@@ -131,6 +160,8 @@ class CleanupStatus(str, Enum):
 
 
 class ReconcileStatus(str, Enum):
+    """What a provider lookup proved about a resource: found, proven absent, or unknown."""
+
     FOUND = "found"
     PROVEN_ABSENT = "proven_absent"
     UNKNOWN = "unknown"
@@ -231,8 +262,17 @@ class ResourceLease(Protocol):
     """A borrowed run resource, held until it is closed or the borrowing scope ends."""
 
     @property
-    def handle(self) -> ResourceHandle: ...
-    async def close(self) -> None: ...
+    def handle(self) -> ResourceHandle:
+        """The borrowed resource's handle."""
+        ...
+
+    async def close(self) -> None:
+        """End the lease. A release that waited for this lease then goes ahead.
+
+        Closing a lease again does nothing.
+        """
+        ...
+
     async def __aenter__(self) -> Self: ...
     async def __aexit__(
         self,
@@ -243,11 +283,46 @@ class ResourceLease(Protocol):
 
 
 class ResourceAdapter(Protocol):
+    """The contract a provider implements, so the cookbook can create, find and release resources.
+
+    The registry puts the matching deadline from ``deadlines`` on each provider call. A
+    crash during a release repeats the release, so an adapter's release must tolerate
+    a resource that is already gone.
+    """
+
     @property
-    def deadlines(self) -> ProviderDeadlines: ...
-    async def prerequisites(self, request: ResourceRequest) -> Sequence[ResourceRequest]: ...
-    def desired_name(self, request: ResourceRequest, resource_id: str) -> str: ...
-    async def create(self, intent: ResourceIntent) -> ProviderResource: ...
+    def deadlines(self) -> ProviderDeadlines:
+        """The deadline for each of this provider's operations."""
+        ...
+
+    async def prerequisites(self, request: ResourceRequest) -> Sequence[ResourceRequest]:
+        """Return the requests to provision before ``request``, such as a sandbox's image build.
+
+        The registry asks under the reconcile deadline. It provisions each prerequisite
+        as a run resource, which every request that needs it shares. Return nothing when
+        ``request`` needs nothing first.
+        """
+        ...
+
+    def desired_name(self, request: ResourceRequest, resource_id: str) -> str:
+        """Return the name to create ``request``'s resource under, given its new ``resource_id``.
+
+        The registry journals the name with the intent before any create, so a lookup
+        after a crash can find the resource by it.
+        """
+        ...
+
+    async def create(self, intent: ResourceIntent) -> ProviderResource:
+        """Create ``intent``'s resource and return it.
+
+        On failure, raise ``ProvisioningFailure`` with whether a resource may exist. Any
+        other failure, or the create deadline, counts as ``AMBIGUOUS``. The registry
+        then looks the resource up with ``reconcile_create()``. Raise a ``refused``
+        failure when the provider turns the create away for now, and the registry sends
+        it again after a wait.
+        """
+        ...
+
     async def reconcile_create(
         self, intent: ResourceIntent, *, settled: bool = False
     ) -> ReconcileResult:
@@ -258,11 +333,26 @@ class ResourceAdapter(Protocol):
         """
         ...
 
-    async def validate_ownership(
-        self, intent: ResourceIntent, resource: ProviderResource
-    ) -> bool: ...
-    async def release(self, resource: ProviderResource) -> None: ...
-    async def confirm_absent(self, resource: ProviderResource) -> ReconcileResult: ...
+    async def validate_ownership(self, intent: ResourceIntent, resource: ProviderResource) -> bool:
+        """Return whether ``resource`` carries ``intent``'s identity, so the cookbook may own it.
+
+        The registry asks before it owns a resource that a lookup found, and ``loops
+        cleanup`` asks before it releases one. A failure counts as ``False``.
+        """
+        ...
+
+    async def release(self, resource: ProviderResource) -> None:
+        """Delete ``resource`` at the provider. The registry then calls ``confirm_absent()``."""
+        ...
+
+    async def confirm_absent(self, resource: ProviderResource) -> ReconcileResult:
+        """Look ``resource`` up after its release, and return whether it is gone.
+
+        Return ``PROVEN_ABSENT`` only on authoritative evidence. Anything else leaves the
+        release unconfirmed, and the resource is kept for ``loops cleanup``.
+        """
+        ...
+
     def list_owned(
         self, labels: Mapping[str, str]
     ) -> AsyncGenerator[Sequence[ProviderResource], None]:
@@ -273,8 +363,13 @@ class ResourceAdapter(Protocol):
         """
         ...
 
-    def usage_environment(self, resource: ProviderResource) -> Mapping[str, str | SecretStr]: ...
-    async def close(self) -> None: ...
+    def usage_environment(self, resource: ProviderResource) -> Mapping[str, str | SecretStr]:
+        """Return the environment, credentials included, that a process needs for ``resource``."""
+        ...
+
+    async def close(self) -> None:
+        """Close the adapter's own clients. The registry calls it once its work has stopped."""
+        ...
 
 
 @runtime_checkable
@@ -338,7 +433,9 @@ class CapacityProvider(Protocol):
     """
 
     @property
-    def capacity(self) -> SandboxCapacity: ...
+    def capacity(self) -> SandboxCapacity:
+        """The size of a sandbox whose request names none, and the most one sandbox may have."""
+        ...
 
 
 @runtime_checkable
@@ -370,18 +467,33 @@ class SandboxProvider[ClientT](Protocol):
     """
 
     @property
-    def sandbox_kind(self) -> type[SandboxKind[ClientT]]: ...
+    def sandbox_kind(self) -> type[SandboxKind[ClientT]]:
+        """The ``SandboxKind`` of this provider's sandboxes."""
+        ...
 
-    async def client(self, resource: ProviderResource) -> ClientT: ...
-    async def close_client(self, client: ClientT) -> None: ...
-    async def alive(self, resource: ProviderResource) -> bool: ...
+    async def client(self, resource: ProviderResource) -> ClientT:
+        """Return the provider's own client for the live ``resource``, under the attach deadline."""
+        ...
+
+    async def close_client(self, client: ClientT) -> None:
+        """Close one client that ``client()`` returned."""
+        ...
+
+    async def alive(self, resource: ProviderResource) -> bool:
+        """Return whether ``resource`` is still usable. Raise only when the provider cannot tell."""
+        ...
 
 
 class SandboxSession(Protocol):
     """An attempt's hold on its sandbox, which gives its one client and its liveness."""
 
-    async def client(self) -> object: ...
-    async def alive(self) -> bool: ...
+    async def client(self) -> object:
+        """Return the sandbox's one client, which is attached on the first call."""
+        ...
+
+    async def alive(self) -> bool:
+        """Return the provider's fact of whether the sandbox is still usable."""
+        ...
 
 
 class SandboxSpec(BaseModel):
@@ -401,6 +513,7 @@ class SandboxSpec(BaseModel):
     resource_kind: ClassVar[str] = "sandbox"
 
     def specification(self) -> dict[str, JsonValue]:
+        """Return the provider's request for this sandbox, by default the table's values as JSON."""
         return self.model_dump(mode="json")
 
 
