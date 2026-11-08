@@ -238,10 +238,12 @@ class PrimeRenderer:
                 for call in parsed.tool_calls
                 if call.name is not None
             ]
-        if not all(renders_back(call) for call in calls):
-            # Prime returns every call it attempted. A call that it read only in part has no
-            # message that renders back to what the model wrote, so the caller continues
-            # from the sampled tokens.
+        # Prime returns every call it attempted. Only a renderer that reads a block whole
+        # can vouch for a call it marked unknown_tool or invalid_json; Prime's own parsers
+        # may have dropped part of such a block, so for them only an ok call keeps the
+        # message. Without one, the caller continues from the sampled tokens.
+        whole = bool(getattr(self._renderer, "reads_calls_whole", False))
+        if not all(renders_back(call) and (whole or call.status == "ok") for call in calls):
             native = None
         return ParsedReply(
             parsed.content, parsed.reasoning_content, calls, parsed.reasoning_complete, native

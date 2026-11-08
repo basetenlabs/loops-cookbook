@@ -141,12 +141,15 @@ _UNRENDERABLE = frozenset(
 
 
 def renders_back(call: ParsedToolCall) -> bool:
-    """Return whether a message holding ``call`` renders back to the tokens the model wrote.
+    """Return whether a message can hold ``call``: a name, arguments read into a mapping,
+    and no structural failure.
 
-    It does when the parser read the whole call, meaning its name and every argument.
-    The call's status may still say what the parser made of it, such as ``unknown_tool``
-    or ``invalid_json``, and the tool judges that. A call read only in part has no such
-    message, so the next turn can only continue from the sampled tokens.
+    Whether that message stands for the tokens the model wrote is the renderer's to say.
+    A renderer that reads a block whole (``reads_calls_whole``, which the cookbook's own
+    renderers declare) keeps the message for ``unknown_tool`` and ``invalid_json`` too,
+    and the tool judges the call. Prime's parsers may drop part of a block they mark so,
+    and then only an ``ok`` call keeps its message. A call without a message continues
+    from the sampled tokens.
     """
     return (
         bool(call.name) and isinstance(call.arguments, Mapping) and call.status not in _UNRENDERABLE

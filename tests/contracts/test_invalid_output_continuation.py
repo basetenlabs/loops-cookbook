@@ -73,9 +73,16 @@ async def _post(connection, body):
         return response.status, await response.json()
 
 
+def _reads_whole(renderer) -> bool:
+    """Whether the renderer reads a block whole; Prime's own parsers may read in part."""
+    return bool(getattr(renderer._renderer, "reads_calls_whole", False))
+
+
 async def test_an_unknown_tool_call_is_answered_and_continues_from_its_sampled_tokens(
     tool_call_model,
 ):
+    """A cookbook renderer reads the call whole, so it is a reply the agent's tool layer
+    answers. Prime's parser may have read it in part, so it is a 422 the agent echoes."""
     tokenizer, renderer, prefix = tool_call_model
     end = "<|im_end|>"
     sampler = Sampler(tokenizer, [prefix + UNKNOWN_CALL + end, prefix + "Done." + end])
@@ -89,9 +96,15 @@ async def test_an_unknown_tool_call_is_answered_and_continues_from_its_sampled_t
         status, first = await _post(
             connection, {"model": "policy", "messages": history, "tools": TOOLS}
         )
-        assert status == 200, first
-        message = first["choices"][0]["message"]
-        [call] = message["tool_calls"]
+        if _reads_whole(renderer):
+            assert status == 200, first
+            message = first["choices"][0]["message"]
+            [call] = message["tool_calls"]
+        else:
+            assert status == 422 and first["error"]["code"] == "tool_call_parse_error"
+            message = first["error"]["reply"]
+            [call] = message["tool_calls"]
+            call = {key: call[key] for key in ("id", "type", "function")}
         assert call["function"] == {"name": "bsah", "arguments": '{"command": "ls"}'}
 
         # The agent's tool layer finds no such tool and says so in its answer to the call.
@@ -249,11 +262,11 @@ async def test_an_xml_call_that_does_not_parse_continues_from_its_sampled_tokens
 
 
 def test_an_xml_value_its_type_cannot_read_reaches_the_tool(xml_model):
-    """Keep the message of a call whose value its type can't read, for the tool to judge.
+    """A value its type can't read reaches the tool as text, for the tool to judge.
 
-    The cookbook's Nemotron renderers read ``30s`` as text and report ``ok``. Prime's Qwen
-    renderer reports ``invalid_json``. Either way the call was read whole, so its message
-    stays in history.
+    The cookbook's Nemotron renderers read ``30s`` as text, report ``ok`` and keep the
+    message. Prime's Qwen renderer reports ``invalid_json`` and may have read the block
+    in part, so the message is withheld.
     """
     tokenizer, renderer, syntax, prefix, end = xml_model
     prompt = renderer.render(ASK, TIMED_TOOLS).ids
@@ -262,9 +275,12 @@ def test_an_xml_value_its_type_cannot_read_reaches_the_tool(xml_model):
     )
     reply = renderer.parse(prompt, completion, TIMED_TOOLS)
     [parsed] = reply.tool_calls
-    assert parsed.status.value in ("ok", "invalid_json")
     assert parsed.arguments == {"command": "sleep 5 && ls", "timeout": "30s"}
-    assert reply.native_message["tool_calls"][0]["function"]["arguments"] == parsed.arguments
+    if _reads_whole(renderer):
+        assert parsed.status.value == "ok"
+        assert reply.native_message["tool_calls"][0]["function"]["arguments"] == parsed.arguments
+    else:
+        assert parsed.status.value == "invalid_json" and reply.native_message is None
 
 
 @pytest.mark.parametrize("shape", sorted(EXPECTED))

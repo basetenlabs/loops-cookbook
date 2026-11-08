@@ -10,6 +10,7 @@ pinned snapshot, or ``LOOPS_DOWNLOAD_CONTRACT_MODELS=1`` downloads it with an
 """
 
 import copy
+import random
 
 import pytest
 
@@ -184,7 +185,11 @@ def test_a_broken_or_unknown_call_is_reported(tokenizer):
     assert unknown.name == "bsah"
     parsed = built.parse(prompt, ids, TOOLS)
     assert parsed.tool_calls[0].status.value == "unknown_tool"
-    assert parsed.native_message is None
+    # Read whole, the call renders back to what the model wrote: its message stands.
+    assert parsed.native_message["tool_calls"][0]["function"] == {
+        "name": "bsah",
+        "arguments": {"command": "ls"},
+    }
     cut = ' to=bash<|message|><atem:function_calls>\n<atem:invoke name="bash">'
     [unclosed] = built.parse(
         prompt, tokenizer.encode(cut, add_special_tokens=False), TOOLS
@@ -377,11 +382,41 @@ def test_an_offered_doubled_name_is_kept(stand_in):
     assert parsed.name == "bash.bash"
 
 
-def test_a_value_that_is_not_its_schemas_json_is_invalid(stand_in):
-    """``timeout`` is an integer: "thirty" is reported, not passed on as a string."""
+def test_a_value_its_type_cannot_read_reaches_the_tool(stand_in):
+    """``timeout`` is an integer: "thirty" reaches the tool as its text, for it to refuse."""
     calls = invoke("bash", parameter("command", "ls") + parameter("timeout", "thirty"))
     [parsed] = parsed_reply(stand_in, message("bash", calls, "<|eot|>")).tool_calls
-    assert parsed.status.value == "invalid_json"
+    assert parsed.status.value == "ok"
+    assert parsed.arguments == {"command": "ls", "timeout": "thirty"}
+
+
+@pytest.mark.parametrize("seed", range(100))
+def test_random_calls_parse_back_to_themselves(tokenizer, seed):
+    """Parse arguments of every schema shape, rendered by the template, back with their types.
+
+    The template writes ``<|`` in a string as ``< |``, so no string holds ``<|``.
+    """
+    from .test_tool_argument_round_trip import TOOLS as SHAPES
+    from .test_tool_argument_round_trip import random_arguments, same
+
+    arguments = random_arguments(random.Random(seed), ("<|", "<atem:", "</atem:"))
+    messages = [
+        SYSTEM,
+        TASK,
+        {"role": "assistant", "content": "", "tool_calls": [call(1, "act", arguments)]},
+        tool(1, "ok"),
+    ]
+    built = extension(tokenizer)
+    prompt = built.render(messages[:2], SHAPES).ids
+    full = built.render(messages, SHAPES).ids
+    text, asked = tokenizer.decode(full), tokenizer.decode(prompt)
+    assert text.startswith(asked)
+    reply = text[len(asked) : text.index("<|eot|>", len(asked)) + len("<|eot|>")]
+    parsed = built.parse(prompt, tokenizer.encode(reply, add_special_tokens=False), SHAPES)
+    [result] = parsed.tool_calls
+    assert result.status.value == "ok"
+    assert same(result.arguments, arguments), (result.arguments, arguments)
+    assert parsed.native_message is not None
 
 
 def test_a_turn_can_end_at_end_of_text(stand_in):

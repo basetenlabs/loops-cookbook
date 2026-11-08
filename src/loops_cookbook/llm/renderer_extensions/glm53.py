@@ -102,6 +102,8 @@ def _ordered_results(block, calls):
 
 
 class GLM53Renderer(GLM51Renderer):
+    reads_calls_whole = True  # a block is read whole or reported, never in part
+
     _config_cls = GLM53RendererConfig
     is_multimodal = True  # renderers.base.is_multimodal honours this.
     renders_tool_output_images = True  # ``_prepare`` flattens bundled tool outputs.
@@ -374,20 +376,44 @@ class GLM53Renderer(GLM51Renderer):
         block = ids[start + 1 : end - 1]
         schemas, root = parameters
         arguments: dict[str, Any] = {}
+        # The block is the name, then ``<arg_key>k</arg_key><arg_value>v</arg_value>`` pairs,
+        # with at most whitespace between them, as the template writes it. A marker inside
+        # the name, a key or a value (a second ``<tool_call>`` opener among them), a key
+        # without its value, a stray value, text between pairs or a repeated key cannot be
+        # read whole, so the call is malformed, never read in part. Prime reports an
+        # unknown tool before it checks any of that.
+        malformed = replace(call, status=ToolCallParseStatus.MALFORMED_STRUCTURE)
+        markers = {
+            self._tool_call_tok,
+            self._arg_key,
+            self._arg_key_end,
+            self._arg_value,
+            self._arg_value_end,
+        }
         at = _find(block, self._arg_key, 0)
-        try:
-            while at is not None:
-                key_end = block.index(self._arg_key_end, at + 1)
-                value_at = block.index(self._arg_value, key_end + 1)
-                value_end = block.index(self._arg_value_end, value_at + 1)
-                key = _decode(self._tokenizer, block[at + 1 : key_end]).strip()
-                text = _decode(self._tokenizer, block[value_at + 1 : value_end])
-                arguments[key] = read_argument(text, schemas.get(key), root=root)
-                at = _find(block, self._arg_key, value_end + 1)
-        except ValueError:
-            # Prime checks for an unknown tool before it checks that every key has a value,
-            # so an unknown tool's block can still hold a key without one.
-            return replace(call, status=ToolCallParseStatus.MALFORMED_STRUCTURE)
+        if any(token in markers for token in block[:at]):
+            return malformed
+        while at is not None:
+            key_end = _find(block, self._arg_key_end, at + 1)
+            value_at = None if key_end is None else _find(block, self._arg_value, key_end + 1)
+            value_end = (
+                None if value_at is None else _find(block, self._arg_value_end, value_at + 1)
+            )
+            if value_end is None:
+                return malformed
+            key = _decode(self._tokenizer, block[at + 1 : key_end]).strip()
+            text = _decode(self._tokenizer, block[value_at + 1 : value_end])
+            next_key = _find(block, self._arg_key, value_end + 1)
+            between = (block[key_end + 1 : value_at], block[value_end + 1 : next_key])
+            if (
+                key in arguments
+                or any(token in markers for token in block[at + 1 : key_end])
+                or any(token in markers for token in block[value_at + 1 : value_end])
+                or any(_decode(self._tokenizer, gap).strip() for gap in between)
+            ):
+                return malformed
+            arguments[key] = read_argument(text, schemas.get(key), root=root)
+            at = next_key
         status = (
             call.status
             if call.status == ToolCallParseStatus.UNKNOWN_TOOL

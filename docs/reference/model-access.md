@@ -212,9 +212,11 @@ structure broke and a call without a name. This holds whether or not the request
 streamed.
 
 A call that the renderer read whole is a `200` like any other, whatever the parser made
-of it. A call to a tool that the request didn't declare reaches the agent as the model
-wrote it, and so does an argument that isn't its type's JSON. The agent's tool layer
-judges them.
+of it. With the cookbook's renderers, a call to a tool that the request didn't declare
+reaches the agent as the model wrote it, and so does an argument that isn't its type's
+JSON. The agent's tool layer judges them. A model on Prime's own parser, which may read
+part of a block it marks `invalid_json` or `unknown_tool`, gets the `422` for those, as
+before.
 
 `error.reply` holds what the model wrote:
 

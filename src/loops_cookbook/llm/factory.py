@@ -25,8 +25,11 @@ logger = logging.getLogger(__name__)
 _EXTENSIONS = "loops_cookbook.llm.renderer_extensions"
 _GLM53 = f"{_EXTENSIONS}.glm53:renderer"
 _ULTRA = f"{_EXTENSIONS}.nemotron:ultra"
+_SUPER = f"{_EXTENSIONS}.nemotron:nano_super"
 _SUPER_VL = f"{_EXTENSIONS}.nemotron:super_vl"
 _MUSE_SPARK = f"{_EXTENSIONS}.muse_spark:renderer"
+_QWEN36 = f"{_EXTENSIONS}.qwen36:qwen36"
+_QWEN38 = f"{_EXTENSIONS}.qwen36:qwen38"
 
 # The cookbook's renderer for each of these models, keyed by tokenizer name as Prime
 # matches them. It is selected when [model] renderer is not set. Each renderer is
@@ -36,12 +39,17 @@ COOKBOOK_RENDERERS: dict[str, str] = {
     "zai-org/GLM-5.3-BF16": _GLM53,
     "zai-org/GLM-5.3-Flash": _GLM53,
     "zai-org/GLM-5.3-Flash-BF16": _GLM53,
+    "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16": _SUPER,
+    "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16": _SUPER,
     "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16": _ULTRA,
     "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-FP8": _ULTRA,
     "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4": _ULTRA,
     "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16": _SUPER_VL,
     "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4": _SUPER_VL,
     "meta-models/Muse-Spark-Open-816B-A42B-NVFP4": _MUSE_SPARK,
+    "Qwen/Qwen3.6-27B": _QWEN36,
+    "Qwen/Qwen3.6-35B-A3B": _QWEN36,
+    "Qwen/Qwen3.8-27B": _QWEN38,
 }
 
 _BY_FOLDED_NAME = {name.casefold(): path for name, path in COOKBOOK_RENDERERS.items()}

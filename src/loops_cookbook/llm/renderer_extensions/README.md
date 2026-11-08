@@ -58,11 +58,11 @@ text. A message to any other recipient is one tool call, written as
 `<atem:function_calls>`. The template's examples name calls `tool.function`, so for a
 tool without a namespace the parser reads a doubled name such as `bash.bash` as `bash`.
 
-The parser types arguments as Prime does. It keeps a string parameter as written and
-reads any other parameter as JSON. A value that isn't JSON makes the call invalid,
-instead of passing on as a string. The parser reports a call message as malformed,
-instead of reading part of it, unless the message is exactly one block holding one
-invocation whose parameters are complete and distinctly named.
+The parser reads arguments as the template wrote them, using `arguments.py`. The
+template writes a string or a number as it is, and a boolean, null, list or object as
+JSON. Text that no declared type can read stays the text. The parser reports a call message
+as malformed, instead of reading part of it, unless the message is exactly one block
+holding one invocation whose parameters are complete and distinctly named.
 
 The bridge keeps the sampled turn as it was and writes the new messages as the template
 does. A turn cut off at the token limit gets the `<|eot|>` that ends a turn, as Prime's
@@ -91,24 +91,43 @@ that has access.
 Prime's parsers strip every argument value before they type it. File text loses its
 indentation and final newline, while the call still reports `ok`. Prime's parsers also
 mark a call `invalid_json` when a value is not the JSON its schema asks for, or when an
-untyped value is not JSON. The GLM-5.3, Nemotron and opt-in Qwen3.5 extensions read
-each argument back as the chat template wrote it instead.
+untyped value is not JSON. The GLM-5.3, Qwen3.6, Qwen3.8, Nemotron and opt-in Qwen3.5
+extensions read each argument back as the chat template wrote it instead.
 
-Every template writes a string as it is. GLM-5.3 writes any other value as JSON.
-Qwen3.5 and Nemotron 3 write other values with Jinja's `string` filter, which gives
-`True` and `None`. The schema therefore decides how to read a value. A value is read
-as JSON only when the schema admits that JSON's type, and a JSON string is never used.
-Anything else stays the text, and the tool accepts or refuses it. A `$ref` is followed
-within the tool's parameters, which is how pydantic writes an enum or a nested model.
+Every template writes a string as it is. GLM-5.3, Qwen3.6 and Qwen3.8 write any other
+value as JSON. Qwen3.5 and Nemotron 3 write other values with Jinja's `string` filter, which gives
+`True` and `None`. The schema therefore says which the template would have written. JSON
+the schema accepts is that value. JSON it refuses is still that value where the schema
+admits no string, since the template then wrote JSON, and the tool refuses its content;
+where the schema admits a string, the text is the string. A JSON string is never used.
+Text that isn't JSON, and an untyped value, stay the text, except that `True`, `False`
+and `None`, which a model writes under a JSON template too, are read where the schema
+admits no string. A `$ref` is followed within the tool's parameters, which is how
+pydantic writes an enum or a nested model.
 
-A call read whole keeps its message in history whatever its status. Its status is
+Each extension declares `reads_calls_whole`: a block is read whole or reported, never
+in part, so a call keeps its message in history whatever its status. Its status is
 `unknown_tool` when tools are declared and none of them has the call's name. Only a
-call that was cut off, broke its structure or has no name loses its message.
+call that was cut off, broke its structure or has no name loses its message. Prime's
+own parsers can read part of a block they mark `invalid_json` or `unknown_tool`, so for
+a model on one of them only an `ok` call keeps its message.
 
 `tests/contracts/test_tool_argument_round_trip.py` renders random arguments through each
 real template and parses them back. Each family's contract tests have a
 `test_prime_still_strips...` test, which fails once Prime keeps values whole. When that
 happens, remove the overrides.
+
+## Qwen3.6 and Qwen3.8 (`qwen36.py`)
+
+Prime's Qwen3.6 and Qwen3.8 renderers match their templates. The extension subclasses
+each one and changes only how a call's arguments are parsed, as described above. It
+reads booleans and null as JSON, because those templates write every non-string value
+with `tojson`. The cookbook selects these renderers for the Qwen3.6 and Qwen3.8 models
+that Loops serves, so a config needs only the model.
+
+`tests/contracts/test_tool_argument_round_trip.py` pins both tokenizers. The image and
+text contract tests that run on them check the rendering, which the extension leaves
+unchanged.
 
 ## Qwen3.5 tool-call parsing (`qwen35.py`)
 
@@ -159,6 +178,9 @@ placeholders ahead of them.
 described above. The cookbook also selects it for Ultra FP8 and NVFP4, because their
 templates match Ultra BF16's byte for byte. Without that selection, Prime would give
 NVFP4 its `DefaultRenderer`.
+
+`nano_super` is Prime's Nemotron 3 renderer, which serves Nano and Super, with only the
+argument reading added. The cookbook selects it for Nano 30B and Super 120B BF16.
 
 `tests/contracts/test_nemotron_extension.py` pins Ultra BF16 and Super VL BF16. It
 also pins Super VL NVFP4's processor, because that checkpoint ships its own processor
