@@ -257,8 +257,8 @@ so a concurrent encode would see them. This holds for the transformers versions 
 
 When the cookbook builds a custom factory's result, it refuses one that lacks `render`,
 `parse` or `stop_sequences`. A renderer that handles images must also have a
-`supports_images` property that is true. Otherwise the cookbook reports it as text only
-and probes it as text only.
+`supports_images` property that is true. When `[rollout_runtime] has_images` is true,
+`loops check` refuses a renderer without it.
 
 ## Images
 
@@ -304,9 +304,13 @@ torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
 torchvision = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
 ```
 
-`loops check` prints `Images: supported (N tokens for a 32x32 probe)` when the renderer
-handles images, and `Images: not supported by this renderer (text only)` otherwise. The
-first render downloads the model's processor config.
+An RL config whose prompts carry images must set `[rollout_runtime] has_images = true`.
+Without that setting, the client refuses any request that has an image part, before it
+renders the request, and `loops check` prints `Images: not declared`. With it,
+preflight renders a 32x32 probe image through every renderer before any Loops resource
+exists, and `loops check` prints `Images: declared (N tokens for a 32x32 probe)`.
+Preflight refuses the run if a renderer takes no images or the `vision` extra is
+missing. The probe downloads the model's processor config.
 
 ### Put images in messages
 

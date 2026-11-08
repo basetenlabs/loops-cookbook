@@ -89,8 +89,10 @@ class RuntimeSettings(_Section):
     )
     has_images: bool = Field(
         default=False,
-        description="Whether the agent's prompts carry images. Loops can't record an "
-        "image prompt, so router replay needs this to be false.",
+        description="Whether the agent's prompts carry images. When it is false, the run "
+        "refuses every request that has an image. When it is true, loops check renders a "
+        "probe image through every renderer. Loops can't record an image prompt, so router "
+        "replay needs this to be false.",
     )
 
     @model_validator(mode="after")

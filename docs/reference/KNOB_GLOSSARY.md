@@ -34,7 +34,7 @@ These settings say where episodes come from. They name the rollout runtime facto
 | `openai` | table | `None` | Settings for the Chat Completions gateway. They apply only when the model access is openai_http. |
 | `config` | table | empty | The rollout runtime's own settings. The cookbook hands them to the factory unchanged. |
 | `files` | table | empty | Files the rollout runtime may resolve, as alias = path. A path in this file is relative to this config file. A path passed as a command-line flag is relative to the shell's working directory. |
-| `has_images` | boolean | `False` | Whether the agent's prompts carry images. Loops can't record an image prompt, so router replay needs this to be false. |
+| `has_images` | boolean | `False` | Whether the agent's prompts carry images. When it is false, the run refuses every request that has an image. When it is true, loops check renders a probe image through every renderer. Loops can't record an image prompt, so router replay needs this to be false. |
 
 ## `[rollout_runtime.openai]`
 

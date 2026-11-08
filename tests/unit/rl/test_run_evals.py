@@ -263,7 +263,11 @@ async def test_an_eval_set_sends_image_prompts_as_training_does(config, monkeypa
 
     monkeypatch.setattr(fakes, "EvalSampler", ImageEvalSampler)
     run, trainer, _, evaluation = build(
-        config, max_steps=1, renderer=lambda: PrimeRenderer(FakePrime())
+        config,
+        max_steps=1,
+        renderer=lambda: PrimeRenderer(FakePrime()),
+        has_images=True,
+        router_replay=False,
     )
     evaluation.content = [{"type": "image", "image": png()}]
     assert (await asyncio.wait_for(run.execute(), 10)).ok

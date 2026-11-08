@@ -376,7 +376,10 @@ async def test_check_reports_each_tasks_blaxel_sandbox_and_what_cannot_fit(
     warnings = [r for r in caplog.records if r.levelname == "WARNING" and "storage_mb" in r.message]
     assert bool(warnings) is warned
     if warned:
-        assert f"has {sandbox} MB of memory and so {sandbox // 2} MB of disk" in warnings[0].message
+        assert (
+            f"on {sandbox} MB of memory, which gives {sandbox // 2} MB of disk"
+            in warnings[0].message
+        )
 
 
 @pytest.mark.parametrize(
@@ -445,10 +448,74 @@ async def test_check_says_blaxel_does_not_apply_a_declared_cpu_count(
     else:
         assert warnings == [
             (
-                f"Task 0:sized declares {declared} cpus; Blaxel does not apply it, and its "
-                "sandbox's CPU follows its 4096 MB of memory"
+                "1 task(s) declare cpus, which Blaxel does not apply. A Blaxel sandbox's CPU "
+                f"follows its memory instead. The groups are {declared} cpus on 4096 MB of "
+                "memory, for 0:sized. Run with --verbose to name each task."
             )
         ]
+
+
+async def test_check_says_once_what_many_tasks_declare_that_blaxel_cannot_give(tmp_path, caplog):
+    pytest.importorskip("blaxel")
+    from support.blaxel_api import SETTINGS
+
+    sizes = [{"cpus": 1, "memory_mb": 4096, "storage_mb": 4096}] * 7 + [
+        {"cpus": 2, "memory_mb": 8192, "storage_mb": 8192}
+    ]
+    tasks = [sized_task(tmp_path / str(i), **size) for i, size in enumerate(sizes)]
+    path = job(
+        tmp_path,
+        tasks[0],
+        "AnswerAgent",
+        environment={"import_path": BLAXEL_ENVIRONMENT, "kwargs": {"ttl": "8h"}},
+    )
+    spec = yaml.safe_load(path.read_text())
+    spec["tasks"] = [{"path": str(task)} for task in tasks]
+    path.write_text(yaml.safe_dump(spec))
+    runtime = runtime_for(
+        path, tmp_path / "work", provider_deadlines={"blaxel": SETTINGS.deadlines}
+    )
+    with caplog.at_level("DEBUG", logger="loops_cookbook.harbor.runtime"):
+        assert await runtime.prepare()
+    detail = [r.message for r in caplog.records if r.levelname == "DEBUG" and "Blaxel" in r.message]
+    assert sorted(detail) == sorted(
+        [
+            *(
+                f"Task {i}:sized declares storage_mb 4096, but its Blaxel sandbox has 4096 MB of "
+                "memory and so 2048 MB of disk"
+                for i in range(7)
+            ),
+            *(
+                f"Task {i}:sized declares 1 cpus; Blaxel does not apply it, and its sandbox's "
+                "CPU follows its 4096 MB of memory"
+                for i in range(7)
+            ),
+            (
+                "Task 7:sized declares storage_mb 8192, but its Blaxel sandbox has 8192 MB of "
+                "memory and so 4096 MB of disk"
+            ),
+            (
+                "Task 7:sized declares 2 cpus; Blaxel does not apply it, and its sandbox's "
+                "CPU follows its 8192 MB of memory"
+            ),
+        ]
+    )
+    warnings = [r.message for r in caplog.records if r.levelname == "WARNING"]
+    assert warnings == [
+        (
+            "8 task(s) declare more storage_mb than their Blaxel sandbox's disk, which is half "
+            "its memory. The groups are storage_mb 4096 on 4096 MB of memory, which gives "
+            "2048 MB of disk, for 0:sized, 1:sized, 2:sized, 3:sized, 4:sized and 2 more; "
+            "storage_mb 8192 on 8192 MB of memory, which gives 4096 MB of disk, for 7:sized. "
+            "Run with --verbose to name each task."
+        ),
+        (
+            "8 task(s) declare cpus, which Blaxel does not apply. A Blaxel sandbox's CPU "
+            "follows its memory instead. The groups are 1 cpus on 4096 MB of memory, for "
+            "0:sized, 1:sized, 2:sized, 3:sized, 4:sized and 2 more; 2 cpus on 8192 MB of "
+            "memory, for 7:sized. Run with --verbose to name each task."
+        ),
+    ]
 
 
 async def test_a_daytona_job_needs_providers_daytona(tmp_path):

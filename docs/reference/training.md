@@ -101,9 +101,9 @@ recorded, the cookbook strips the provenance from all of them, and
 `r3/unrecorded_datums` counts the rows that weren't recorded.
 
 Loops records text prompts only. A rollout runtime whose prompts carry images sets
-`[rollout_runtime] has_images = true`, and `loops check` refuses that setting together
-with `router_replay = true`. If an image prompt reaches a run with replay on, its
-generation fails, and the run logs once which settings to change.
+`[rollout_runtime] has_images = true`. A run without that setting refuses every request
+that has an image. `loops check` refuses `has_images = true` together with
+`router_replay = true`.
 
 ## Groups, advantages, and what gets skipped
 

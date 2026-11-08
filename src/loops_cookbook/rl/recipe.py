@@ -14,9 +14,7 @@ from pathlib import Path
 from typing import cast
 
 from loops_cookbook.cli import ConfigSource
-from loops_cookbook.console import first_sentence
 from loops_cookbook.evidence import TaskRef
-from loops_cookbook.llm.client import probe_image_tokens
 from loops_cookbook.llm.factory import create_renderer, describe, renderer_source
 from loops_cookbook.llm.rendering import Renderer
 from loops_cookbook.model_access.api import ModelAccessMode
@@ -210,18 +208,17 @@ async def evaluate(
 
 @dataclass(frozen=True)
 class ImageSupport:
+    """Report whether the config declares image prompts, and the probe's tokens if it does."""
+
     tokens: int | None = None
-    error: str | None = None
 
     def describe(self) -> str:
-        if self.error is not None:
-            return (
-                f"unavailable ({self.error}). Text-only training works. "
-                "Run `uv sync --extra vision` for image inputs."
-            )
         if self.tokens is None:
-            return "not supported by this renderer (text only)"
-        return f"supported ({self.tokens} tokens for a 32x32 probe)"
+            return (
+                "not declared, because [rollout_runtime] has_images = false. "
+                "A request with images is refused."
+            )
+        return f"declared ({self.tokens} tokens for a 32x32 probe)"
 
 
 @dataclass(frozen=True)
@@ -417,7 +414,7 @@ async def _preflight(config: Config, config_dir: Path | None, model_check: str) 
             model_check=model_check,
             renderer=describe(renderer),
             reasoning_efforts=tuple(sorted(renderers.by_effort)),
-            images=_image_support(renderer),
+            images=ImageSupport(run.image_tokens),
             resume_step=run.resume_step,
             eval_sets=tuple(
                 EvalSetReport(
@@ -469,10 +466,3 @@ def _describe_producers(producers: Mapping[str, ProducerSpec]) -> str:
     if DEFAULT_PRODUCER not in producers:
         default += ", which is not declared, so such a call is refused"
     return f"Producers: {declared}; {default}"
-
-
-def _image_support(renderer: Renderer) -> ImageSupport:
-    try:
-        return ImageSupport(tokens=probe_image_tokens(renderer))
-    except Exception as error:  # noqa: BLE001 - processor errors vary by backend
-        return ImageSupport(error=f"{type(error).__name__}: {first_sentence(str(error))}")

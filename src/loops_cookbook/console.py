@@ -21,7 +21,7 @@ import contextlib
 import logging
 import sys
 import threading
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -155,6 +155,13 @@ def first_sentence(text: str) -> str:
     """Return the first sentence of an error message, because processor errors run to paragraphs."""
     line = text.strip().splitlines()[0] if text.strip() else ""
     return line.split(". ", 1)[0].rstrip(".")
+
+
+def some_names(names: Iterable[str], shown: int = 5) -> str:
+    """List the first ``shown`` of ``names`` in order, then say how many more there are."""
+    listed = list(names)
+    named = ", ".join(listed[:shown])
+    return f"{named} and {len(listed) - shown} more" if len(listed) > shown else named
 
 
 def _limits(gauges: dict[str, float], group: tuple) -> str:
