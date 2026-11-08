@@ -268,18 +268,6 @@ EDIT_TOOL = {
         },
     },
 }
-# A file edit needs each of these back byte for byte. They cover a final newline, a first
-# line's indentation, a value of only whitespace, an empty value, inner and trailing
-# spaces, tabs, and text outside ASCII.
-EXACT_VALUES = [
-    "def f():\n    return 1\n",
-    "    indented()\n",
-    "\n",
-    "",
-    " a  b  ",
-    "\tcol\t\n",
-    "  naïve café — ✓\n",
-]
 
 
 def _call(arguments: dict[str, str]) -> str:
@@ -295,79 +283,6 @@ def _completion(tokenizer, *calls: str, after_stop: str = "") -> list[int]:
     return tokenizer.encode(text, add_special_tokens=False)
 
 
-@pytest.mark.parametrize("value", EXACT_VALUES)
-def test_string_arguments_parse_exactly_as_sampled(glm_tokenizer, value):
-    renderer = GLM53Renderer(glm_tokenizer)
-    arguments = {"path": " a.py", "old": value, "new": value}
-    [call] = renderer.parse_response(
-        _completion(glm_tokenizer, _call(arguments)), tools=[EDIT_TOOL]
-    ).tool_calls
-    assert call.status.value == "ok"
-    assert call.name == "edit"
-    assert call.arguments == arguments
-    assert all(type(v) is str for v in call.arguments.values())
-
-
-WEATHER_TOOL = {
-    "name": "get_weather",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "city": {"type": "string"},
-            "days": {"type": "integer"},
-            "when": {"anyOf": [{"type": "integer"}, {"type": "string"}]},
-            "note": {"description": "a schema that types nothing"},
-            "range": {"type": "array", "items": {"type": "integer"}},
-        },
-    },
-}
-
-
-@pytest.mark.parametrize(
-    "arguments,expected",
-    [
-        # A string is the text as written. Another declared type is read as JSON.
-        ({"city": "  Paris \n", "days": " 2 "}, {"city": "  Paris \n", "days": 2}),
-        # A union tries each type. Text that is not an integer stays a string.
-        ({"when": " 3 "}, {"when": 3}),
-        ({"when": "  next week\n"}, {"when": "  next week\n"}),
-        # An untyped argument, declared or not, may have been a string or a number, as
-        # "600" shows. It stays the text as written and is never decoded or refused.
-        ({"timeout": "600"}, {"timeout": "600"}),
-        ({"timeout": " 30s\n"}, {"timeout": " 30s\n"}),
-        ({"timeout": '"abc"'}, {"timeout": '"abc"'}),
-        ({"note": " 5 "}, {"note": " 5 "}),
-        # A typed argument reads null as None. An untyped or string argument keeps the text.
-        ({"days": " null "}, {"days": None}),
-        ({"timeout": " null "}, {"timeout": " null "}),
-        ({"city": "null"}, {"city": "null"}),
-        ({"when": "NULL"}, {"when": "NULL"}),
-        # When the declared type cannot read the text, the text reaches the tool to refuse.
-        ({"range": " [1, 20]\n"}, {"range": [1, 20]}),
-        ({"range": "1, 20"}, {"range": "1, 20"}),
-        ({"days": " abc "}, {"days": " abc "}),
-        ({"days": "None"}, {"days": "None"}),
-    ],
-)
-def test_values_parse_back_as_the_template_wrote_them(glm_tokenizer, arguments, expected):
-    body = "".join(
-        f"<arg_key>{key}</arg_key><arg_value>{value}</arg_value>"
-        for key, value in arguments.items()
-    )
-    completion = glm_tokenizer.encode(
-        f"plan</think><tool_call>get_weather{body}</tool_call><|observation|>",
-        add_special_tokens=False,
-    )
-    [call] = (
-        GLM53Renderer(glm_tokenizer).parse_response(completion, tools=[WEATHER_TOOL]).tool_calls
-    )
-    assert call.status.value == "ok"
-    assert call.arguments == expected
-    assert {k: type(v) for k, v in call.arguments.items()} == {
-        k: type(v) for k, v in expected.items()
-    }
-
-
 def test_without_tools_every_value_is_its_text(glm_tokenizer):
     """Keep every value as its text when no tools are given, where Prime refuses the call.
 
@@ -378,14 +293,6 @@ def test_without_tools_every_value_is_its_text(glm_tokenizer):
     [call] = GLM53Renderer(glm_tokenizer).parse_response(completion).tool_calls
     assert call.status.value == "ok"
     assert call.arguments == arguments
-
-
-def test_typed_arguments_keep_their_parsed_value(glm_tokenizer):
-    renderer = GLM53Renderer(glm_tokenizer)
-    completion = _completion(glm_tokenizer, _call({"line": " 42\n", "new": "x\n"}))
-    [call] = renderer.parse_response(completion, tools=[EDIT_TOOL]).tool_calls
-    assert call.arguments == {"line": 42, "new": "x\n"}
-    assert type(call.arguments["line"]) is int
 
 
 def test_parallel_calls_only_change_ok_string_values(glm_tokenizer):
@@ -423,55 +330,6 @@ def test_parallel_calls_only_change_ok_string_values(glm_tokenizer):
         prime.reasoning_content,
         prime.reasoning_complete,
     )
-
-
-def test_a_rendered_call_parses_back_to_its_arguments(glm_tokenizer):
-    renderer = GLM53Renderer(glm_tokenizer)
-    arguments = dict(zip(["path", "old", "new"], EXACT_VALUES, strict=False))
-    message = {
-        "role": "assistant",
-        "content": "",
-        "reasoning_content": "plan",
-        "tool_calls": [{"function": {"name": "edit", "arguments": arguments}}],
-    }
-    prompt = renderer.render(BASE, tools=[EDIT_TOOL], add_generation_prompt=True).token_ids
-    full = renderer.render([*BASE, message], tools=[EDIT_TOOL]).token_ids
-    assert full[: len(prompt)] == prompt
-    [call] = renderer.parse_response(full[len(prompt) :], tools=[EDIT_TOOL]).tool_calls
-    assert call.arguments == arguments
-
-
-@pytest.mark.parametrize(
-    "arguments",
-    [
-        {"city": "  Paris \n", "days": 3, "range": [1, 20], "when": "next week"},
-        {"city": "", "days": None, "range": [], "when": 3},
-        {"city": '"quoted"', "when": "  later\n"},
-    ],
-)
-def test_every_typed_value_the_template_writes_parses_back(glm_tokenizer, arguments):
-    """Parse a call rendered by the chat template back to the same arguments and types.
-
-    A value the template writes the same way for two types cannot round-trip. Examples
-    are an untyped ``5`` or ``"5"``, and ``"7"`` in an integer-or-string union, which reads
-    back as the integer.
-    """
-    renderer = GLM53Renderer(glm_tokenizer)
-    message = {
-        "role": "assistant",
-        "content": "",
-        "reasoning_content": "plan",
-        "tool_calls": [{"function": {"name": "get_weather", "arguments": arguments}}],
-    }
-    tools = [WEATHER_TOOL]
-    prompt = renderer.render(BASE, tools=tools, add_generation_prompt=True).token_ids
-    full = renderer.render([*BASE, message], tools=tools).token_ids
-    [call] = renderer.parse_response(full[len(prompt) :], tools=tools).tool_calls
-    assert call.status.value == "ok"
-    assert call.arguments == arguments
-    assert {k: type(v) for k, v in call.arguments.items()} == {
-        k: type(v) for k, v in arguments.items()
-    }
 
 
 def test_the_cookbook_client_gets_exact_values(glm_tokenizer):

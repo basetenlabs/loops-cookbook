@@ -29,9 +29,9 @@ against the model's own chat template.
 | Model | Renderer | Why |
 | --- | --- | --- |
 | Muse Spark Open | `loops_cookbook.llm.renderer_extensions.muse_spark:renderer` | Prime has no renderer for this model's format. Prompts come from the model's chat template, and the cookbook's renderer adds the parser and the bridge. The template sets `current_date` to today by default, so set it in `renderer_chat_template_kwargs`. |
-| GLM-5.3, GLM-5.3-Flash | `loops_cookbook.llm.renderer_extensions.glm53:renderer` | Prime's GLM-5.3 renderers strip the whitespace that the template keeps around reasoning. Prime's Flash renderer writes one `<\|image\|>` per image, and the trainer needs one per vision token. The cookbook's renderer matches the template and the image processor. |
-| Nemotron 3.5 Super VL (BF16, NVFP4) | `loops_cookbook.llm.renderer_extensions.nemotron:super_vl` | Prime doesn't recognise the model. Prime's Nemotron 3.5 renderer was written for 3.5 Lightning. It has no `medium_effort` option, and it renders an image that follows text differently from the template. The cookbook's renderer renders text and images as the template and the image processor do. |
-| Nemotron 3 Ultra | `loops_cookbook.llm.renderer_extensions.nemotron:ultra` | It renders as Prime does. Under `medium_effort`, it also extends a conversation turn by turn, where Prime renders every turn again. |
+| GLM-5.3, GLM-5.3-Flash | `loops_cookbook.llm.renderer_extensions.glm53:renderer` | Prime's GLM-5.3 renderers strip the whitespace that the template keeps around reasoning. Prime's Flash renderer writes one `<\|image\|>` per image, and the trainer needs one per vision token. The cookbook's renderer matches the template and the image processor. It also reads tool arguments as the template wrote them, as described below. |
+| Nemotron 3.5 Super VL (BF16, NVFP4) | `loops_cookbook.llm.renderer_extensions.nemotron:super_vl` | Prime doesn't recognise the model. Prime's Nemotron 3.5 renderer was written for 3.5 Lightning. It has no `medium_effort` option, and it renders an image that follows text differently from the template. The cookbook's renderer renders text and images as the template and the image processor do. It also reads tool arguments as the template wrote them. |
+| Nemotron 3 Ultra (BF16, FP8, NVFP4) | `loops_cookbook.llm.renderer_extensions.nemotron:ultra` | It renders as Prime does. Under `medium_effort`, it also extends a conversation turn by turn, where Prime renders every turn again. It reads tool arguments as the template wrote them. |
 
 A Nemotron 3.5 Super VL config therefore needs only the model:
 
@@ -46,7 +46,20 @@ cookbook never selects it for you:
 
 | Model | `[model] renderer` | Why |
 | --- | --- | --- |
-| Qwen3.5 | `loops_cookbook.llm.renderer_extensions.qwen35:renderer` | It renders as Prime does, but it also parses tool calls that have whitespace after `<parameter=`, as vLLM does. |
+| Qwen3.5 | `loops_cookbook.llm.renderer_extensions.qwen35:renderer` | It renders as Prime does, reads tool arguments as the template wrote them, and accepts whitespace after `<parameter=`, as vLLM does. |
+
+Prime's parsers strip every tool argument value. An argument that holds file text
+loses its indentation and final newline, while the call still reports `ok`. Prime's
+parsers also refuse a call when a value is not the JSON its schema asks for.
+
+The cookbook's renderers in the tables above read each argument back exactly as the
+chat template wrote it. A string comes back as written. A value of another declared
+type comes back as its JSON. Anything else comes back as its text, and the tool accepts
+or refuses it. That covers an untyped value and text that its declared type can't
+read.
+
+Models that use Prime's own parsers still get stripped values and refused calls. They
+are Qwen3.6, Qwen3.8, and Qwen3.5 or Nemotron without the cookbook's renderer.
 
 The cookbook selects its renderers by the tokenizer's name. If you load the tokenizer
 from a local directory or from another repository, as the next section describes, set
@@ -214,12 +227,18 @@ class Renderer(Protocol):
 - `parse` returns `ParsedReply(content, reasoning_content, tool_calls,
   reasoning_complete, native_message)`. `native_message` is the assistant turn in the
   format that `render` accepts, so the agent can append it to its history as it is.
-  Return `None` for `native_message` exactly when some tool call's `status` isn't `OK`.
-  No message would render back to what the model wrote, so the agent appends the
-  reply's `history_message` instead. `history_message` is the turn as the model wrote
-  it, and the conversation only ever continues it from the sampled tokens. The client
+  Return `None` for `native_message` exactly when some tool call doesn't render back,
+  as `renders_back` in `loops_cookbook.llm.rendering` decides. Three kinds of call
+  don't render back. They are a call cut off before it closed (`unclosed_block`), a
+  call whose structure broke (`malformed_structure`) and a call without a name
+  (`missing_name`). No message would render back to what the model wrote for those, so
+  the agent appends the reply's `history_message` instead. `history_message` is the
+  turn as the model wrote it, and the conversation only ever continues it from the
+  sampled tokens. A call that the renderer read whole keeps its message whatever its
+  `status` says, because the tool judges `unknown_tool` and `invalid_json`. The client
   treats either mismatch as a `RendererFailure`, which fails the attempt. One mismatch
-  is `None` when every call is `OK`. The other is a message when some call isn't `OK`.
+  is `None` when every call renders back. The other is a message when some call
+  doesn't.
 - The client sends `stop_sequences` with every sampling request. A caller's own stops
   of the same kind, token IDs or strings, are joined with them. When the caller's stops
   are of the other kind, the request carries the caller's stops as given, because one

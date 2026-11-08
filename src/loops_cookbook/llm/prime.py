@@ -25,6 +25,7 @@ from loops_cookbook.llm.rendering import (
     RenderingError,
     Tool,
     UnsupportedContextError,
+    renders_back,
     token_ids,
 )
 
@@ -237,9 +238,10 @@ class PrimeRenderer:
                 for call in parsed.tool_calls
                 if call.name is not None
             ]
-        if any(call.status != "ok" for call in calls):
-            # Prime exposes raw failed calls, but Message.tool_calls cannot represent
-            # them without loss. The caller must choose the history to append instead.
+        if not all(renders_back(call) for call in calls):
+            # Prime returns every call it attempted. A call that it read only in part has no
+            # message that renders back to what the model wrote, so the caller continues
+            # from the sampled tokens.
             native = None
         return ParsedReply(
             parsed.content, parsed.reasoning_content, calls, parsed.reasoning_complete, native

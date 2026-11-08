@@ -203,12 +203,18 @@ exactly as it does with direct access.
 
 ### When a tool call doesn't parse
 
-A reply with a tool call that the renderer couldn't parse is different. It was sampled,
-and it is the model's output, so the gateway returns it with status `422`, a `type` of
-`model_output_invalid`, and a `code`. The code is `tool_call_truncated` when the
-generation was cut short, whether by `max_tokens`, inside the reasoning or inside the
-call. Otherwise the code is `tool_call_parse_error`. This holds whether or not the
-request was streamed.
+A reply with a tool call that the renderer couldn't read whole is different. It was
+sampled, and it is the model's output, so the gateway returns it with status `422`, a
+`type` of `model_output_invalid`, and a `code`. The code is `tool_call_truncated` when
+the generation was cut short, whether by `max_tokens`, inside the reasoning or inside
+the call. Otherwise the code is `tool_call_parse_error`, which covers a call whose
+structure broke and a call without a name. This holds whether or not the request was
+streamed.
+
+A call that the renderer read whole is a `200` like any other, whatever the parser made
+of it. A call to a tool that the request didn't declare reaches the agent as the model
+wrote it, and so does an argument that isn't its type's JSON. The agent's tool layer
+judges them.
 
 `error.reply` holds what the model wrote:
 

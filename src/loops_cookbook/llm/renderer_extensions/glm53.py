@@ -27,9 +27,13 @@ from renderers.base import (
 )
 from renderers.configs import GLM51RendererConfig
 from renderers.glm5 import _TOOLS_FOOTER, _TOOLS_HEADER, GLM51Renderer
-from renderers.parsing import _build_param_type_index, _decode
+from renderers.parsing import _decode
 
-from loops_cookbook.llm.renderer_extensions.arguments import read_argument
+from loops_cookbook.llm.renderer_extensions.arguments import (
+    Parameters,
+    read_argument,
+    tool_parameters,
+)
 
 IMAGE_TOKEN = "<|image|>"
 IMAGE_START, IMAGE_END = "<|begin_of_image|>", "<|end_of_image|>"
@@ -60,6 +64,17 @@ class GLM53RendererConfig(GLM51RendererConfig):
     enable_thinking: Literal[True] = True
     clear_thinking: bool = False
     reasoning_effort: Literal["low", "high", "max"] = "max"
+
+
+# Under these statuses, Prime read the call's block through to its close.
+_READ = (ToolCallParseStatus.OK, ToolCallParseStatus.INVALID_JSON, ToolCallParseStatus.UNKNOWN_TOOL)
+
+
+def _find(block: list[int], token: int, start: int) -> int | None:
+    try:
+        return block.index(token, start)
+    except ValueError:
+        return None
 
 
 def _identity(value):
@@ -340,38 +355,45 @@ class GLM53Renderer(GLM51Renderer):
         """
         parsed = super().parse_response(token_ids, tools=tools, prompt_ids=prompt_ids)
         ids = list(token_ids)
-        schemas = _build_param_type_index(tools)
+        declared = tool_parameters(tools)
         parsed.tool_calls = [
-            self._as_written(ids, call, schemas.get(call.name or "", {}))
+            self._as_written(ids, call, declared.get(call.name or "", ({}, {})))
             for call in parsed.tool_calls
         ]
         return parsed
 
     def _as_written(
-        self, ids: list[int], call: ParsedToolCall, schemas: dict[str, dict[str, Any]]
+        self, ids: list[int], call: ParsedToolCall, parameters: Parameters
     ) -> ParsedToolCall:
-        # The other statuses describe the call's structure or name, which Prime handles.
-        if (
-            call.status not in (ToolCallParseStatus.OK, ToolCallParseStatus.INVALID_JSON)
-            or call.token_span is None
-        ):
+        # Prime reports a call that was cut off, broke its structure or has no name. A call
+        # to an unknown tool keeps that status, and its arguments are read as usual.
+        if call.status not in _READ or call.token_span is None:
             return call
-        # A span indexes the completion as Prime parsed it, cut at the first stop token.
-        # Both statuses mean a closed block in which every key has a value.
+        # The span indexes the completion as Prime parsed it, cut at the first stop token.
         start, end = call.token_span
         block = ids[start + 1 : end - 1]
+        schemas, root = parameters
         arguments: dict[str, Any] = {}
-        i = 0
-        while self._arg_key in block[i:]:
-            key_at = block.index(self._arg_key, i)
-            key_end = block.index(self._arg_key_end, key_at + 1)
-            value_at = block.index(self._arg_value, key_end + 1)
-            value_end = block.index(self._arg_value_end, value_at + 1)
-            key = _decode(self._tokenizer, block[key_at + 1 : key_end]).strip()
-            text = _decode(self._tokenizer, block[value_at + 1 : value_end])
-            arguments[key] = read_argument(text, schemas.get(key))
-            i = value_end + 1
-        return replace(call, arguments=arguments, status=ToolCallParseStatus.OK)
+        at = _find(block, self._arg_key, 0)
+        try:
+            while at is not None:
+                key_end = block.index(self._arg_key_end, at + 1)
+                value_at = block.index(self._arg_value, key_end + 1)
+                value_end = block.index(self._arg_value_end, value_at + 1)
+                key = _decode(self._tokenizer, block[at + 1 : key_end]).strip()
+                text = _decode(self._tokenizer, block[value_at + 1 : value_end])
+                arguments[key] = read_argument(text, schemas.get(key), root=root)
+                at = _find(block, self._arg_key, value_end + 1)
+        except ValueError:
+            # Prime checks for an unknown tool before it checks that every key has a value,
+            # so an unknown tool's block can still hold a key without one.
+            return replace(call, status=ToolCallParseStatus.MALFORMED_STRUCTURE)
+        status = (
+            call.status
+            if call.status == ToolCallParseStatus.UNKNOWN_TOOL
+            else ToolCallParseStatus.OK
+        )
+        return replace(call, arguments=arguments, status=status)
 
     def prepare_extension(self, previous_messages, new_messages, tools):
         """Prepare only the new observations, using the preceding assistant turn's calls.
