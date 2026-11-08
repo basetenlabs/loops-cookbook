@@ -151,6 +151,14 @@ class _NothingToTrain(Exception):
 
 @dataclass(frozen=True)
 class Outcome:
+    """How an RL run ended, which ``Run.execute`` returns and ``loops run`` reports.
+
+    ``status`` is ``completed``, ``unclean``, ``interrupted``, ``aborted`` or
+    ``loops_run_ended``. ``unclean`` means training finished but the cleanup of an
+    attempt or a rollout runtime is not confirmed. ``discards`` counts the discarded
+    rollouts by reason. ``next_step`` is the step a resume would start at.
+    """
+
     status: str
     steps: int
     """The optimizer updates this invocation completed, not counting restored steps."""
@@ -160,6 +168,7 @@ class Outcome:
 
     @property
     def ok(self) -> bool:
+        """Whether the run completed."""
         return self.status == "completed"
 
 
@@ -768,6 +777,12 @@ class Manifest(run_record.Manifest):
 
 
 class Run:
+    """One RL run, which collects rollouts, trains on them and records everything in its directory.
+
+    ``rl.recipe.assemble`` builds it, and ``execute`` runs it. A run given a resume
+    manifest continues that run in the same directory.
+    """
+
     def __init__(
         self,
         config: Config,
@@ -2281,6 +2296,15 @@ class Run:
         return sorted(self._evals_written & wanted)
 
     async def execute(self) -> Outcome:
+        """Train, close everything the run opened, and return how the run ended.
+
+        Training stops at ``max_steps``, and a run without one trains until it stops for
+        another reason. The run stops early when it is interrupted or aborted, or when
+        its Loops run ends, and the returned ``Outcome`` says which. Any other error is
+        recorded and raised, unless the Loops run had ended under it. Cleanup runs
+        however the run ends, and the last applied update is checkpointed if its cadence
+        skipped it.
+        """
         config = self.config
         self.out.mkdir(parents=True, exist_ok=True)
         (self.out / "config.json").write_text(config.model_dump_json(indent=2))

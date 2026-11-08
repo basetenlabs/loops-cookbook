@@ -11,6 +11,12 @@ from loops_cookbook.llm.client import LoopsLLM
 
 
 class ModelAccessMode(str, Enum):
+    """How an agent reaches the model, which a rollout runtime declares.
+
+    ``DIRECT`` is the cookbook's ``llm()`` client, which only an in-process agent can
+    use. ``OPENAI_HTTP`` is an OpenAI-compatible endpoint that the run serves.
+    """
+
     DIRECT = "direct"
     OPENAI_HTTP = "openai_http"
 
@@ -24,10 +30,28 @@ class ModelConnection(NamedTuple):
 
 
 class ModelAccess(Protocol):
+    """One attempt's way to the model, which a rollout runtime takes from ``AttemptServices``.
+
+    Only the method that matches ``mode`` serves. The other raises
+    ``ModelAccessError``. A producer that ``[rollout.producers]`` does not declare
+    raises ``UndeclaredProducer`` and stops the run.
+    """
+
     @property
-    def mode(self) -> ModelAccessMode: ...
-    def llm(self, producer: str | None = None) -> LoopsLLM: ...
-    async def http_connection(self, producer: str | None = None) -> ModelConnection: ...
+    def mode(self) -> ModelAccessMode:
+        """The attempt's model access mode."""
+        ...
+
+    def llm(self, producer: str | None = None) -> LoopsLLM:
+        """Return the direct client that samples as ``producer``, or as the default producer."""
+        ...
+
+    async def http_connection(self, producer: str | None = None) -> ModelConnection:
+        """Return the attempt's OpenAI-compatible endpoint and a credential for ``producer``.
+
+        The credential is revoked when the attempt seals, aborts or times out.
+        """
+        ...
 
 
 class AttemptModelAccess(ModelAccess, Protocol):

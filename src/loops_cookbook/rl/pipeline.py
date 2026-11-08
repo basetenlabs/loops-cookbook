@@ -571,6 +571,12 @@ class Pipeline:
         return 0
 
     def started(self, group_id: str) -> None:
+        """Record that one of a group's attempts took a sampling slot.
+
+        The capacity broker calls this on each admission. A started group fills its
+        slots from then on. It holds a place in the async window until its batch starts
+        training or the group is dropped.
+        """
         self._started_groups.add(group_id)
 
     def order(self, group_id: str) -> int:
@@ -1015,6 +1021,7 @@ class Pipeline:
             self._release(group)
 
     def abort_batch(self, groups: list[Group]) -> None:
+        """Discard a selected batch whose training failed, as ``training_aborted``."""
         self._sync_demand = 0
         self._freed = None
         for group in groups:
@@ -1186,6 +1193,7 @@ class Pipeline:
         }
 
     def snapshot(self) -> dict[str, float]:
+        """Return the pipeline's live gauges, such as queue lengths, group counts and capacity."""
         now = time.monotonic()
         return {
             "pipeline_calls/sample": float(self._sampling),

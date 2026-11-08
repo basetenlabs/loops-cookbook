@@ -38,6 +38,7 @@ class PrimeRenderer:
 
     @property
     def stop_sequences(self) -> tuple[int, ...]:
+        """The token IDs that end the model's turn, as the Prime renderer gives them."""
         return tuple(self._renderer.get_stop_token_ids())
 
     @property
@@ -62,6 +63,10 @@ class PrimeRenderer:
         return renderers.base.is_multimodal(self._renderer) and not _is_kimi(self._renderer)
 
     def render(self, messages: Sequence[Message], tools: Sequence[Tool] = ()) -> RenderedPrompt:
+        """Render ``messages`` and ``tools`` into a prompt that ends where the model's turn starts.
+
+        Messages or images the renderer cannot represent are refused before rendering.
+        """
         checked = check_messages(messages, tool_output_images=self._renders_tool_output_images)
         self._require_image_support(checked)
         rendered = _call(
@@ -208,6 +213,11 @@ class PrimeRenderer:
         completion_ids: Sequence[int],
         tools: Sequence[Tool] = (),
     ) -> ParsedReply:
+        """Read the reply from ``completion_ids``.
+
+        The native message is ``None`` when any tool call did not parse, so the caller
+        chooses the history to append.
+        """
         parsed = self._renderer.parse_response(
             list(token_ids(completion_ids)),
             prompt_ids=list(token_ids(prompt_ids)),

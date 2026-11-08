@@ -119,6 +119,7 @@ class ParsedTurnReply:
 
     @classmethod
     def of(cls, parsed: ParsedReply | None, error: Exception | None) -> ParsedTurnReply:
+        """Record ``parsed`` as plain JSON, and ``error`` as its type and message."""
         recorded = None
         if parsed is not None:
             calls = [
@@ -388,6 +389,8 @@ class PendingTurn:
 
 
 class TurnDisposition(str, Enum):
+    """What sealing decided for one transcript turn's generation."""
+
     DELIVERED = "delivered"  # The generation is in the sealed evidence.
     DISCARDED = "discarded"  # The agent took the generation back.
     UNDELIVERED = "undelivered"  # Sealing dropped it, because it was never wholly delivered.
@@ -396,6 +399,8 @@ class TurnDisposition(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class SealedTurn:
+    """One transcript turn, with what sealing decided for its generation."""
+
     turn: TranscriptTurn
     disposition: TurnDisposition
     trainable: bool

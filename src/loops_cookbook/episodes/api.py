@@ -117,6 +117,7 @@ class Model:
         self._turn = turn
 
     def llm(self, producer: str | None = None) -> LoopsLLM:
+        """Return the direct client that samples as ``producer``, or as the default producer."""
         self._check()
         return self._access.llm(producer)
 
@@ -131,6 +132,7 @@ class Model:
         return self.llm(producer).conversation(conversation_id=conversation_id)
 
     async def http_connection(self, producer: str | None = None) -> ModelConnection:
+        """Return the attempt's OpenAI-compatible endpoint and a credential for ``producer``."""
         self._check()
         return await self._access.http_connection(producer)
 
@@ -227,6 +229,13 @@ class Processes:
         env: Mapping[str, str | SecretStr] | None = None,
         cwd: Path | None = None,
     ) -> ProcessResult:
+        """Run ``argv`` to the end, and return its exit status and the tails of its output.
+
+        A nonzero exit is returned, not raised. ``env`` is the process's whole
+        environment beyond a small non-secret allowlist, and a ``SecretStr`` value is
+        redacted from the output the cookbook keeps. The process is killed when the
+        caller is cancelled or the attempt ends.
+        """
         where = cwd if cwd is not None else self._work_dir
         where.mkdir(parents=True, exist_ok=True)
         return await self._processes.run(

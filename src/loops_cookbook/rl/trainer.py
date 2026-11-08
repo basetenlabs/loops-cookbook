@@ -143,6 +143,7 @@ class StepReport:
         return self.trained_positions / self.tokens if self.tokens else 0.0
 
     def gauges(self) -> dict[str, float]:
+        """Return the step's metrics as flat gauges, keyed by name such as ``train/loss``."""
         out = {
             **{f"time/{name}_seconds": value for name, value in self.timings.items()},
             "train/loss": self.loss,
@@ -244,6 +245,7 @@ class Trainer(LoopsTrainer):
 
     @property
     def policy_version(self) -> int:
+        """The trainer's current policy version, which is its optimizer step count."""
         return self._version
 
     def _check_lengths(self, datums: list[Datum]) -> None:

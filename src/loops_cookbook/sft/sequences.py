@@ -99,22 +99,27 @@ class SupervisedSequence:
 
     @property
     def length(self) -> int:
+        """The number of tokens in the sequence."""
         return len(self._ids)
 
     @property
     def ids(self) -> tuple[int, ...]:
+        """Every token ID the model reads, in order."""
         return tuple(self._ids)
 
     @property
     def trained(self) -> tuple[bool, ...]:
+        """Whether each token in ``ids`` is one the model learns."""
         return tuple(map(bool, self._trained))
 
     @property
     def trained_tokens(self) -> int:
+        """The number of tokens the model learns."""
         return self._trained.count(1)
 
     @property
     def model_input(self) -> ModelInput:
+        """The sequence as Loops model input, with its text and image chunks."""
         chunks: list[ModelInputChunk] = []
         position = 0
         for chunk in self._chunks:

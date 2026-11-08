@@ -216,6 +216,7 @@ class ChatExample(Record):
 
     @property
     def trained_turns(self) -> tuple[int, ...]:
+        """The indexes of the assistant messages that train, which are those with weight 1."""
         return tuple(
             index
             for index, message in enumerate(self.messages)
