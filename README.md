@@ -1,296 +1,298 @@
-# loops-cookbook
+# Loops cookbook
 
-Post-train models on [Baseten Loops](https://docs.baseten.co). Loops runs the
-expensive half, a LoRA trainer and a paired sampler that hot-swaps to each new policy;
-the cookbook runs the rest. It comes with two recipes, and the `loops` command runs
-both: each config names its recipe with the `recipe` key.
+The Loops cookbook is a starting point for post-training models on
+[Baseten Loops](https://docs.baseten.co/loops/overview). It gives Loops users working
+reinforcement learning (RL) and supervised fine-tuning (SFT) templates to copy and
+adapt. Each template is built on top of the
+[`baseten-loops`](https://pypi.org/project/baseten-loops/) SDK, so you start from code
+that already trains instead of from an empty training loop.
 
-| Recipe | Config key | Use it when |
+Loops runs the GPUs. It trains a low-rank adaptation (LoRA) adapter on your base model,
+and it serves the latest version of that adapter from a sampler. The cookbook runs
+everything else on your own machine. For RL, it runs your agent on your tasks, records
+the exact tokens the model produced, grades each attempt and sends the results to the
+Loops trainer. For SFT, it turns your conversations into training data with the model's
+own chat template.
+
+## What you can build
+
+Each row below names a goal and the directory to start from. Every directory runs as it
+is, so you can watch it train before you change it.
+
+| Goal | Start from | What it shows |
 | --- | --- | --- |
-| [RL](#rl) | `recipe = "rl"` | your agent acts on tasks and a verifier rewards what it did |
-| [SFT](#sft) | `recipe = "sft"` | you have conversations for the model to imitate |
+| RL with a verifiable reward (RLVR) | [patterns/custom_runtime/in_process_direct](patterns/custom_runtime/in_process_direct/) | The smallest RL run. The model guesses a hidden answer, and code checks the reply. |
+| RLVR with held-out evals | [examples/sat](examples/sat/) | The model solves generated 3-SAT problems, and the run scores held-out problems while it trains. |
+| RLVR on images | [examples/counting](examples/counting/) | A vision model counts overlapping circles, and code checks the count. |
+| RL with an LLM judge | [examples/llm_judge](examples/llm_judge/) | A judge model ranks each group of answers, and the rank becomes the reward. |
+| An agent that uses tools in a sandbox | [examples/tool_agent](examples/tool_agent/) | A multi-turn agent changes files in a Blaxel sandbox with two tools, and the grader scores what it left there. |
+| A coding agent on a real benchmark | [examples/terminal_bench](examples/terminal_bench/) | A bash agent works through Terminal-Bench 2.1 tasks in Blaxel sandboxes. |
+| A task with several verified steps | [examples/multi_step](examples/multi_step/) | Each step of a Harbor task is verified as soon as the agent finishes it. |
+| Asynchronous RL | [examples/async_scheduling](examples/async_scheduling/) | Sampling continues while the trainer updates the policy. A rollout can be up to two policy versions old when it trains. |
+| One policy in two roles | [examples/critic](examples/critic/) | The same model proposes an answer, then reviews the proposal and gives the final answer. Both generations train on the reward for the final answer. |
+| An agent built on another framework | [examples/litellm_streaming](examples/litellm_streaming/) | An agent built on LiteLLM streams its replies through the run's OpenAI-compatible endpoint. |
+| Your own episodes, step by step | [examples/episode_basics](examples/episode_basics/) | Small episodes show scoring on the host, a shared sandbox and a separate verifier. |
+| SFT on tool-use conversations | [examples/sft_tool_use](examples/sft_tool_use/) | A small synthetic dataset teaches a model to call one tool. |
+| SFT on real agent trajectories | [examples/sft_toucan](examples/sft_toucan/) | The model trains on 2,000 conversations from Hugging Face, then the base model and the adapter are compared on held-out conversations. |
 
-## Install
+The [examples index](examples/README.md) lists the model that each example trains.
 
-You need `uv`, and a Baseten workspace with Loops enabled and its API key. Gated or
-private Hugging Face repos, including a tokenizer named by `[model] tokenizer`, also
-need `HF_TOKEN`.
-
-As a dependency of your own project, from [PyPI](https://pypi.org/p/baseten-loops-cookbook).
-Add `==X.Y.Z` to pin a [release](https://github.com/basetenlabs/loops-cookbook/releases).
-
-```sh
-uv add baseten-loops-cookbook             # SFT, or RL with a custom runtime
-uv add "baseten-loops-cookbook[harbor]"   # RL with the Harbor runtime
-```
-
-The package ships the [examples](examples/), [patterns](patterns/) and [tasks](tasks/).
-Run one by its path in this repository, from any directory:
-
-```sh
-uv run loops check examples/terminal_bench/train.toml
-```
-
-A file at that path in your working directory wins over the installed one, so to change
-an example, copy its directory there; `loops check` prints where the installed one is.
-Copy it too for an example whose scripts write beside themselves, such as `sft_toucan`. The extras are the same as below: for
-example, `uv add "baseten-loops-cookbook[harbor-blaxel]"`.
-
-Or clone it to run the examples and hack on it:
-
-```sh
-uv sync                         # the core: SFT, and RL with a custom runtime
-uv sync --extra harbor          # + the Harbor runtime on Docker
-uv sync --extra harbor-blaxel   # + the Harbor runtime on Blaxel sandboxes
-uv sync --extra harbor-daytona  # + the Harbor runtime on Daytona sandboxes
-uv sync --extra blaxel          # + the Blaxel provider alone, for a custom runtime (likewise daytona)
-uv sync --extra wandb           # mirror metrics to Weights & Biases
-uv sync --extra console         # the rich live progress region (--output.console)
-uv sync --extra vision          # image inputs for vision models (brings torch)
-uv sync --extra custom-loss     # RL: your own loss through forward_backward_custom (brings torch)
-```
-
-The cookbook reaches Loops through the
-[`baseten-loops`](https://pypi.org/project/baseten-loops/) SDK, which it installs.
-Copy [.env.example](.env.example) to `.env` and fill in `BASETEN_API_KEY`. The CLIs
-load `.env` from the training config's directory or the working directory. Loops itself
-needs nothing local: the trainer and sampler run on Baseten.
-
-## Serverless or dedicated
-
-Loops runs each model in one of two ways:
-
-- **Serverless.** The run trains and samples on a shared pool that Baseten keeps
-  ready, so the run starts in minutes.
-- **Dedicated.** The run gets its own trainer and sampler deployment. This takes
-  longer to start. The deployment stays provisioned, and you pay for it, until
-  the run is deactivated. `loops run` leaves it up on exit, so a later run can reuse
-  it. Set `[compute] keep_run = false` to deactivate it on exit, or run `loops
-  deactivate <run id>` later.
-
-Every config chooses one: `[compute] scope = "serverless"` or `"dedicated"`. Which
-models have a serverless pool depends on Loops and your workspace; a serverless run
-of a model or configuration the pool cannot take fails when Loops creates it, never
-falling back to a billed deployment. Settings that size a deployment (replicas, spot,
-reuse) are dedicated only, and `loops check` refuses them on a serverless run. The
-quickstarts below train Qwen/Qwen3.6-35B-A3B on serverless.
-Some patterns and examples train other models. The
-[examples table](examples/README.md) gives the model of each example and how that
-model runs.
-
-> [!NOTE]
-> Contact Baseten to get access to a serverless pool, to train a model that has no
-> pool, or to get dedicated capacity.
-
-## RL
-
-Loops trains on what your agent did; the cookbook runs your agent on your tasks and
-turns each episode into training data with the exact tokens the model sampled.
-
-### How it works
+## How an RL run works
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/core-loop-dark.svg">
   <img alt="The core loop as seven numbered steps: the run schedules episodes on the runtime; the runtime runs your agent in its environment; model calls go through the model client to the sampler; the client records the exact tokens; rewards come back through the runtime; the run sends training batches to the LoRA trainer; the trainer publishes the new policy to the sampler." src="docs/assets/core-loop.svg">
 </picture>
 
-1. The **run** schedules episodes on the **runtime** (Harbor, or a custom runtime).
-2. The runtime runs your **agent** in its environment.
+An episode is one attempt by your agent at one task. An RL run repeats these steps:
+
+1. The run schedules episodes on the **rollout runtime**. The rollout runtime is the
+   part that prepares tasks, runs episodes and grades them. It is either
+   [Harbor](https://github.com/laude-institute/harbor) or a custom rollout runtime that
+   you write as a Python class.
+2. The rollout runtime runs your **agent** in the task's environment.
 3. Every model call the agent makes goes through the cookbook's **model client** to the
-   sampler.
-4. The model client records the exact tokens the sampler returned.
-5. The environment's verifier scores the episode, and the reward comes back through
-   the runtime.
-6. The run joins tokens and rewards into training batches for the LoRA trainer.
-7. The trainer publishes the new policy to the sampler, and the next episodes use it.
+   Loops sampler.
+4. The model client records the exact tokens that the sampler returned.
+5. The task's grader scores the episode, and the rollout runtime returns the reward to
+   the run.
+6. The run combines the recorded tokens and the rewards into training batches and sends
+   them to the Loops trainer.
+7. The trainer publishes the updated policy to the sampler, and the next episodes use it.
 
-So the responsibilities split cleanly:
+You bring the environment and the agent. The environment is the tasks, any sandboxes
+the tasks need, and a grader that turns what happened into a reward. The agent decides
+what to do in the environment, and it owns its prompts, tools, history and stopping
+rules.
 
-- **You bring** an environment (tasks, sandboxes, a verifier that produces rewards)
-  and an agent that decides what to do in it. The agent owns its prompts, tools,
-  history, and stopping rules.
-- **The cookbook brings** the model client, which renders messages with the model's
-  own chat template and keeps the exact token IDs and logprobs; rollout scheduling
-  across sampling and grading, sync or async; GRPO advantages (reward minus the group
-  mean, not divided by its standard deviation) and datum packing; the
-  Loops trainer transport, checkpoints, and metrics.
+The cookbook brings everything between your agent and Loops. Its model client renders
+messages with the model's own chat template and keeps the exact token IDs and log
+probabilities. The cookbook also schedules episodes, either in lockstep with training
+or asynchronously. It computes advantages with group relative policy optimization
+(GRPO), which scores each attempt against the mean reward of its group. It also manages
+checkpoints and reports metrics.
 
-### Pick a pattern
+Every run is described by a training config, a TOML file whose `recipe` key names the
+training method: `recipe = "rl"` or `recipe = "sft"`. The `loops` command runs both.
 
-Where your agent runs decides most of what you write:
+## Install
 
-- **in-process**: your agent is Python the runtime calls inside the training process,
-  such as a Harbor `LoopsAgent` class. It can call the model directly with `llm()`.
-- **local**: your agent is its own program (a binary, a CLI, another language, code
-  you can't edit) that the runtime launches on the training machine. It reaches the
-  model through the run's OpenAI-compatible endpoint.
-- **remote**: your agent runs inside the sandbox, such as an agent installed in the
-  environment. Not supported yet.
+You need these before you start:
 
-[patterns/README.md](patterns/README.md) defines the terms, then shows each placement with
-a diagram, what you write, when to use it, and who owns the sandbox on each
-environment backend. Every supported pattern is a runnable directory in
-[patterns/](patterns/), with a training config per backend; [examples/](examples/)
-builds settings and features on top of them.
+- [uv](https://docs.astral.sh/uv/).
+- A Baseten workspace with Loops enabled, and an API key for that workspace.
 
-Tasks with an environment also need an environment backend (see
-[environment backends](patterns/README.md#environment-backends)): a local Docker daemon
-is enough to start, and Blaxel or Daytona needs its extra and its credentials.
+If your model or its tokenizer is in a gated or private Hugging Face repository, you
+also need `HF_TOKEN`.
 
-### Quickstart
-
-The smallest run needs only the core install and `BASETEN_API_KEY`: no Harbor, Docker
-or sandbox.
+To use the cookbook as a dependency of your own project, install it from
+[PyPI](https://pypi.org/p/baseten-loops-cookbook). Add `==X.Y.Z` to the package name to
+pin a [release](https://github.com/basetenlabs/loops-cookbook/releases).
 
 ```sh
-uv run loops check patterns/custom_runtime/in_process_direct/train.toml   # resolves the config, asks Loops about the model; launches nothing
-uv run loops run   patterns/custom_runtime/in_process_direct/train.toml   # provisions Loops resources (billable)
+uv add baseten-loops-cookbook             # SFT, or RL with a custom rollout runtime
 ```
 
-`check` launches no sandbox and no Loops trainer (on a first run it still downloads the
-tokenizer and any remote dataset), but it is not read-only: it writes a
-fresh run directory under `<output_dir>/preflight/`, with its own resource journal,
-and whatever the runtime writes while it prepares.
+The package includes the [examples](examples/), [patterns](patterns/) and
+[tasks](tasks/) from this repository. Run one by its path in this repository, from any
+directory:
 
-This is [custom runtime, in-process, direct](patterns/custom_runtime/in_process_direct/):
-an `Episode` asks the model to name a hidden game once and scores the reply itself, so
-the reward climbs within a few steps. Every training setting can be overridden on the
-command line; `loops run --help` lists them with defaults.
+```sh
+uv run loops check examples/terminal_bench/train.toml
+```
 
-With Harbor tasks, start from [Harbor, in-process, direct](patterns/harbor/in_process_direct/)
-instead: the same one-call agent, on the shared [hill-climb task](tasks/hill_climb/).
-A Harbor trial always starts an environment, for the agent's answer and the verifier,
-so even this task runs in a sandbox: `train.toml` on local Docker (`--extra harbor`),
-or `train_blaxel.toml` on Blaxel with no Docker (`--extra harbor-blaxel` and Blaxel
-credentials). Every other pattern is a directory beside these in [patterns/](patterns/),
-and [examples/](examples/) adds settings and features on top.
+A file at that path in your working directory takes precedence over the installed copy.
+To change an example, copy its directory to that path in your working directory.
+`loops check` prints the path of the config it read, so it shows you where the
+installed copy is. Some examples have scripts that write files beside themselves, such
+as `sft_toucan`, so copy those before you run their scripts too.
 
-If a run crashes, the sandboxes it created on Blaxel or Daytona are in its resource
-journal, and `cleanup` releases them:
+To run the examples from source and change them, clone this repository and install the
+extras you need. The extras have the same names when you install from PyPI, for
+example `uv add "baseten-loops-cookbook[harbor-blaxel]"`.
+
+```sh
+uv sync                         # the core: SFT, and RL with a custom rollout runtime
+uv sync --extra harbor          # + the Harbor rollout runtime on Docker
+uv sync --extra harbor-blaxel   # + the Harbor rollout runtime on Blaxel sandboxes
+uv sync --extra harbor-daytona  # + the Harbor rollout runtime on Daytona sandboxes
+uv sync --extra blaxel          # + the Blaxel provider alone, for a custom rollout runtime (likewise daytona)
+uv sync --extra wandb           # mirror metrics to Weights & Biases
+uv sync --extra console         # the rich live progress region (--output.console)
+uv sync --extra vision          # image inputs for vision models (brings torch)
+uv sync --extra custom-loss     # RL: your own loss through forward_backward_custom (brings torch)
+```
+
+Set your API key in the environment before you run anything:
+
+```sh
+export BASETEN_API_KEY=...
+```
+
+The `loops` command also reads a `.env` file if it finds one beside the training config
+or in the working directory. A variable that is already set in your environment always
+takes precedence over the file. [.env.example](.env.example) lists every variable the
+cookbook reads. Loops itself needs nothing installed locally, because the trainer and
+the sampler run on Baseten.
+
+## Serverless or dedicated
+
+Loops can run a model in one of two ways:
+
+- **Serverless.** The run trains and samples on shared capacity that Baseten keeps
+  ready, so the run starts in minutes. You pay for the tokens it uses.
+- **Dedicated.** The run gets its own trainer and sampler deployments. They take longer
+  to start, and you pay for their GPU time until the run is deactivated.
+
+Every training config chooses one with `[compute] scope = "serverless"` or
+`[compute] scope = "dedicated"`. The scope belongs to the config, not to the model, so
+the same model and config can run either way if your workspace has access to both.
+Serverless capacity doesn't serve every model or configuration, though, and what it
+serves depends on your workspace. A serverless run that it
+cannot serve fails when Loops creates the run. It never falls back to a billed
+deployment.
+
+Some settings size a deployment, such as the replica counts, spot capacity and reuse of
+an earlier run. These settings apply only to a dedicated run, and `loops check` refuses
+them on a serverless run.
+
+`loops run` leaves the Loops run up when it exits. A dedicated run keeps billing until
+you deactivate it, and a later dedicated run can start warm on it. A serverless run
+keeps holding a slot in your workspace. Run `loops deactivate <run id>` to end it later,
+or set `[compute] keep_run = false` to deactivate it on exit. Its checkpoints stay
+either way.
+
+The first RL and SFT runs below train Qwen/Qwen3.6-35B-A3B on serverless capacity. Some
+patterns and examples train other models, and the
+[examples index](examples/README.md) says which scope each one uses.
+
+> [!NOTE]
+> Contact Baseten to get access to serverless capacity, to train a model that
+> serverless capacity doesn't serve, or to get dedicated capacity.
+
+## Run your first RL job
+
+The smallest RL run needs only the core install and `BASETEN_API_KEY`. It needs no
+Harbor, Docker or sandbox.
+
+```sh
+uv run loops check patterns/custom_runtime/in_process_direct/train.toml
+uv run loops run   patterns/custom_runtime/in_process_direct/train.toml
+```
+
+Run `loops check` first. It validates the config and asks Loops whether it serves the
+model, but it starts no trainer and no sandbox. It isn't read-only, though. On a first
+run it downloads the tokenizer and any remote dataset. It also writes a run directory
+under `<output_dir>/preflight/`, with its own resource journal and whatever the rollout
+runtime writes while it prepares.
+
+`loops run` starts the training run, which uses billable Loops resources. In this run,
+each episode asks the model to name a hidden answer and scores the reply itself. The
+reward rises within a few steps. You can override any training setting on the command
+line, and `loops run --help` lists every setting with its default.
+
+If your tasks are Harbor tasks, start from
+[Harbor, in-process, direct](patterns/harbor/in_process_direct/) instead. It runs the
+same one-call agent on the shared [hill-climb task](tasks/hill_climb/). A Harbor task
+always starts an environment for the agent and its verifier, so even this small task
+runs in a sandbox. Use `train.toml` to run the sandbox on local Docker, which needs
+`--extra harbor`. Use `train_blaxel.toml` to run it on Blaxel without Docker, which
+needs `--extra harbor-blaxel` and Blaxel credentials.
+
+If a run crashes, the sandboxes it created on Blaxel or Daytona are listed in the run's
+resource journal, and `loops cleanup` releases them:
 
 ```sh
 uv run loops cleanup patterns/harbor/in_process_direct/train_blaxel.toml --state-dir runs/harbor-direct-blaxel/<run-dir>/state
 ```
 
-Docker sandboxes are Harbor's and not in the journal; after a crashed Docker run, check
-`docker ps`.
+Harbor creates Docker sandboxes itself, so they aren't in the journal. After a Docker
+run crashes, check `docker ps`.
 
-The training process runs where you start it. It renders every turn's prompt, holds
-each live conversation's tokens and opens files and sockets for each live attempt
-(`check` refuses an open-file limit too low for them), so its CPU, memory and open
-files grow with `max_concurrent_rollouts` and context length. A laptop
-is enough for the patterns here; for high concurrency with long contexts, or a run that
-must outlast your laptop, start it on a dev box.
+The training process runs on the machine where you start it. It renders every prompt,
+holds the tokens of every live conversation, and opens files and sockets for every live
+attempt. Its CPU, memory and open files therefore grow with `max_concurrent_rollouts`
+and with context length, and `loops check` refuses to start when the open-file limit is
+too low. A laptop is enough for the patterns in this repository. Use a dev box for high
+concurrency with long contexts, or for a run that has to outlast your laptop.
 
-## SFT
+## Run your first SFT job
 
-Supervised fine-tuning needs no runtime, pattern or sandbox: only your data and a
-Loops trainer.
-
-### Quickstart
+SFT needs no rollout runtime, pattern or sandbox. It needs only your data and a Loops
+trainer.
 
 ```sh
-uv run loops check examples/sft_tool_use/sft.toml   # renders every row; launches nothing
-uv run loops run   examples/sft_tool_use/sft.toml   # provisions a Loops trainer (billable)
+uv run loops check examples/sft_tool_use/sft.toml
+uv run loops run   examples/sft_tool_use/sft.toml
 ```
 
-### Data
+`loops check` renders every row of the data and reports what will train, what is split
+per turn and what is refused, with the reason. It launches nothing. `loops run` starts a
+billable Loops trainer.
 
-Data is OpenAI chat fine-tuning JSONL (`messages`, `tools`, a per-turn `weight`), or
-already tokenized `input_ids` and `weights` for full control. Each conversation is
-rendered with the trained model's chat template, which decides the targets: every
-trained turn learns its own stop token, in the context it was generated in. `check`
-reports what trains, what is split per turn and what is refused, with the reason.
-[docs/reference/sft.md](docs/reference/sft.md) has the contracts, the rule, the
-metrics and resume. [examples/sft_toucan](examples/sft_toucan/) trains on real
-tool-agent trajectories from Hugging Face and compares the base model and the adapter
-on held-out conversations; [examples/sft_tool_use](examples/sft_tool_use/) is a small
-synthetic one.
+The data is OpenAI's chat fine-tuning format in JSONL, with `messages`, `tools` and a
+per-turn `weight`. For full control, you can provide already tokenized `input_ids` and
+`weights` instead. Each conversation is rendered with the trained model's chat
+template, and the template decides which tokens train. Every trained turn learns its
+own stop token, in the context it was generated in.
+[docs/reference/sft.md](docs/reference/sft.md) has the data contracts, the rules for
+which tokens train, the metrics and resuming.
 
-## Use it as a library
+For a larger run, [examples/sft_toucan](examples/sft_toucan/) trains on real
+tool-agent trajectories from Hugging Face, then compares the base model and the adapter
+on held-out conversations.
+
+## Connect your own agent and tasks
+
+Once a first run works, copy the pattern in [patterns/](patterns/) that is closest to
+your own agent and tasks. A pattern is a runnable directory that you can adapt.
+[patterns/README.md](patterns/README.md) explains how to choose one, and
+[examples/](examples/) builds on the patterns with other settings and features.
+
+## Use the cookbook as a library
+
+You can check and train a config from your own Python code instead of the `loops`
+command:
 
 ```python
+import asyncio
+
 from loops_cookbook.project import load
 
-project = load("train.toml", env_file=".env")
-report = await project.check()
-print("\n".join(report.describe()))
-outcome = await project.train()
+
+async def main() -> None:
+    project = load("train.toml")
+    for line in (await project.check()).describe():
+        print(line)
+    outcome = await project.train()
+    print(outcome.status)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
-`load()` reads a TOML or JSON config, and its `recipe` key picks the recipe, as it does
-for `loops`. It keeps `project.path`, `project.source` and `project.config`, and makes
-the config's directory importable. Pass dotted overrides as
-`overrides={"training.max_steps": 5}`. A path in the config is relative to the config.
-A symlinked config is the file it points to, so its paths, modules and `.env` are
-beside that file. A path in an override, and the output directory, are relative to the
-working directory when `load()` runs.
+`check()` does what `loops check` does and returns a report. `train()` does what
+`loops run` does and returns the run's outcome.
+[docs/reference/library.md](docs/reference/library.md) explains how `load()` finds
+files, and which packages make up the public API.
 
-`load()` reads `.env` only when you pass `env_file`, which is relative to the config.
-It sets only variables that the process does not set. `loops` always loads `.env`
-beside the config and in the working directory, with the same rule.
+## Read next
 
-`loops check` first prints what the config used, and a run's `run.log` begins with
-the same lines:
-
-```text
-Config: /home/me/project/train.toml -> /home/me/shared/train.toml
-  paths, modules: beside /home/me/shared
-  .env: /home/me/shared/.env, /home/me/project/.env
-  runs: /home/me/project/runs
-```
-
-Both operations are async. `check()` does what `loops check` does and returns a report;
-`describe()` gives the lines `loops check` prints after those; `project.describe()`
-gives those. A check can download model or data
-files, and an RL check writes a run under `output_dir/preflight`. It starts no trainer.
-`train()` does what `loops run` does and returns the run's `Outcome`. The library
-does not configure logging; that stays with your application. For custom wiring, use
-each recipe's `recipe.train` and `recipe.check` directly.
-
-- `loops_cookbook.runtime`: the `RolloutRuntime` contract a runtime implements, and
-  the attempt and evidence types it receives. `[rollout_runtime].factory` names the
-  runtime's factory.
-- `loops_cookbook.model_access`: attempt leases, capture, `ModelAccessMode`, and the
-  OpenAI-compatible gateway for agents that speak Chat Completions (a runtime whose
-  model access is `openai_http`).
-- `loops_cookbook.rl`: the RL recipe. Its core is environment-agnostic: `Run`,
-  `Pipeline`, `Trainer`, GRPO. `rl.cli` and `rl.recipe` are the composition roots that
-  wire it to a runtime and providers, as `sft.cli` and `sft.recipe` are for SFT.
-- `loops_cookbook.llm`: `LoopsLLM`, the handle a runtime's agents call the model
-  through, the model client, and the Prime renderer adapter.
-- `loops_cookbook.resources` and `loops_cookbook.providers`: the provider-neutral
-  resource registry and journal behind `attempt.services.resources`, and the
-  `[providers.<name>]` adapters it acts through.
-- `loops_cookbook.harbor`: Harbor as one runtime among others. `create_runtime`
-  and `LoopsAgent`.
-- `loops_cookbook.sft`: supervised fine-tuning. Its core is its data contracts, the
-  target rule and `Run`; `sft.cli` and `sft.recipe` are its composition roots, and
-  `sft.recipe.train` is the entry point `loops run` calls.
-
-Each name is imported from the one package that defines it.
-
-A custom runtime is an `Episode` class (`loops_cookbook.episodes`), which the cookbook
-runs as a `RolloutRuntime` and which reuses everything else;
-[patterns/custom_runtime](patterns/custom_runtime/) has one for each supported agent
-placement and model access, the smallest being
-[in_process_direct](patterns/custom_runtime/in_process_direct/).
-
-## Docs
-
-- [patterns/README.md](patterns/README.md): every pattern, with diagrams, what you write,
-  and when to use it; environment backends.
-- [examples/README.md](examples/README.md): examples by setting and feature, built on
-  the patterns.
-- [docs/reference/](docs/reference/README.md): the exact rules: the training loop,
-  model access and token capture, scheduling, resources, failures, the `Episode` API,
-  Harbor, Daytona, renderers, SFT, and every setting
-  ([KNOB_GLOSSARY.md](docs/reference/KNOB_GLOSSARY.md)).
-- [docs/README.md](docs/README.md): how the cookbook is built, for developers changing
-  it: the principles, the engine, the interfaces, and the patterns' mechanics.
-- [tests/README.md](tests/README.md): the test layout and the live tests.
-- [ROADMAP.md](ROADMAP.md).
+- [patterns/README.md](patterns/README.md) describes every pattern and every
+  environment backend.
+- [examples/README.md](examples/README.md) lists the examples by the setting or feature
+  each one shows.
+- [docs/reference/](docs/reference/README.md) has the exact rules for the training
+  loop, evals, model access and token capture, scheduling, resources, failures, the
+  `Episode` API, Harbor, Daytona, renderers and SFT. The
+  [knob glossary](docs/reference/KNOB_GLOSSARY.md) lists every setting.
+- [docs/README.md](docs/README.md) explains how the cookbook is built, for developers
+  who change it.
+- [tests/README.md](tests/README.md) describes the test layout and the live tests.
+- [ROADMAP.md](ROADMAP.md) lists what is planned.
 
 ## Contributing
 
-Setting up, running the tests and cutting a release: [CONTRIBUTING.md](CONTRIBUTING.md).
+[CONTRIBUTING.md](CONTRIBUTING.md) explains how to set up the repository, run the tests
+and cut a release.
