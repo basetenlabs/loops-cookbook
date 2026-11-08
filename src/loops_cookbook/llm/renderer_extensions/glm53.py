@@ -18,9 +18,18 @@ from dataclasses import replace
 from typing import Any, Literal
 
 from pydantic import ConfigDict
-from renderers.base import MultiModalData, PlaceholderRange, extract_message_tool_names
+from renderers.base import (
+    MultiModalData,
+    ParsedToolCall,
+    PlaceholderRange,
+    ToolCallParseStatus,
+    extract_message_tool_names,
+)
 from renderers.configs import GLM51RendererConfig
 from renderers.glm5 import _TOOLS_FOOTER, _TOOLS_HEADER, GLM51Renderer
+from renderers.parsing import _build_param_type_index, _decode
+
+from loops_cookbook.llm.renderer_extensions.arguments import read_argument
 
 IMAGE_TOKEN = "<|image|>"
 IMAGE_START, IMAGE_END = "<|begin_of_image|>", "<|end_of_image|>"
@@ -313,6 +322,56 @@ class GLM53Renderer(GLM51Renderer):
                 )
                 emit_special(self._arg_value_end, msg_idx, is_sampled=True, is_content=True)
             emit_special(self._tool_call_end_tok, msg_idx, is_sampled=True, is_content=True)
+
+    # --- parsing ---------------------------------------------------------------
+
+    def parse_response(self, token_ids, *, tools=None, prompt_ids=None):
+        """Parse the reply as Prime does, then read each argument back as the template wrote it.
+
+        Prime strips whitespace from every ``<arg_value>``. An argument that holds file
+        text loses its final newline or its first line's indentation, and an argument of
+        only whitespace loses everything, while the call still reports success. Prime
+        also marks a call ``invalid_json`` when a value is not the JSON its schema asks
+        for, or when an untyped value is not JSON. That refuses the whole turn.
+
+        This method passes such a value on to the tool as its text instead. The sampled
+        tokens are trained whatever the parse says, so the parse only decides what the
+        environment does with them. Whether to accept an argument is the tool's decision.
+        """
+        parsed = super().parse_response(token_ids, tools=tools, prompt_ids=prompt_ids)
+        ids = list(token_ids)
+        schemas = _build_param_type_index(tools)
+        parsed.tool_calls = [
+            self._as_written(ids, call, schemas.get(call.name or "", {}))
+            for call in parsed.tool_calls
+        ]
+        return parsed
+
+    def _as_written(
+        self, ids: list[int], call: ParsedToolCall, schemas: dict[str, dict[str, Any]]
+    ) -> ParsedToolCall:
+        # The other statuses describe the call's structure or name, which Prime handles.
+        if (
+            call.status not in (ToolCallParseStatus.OK, ToolCallParseStatus.INVALID_JSON)
+            or call.token_span is None
+        ):
+            return call
+        # A span indexes the completion as Prime parsed it, cut at the first stop token.
+        # Both statuses mean a closed block in which every key has a value.
+        start, end = call.token_span
+        block = ids[start + 1 : end - 1]
+        arguments: dict[str, Any] = {}
+        i = 0
+        while self._arg_key in block[i:]:
+            key_at = block.index(self._arg_key, i)
+            key_end = block.index(self._arg_key_end, key_at + 1)
+            value_at = block.index(self._arg_value, key_end + 1)
+            value_end = block.index(self._arg_value_end, value_at + 1)
+            key = _decode(self._tokenizer, block[key_at + 1 : key_end]).strip()
+            text = _decode(self._tokenizer, block[value_at + 1 : value_end])
+            arguments[key] = read_argument(text, schemas.get(key))
+            i = value_end + 1
+        return replace(call, arguments=arguments, status=ToolCallParseStatus.OK)
 
     def prepare_extension(self, previous_messages, new_messages, tools):
         """Prepare only the new observations, using the preceding assistant turn's calls.
