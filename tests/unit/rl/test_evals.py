@@ -119,7 +119,7 @@ def build(
     eval_set = EvalSet(
         name="val",
         settings=EvalSetSettings(
-            runtime={"files": {"tasks": "val.jsonl"}},
+            rollout_runtime={"files": {"tasks": "val.jsonl"}},
             samples_per_task=samples,
             max_concurrent_rollouts=cap,
         ),

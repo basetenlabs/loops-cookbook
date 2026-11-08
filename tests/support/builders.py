@@ -12,7 +12,7 @@ from loops_cookbook.evidence import AttemptIdentity, PromptChunks, Rollout, Samp
 # The smallest configuration the model accepts: every mandatory setting, and the rollout
 # clock a runtime that derives none needs.
 REQUIRED: dict[str, Any] = {
-    "runtime.factory": "tests:unused",
+    "rollout_runtime.factory": "tests:unused",
     "model.base_model": "m",
     "model.lora_rank": 32,
     "sampling.max_generation_tokens": 4096,

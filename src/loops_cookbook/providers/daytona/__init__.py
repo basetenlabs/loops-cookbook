@@ -26,7 +26,7 @@ __all__ = ["Daytona", "DaytonaSandbox", "create_adapter"]
 
 
 class DaytonaSandbox(SandboxSpec):
-    """``[runtime.config.sandbox]`` for a Daytona sandbox, beside ``provider = "daytona"``."""
+    """``[rollout_runtime.config.sandbox]`` for a Daytona sandbox, beside ``provider = "daytona"``."""
 
     image: str | None = Field(
         default=None,

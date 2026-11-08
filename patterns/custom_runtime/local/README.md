@@ -2,7 +2,7 @@
 
 An [`Episode`](../../../docs/reference/episode-api.md) that trains an agent
 it does not own. For each attempt the cookbook provisions a sandbox from
-`[runtime.config.sandbox]`; then `local_episode.py` starts the agent program on the
+`[rollout_runtime.config.sandbox]`; then `local_episode.py` starts the agent program on the
 training machine as a supervised process, with the model's address and key in
 `OPENAI_BASE_URL` and `OPENAI_API_KEY`, `OPENAI_MODEL` (the model name the program must
 send), the task as `AGENT_INSTRUCTION`, and the sandbox's usage environment. A
@@ -24,12 +24,12 @@ program, with your own sandboxes and verifier.
 
 - `local_episode.py`: the episode, `LocalAgentEpisode`, written once over its sandbox
   kind and named for each provider: `DirectoryAgentEpisode` and `BlaxelAgentEpisode`.
-  `[runtime.config.options]` names the agent and verifier programs, and
+  `[rollout_runtime.config.options]` names the agent and verifier programs, and
   `grade_against` what the verifier reads: `"files"`, the `result.json` the agent
   wrote in its working directory, or `"sandbox"`, the answer it left in its sandbox.
   When that answer is missing, the episode calls `grading.execution_sandbox.ensure_alive()` after the read:
   a sandbox that is gone fails grading, to be retried. `loops check` refuses a
-  config without `[runtime.config.sandbox]` or with another provider's, options that
+  config without `[rollout_runtime.config.sandbox]` or with another provider's, options that
   are not its `LocalOptions`, or a dataset line that is not its `AnswerTask`.
 - `agent_program.py`: the agent. One model call over HTTP, one tool call in its
   sandbox, one result file. Standard library only, apart from the Blaxel SDK when its

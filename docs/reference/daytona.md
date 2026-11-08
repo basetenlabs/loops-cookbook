@@ -129,7 +129,7 @@ or call APIs, or run one trial first.
 ## For an Episode
 
 ```toml
-[runtime.config.sandbox]
+[rollout_runtime.config.sandbox]
 provider = "daytona"
 image = "python:3.12-slim"   # unset: Daytona's default sandbox
 cpu = 1

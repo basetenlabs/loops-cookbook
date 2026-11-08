@@ -115,7 +115,7 @@ class DaytonaSettings(BaseModel):
         default_factory=dict[str, str],
         description="Labels every sandbox carries besides the run's ownership labels, such as "
         "an owner to find a team's sandboxes by. They win over the same keys from a Harbor "
-        "job's or [runtime.config.sandbox]'s labels.",
+        "job's or [rollout_runtime.config.sandbox]'s labels.",
     )
     max_sandbox_cpu: int | None = _limit(
         "The most vCPUs Daytona gives one sandbox; a larger task is refused before the run."

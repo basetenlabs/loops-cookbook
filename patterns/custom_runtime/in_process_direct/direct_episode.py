@@ -1,13 +1,13 @@
 """An in-process agent with direct model access, as an ``Episode``.
 
 Each task is an ``AnswerTask``, an instruction with one expected answer, from the
-dataset that ``[runtime.files] tasks`` names; ``loops check`` refuses a line that is
+dataset that ``[rollout_runtime.files] tasks`` names; ``loops check`` refuses a line that is
 not one. ``run()`` is the agent: inside the training process, it asks the model once
 with the cookbook's ``llm()`` client, which records the exact tokens it samples.
 
 ``AnswerEpisode`` (``train.toml``, no environment) keeps the answer, and ``grade()``
 scores it. ``SandboxAnswerEpisode`` (``train_blaxel.toml``, with
-``[runtime.config.sandbox]``) writes the answer into the attempt's Blaxel sandbox, and
+``[rollout_runtime.config.sandbox]``) writes the answer into the attempt's Blaxel sandbox, and
 ``grade()`` scores what the sandbox holds. Grading is pure either way, so it is
 declared safe to retry.
 """

@@ -1,7 +1,7 @@
 """An episode with a local agent: a separate program the cookbook does not own.
 
-For each attempt the cookbook provisions a sandbox from ``[runtime.config.sandbox]``,
-then ``run()`` starts the agent program ``[runtime.config.options] agent`` names as a
+For each attempt the cookbook provisions a sandbox from ``[rollout_runtime.config.sandbox]``,
+then ``run()`` starts the agent program ``[rollout_runtime.config.options] agent`` names as a
 supervised process on the training machine, with the attempt's model connection and
 the sandbox's usage environment. The agent reaches the model only through the run's
 gateway, and works in the sandbox without ever creating or deleting it. However the
@@ -53,7 +53,7 @@ class AnswerTask(BaseModel):
 
 
 class LocalOptions(BaseModel):
-    """``[runtime.config.options]``: the two programs, and what the verifier reads.
+    """``[rollout_runtime.config.options]``: the two programs, and what the verifier reads.
 
     A ``./`` or ``../`` part of a command is a path beside this file.
     """

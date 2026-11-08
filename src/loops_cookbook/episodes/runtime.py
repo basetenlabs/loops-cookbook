@@ -92,7 +92,7 @@ class _Settings(BaseModel):
 
 
 class SandboxSettings(BaseModel):
-    """``[runtime.config.sandbox]``: its provider, and the keys its kind's spec types."""
+    """``[rollout_runtime.config.sandbox]``: its provider, and the keys its kind's spec types."""
 
     # The keys beside provider are the provided kind's spec's to validate.
     model_config = ConfigDict(extra="allow", frozen=True)
@@ -106,7 +106,7 @@ class SandboxSettings(BaseModel):
             return kind.spec.model_validate(self.model_extra or {})
         except ValidationError as error:
             raise RuntimeConfigurationError(
-                f"[runtime.config.{table}] is not a valid {kind.spec.__name__} for "
+                f"[rollout_runtime.config.{table}] is not a valid {kind.spec.__name__} for "
                 f"[providers.{self.provider}]: {error}"
             ) from None
 
@@ -121,7 +121,7 @@ class SandboxSettings(BaseModel):
 
 
 class EpisodeSettings(_Settings):
-    """``[runtime.config]`` for ``loops_cookbook.episodes:create_runtime``."""
+    """``[rollout_runtime.config]`` for ``loops_cookbook.episodes:create_runtime``."""
 
     episode: str = Field(min_length=1, description="The Episode subclass, as module:Class.")
     agent_timeout_seconds: float = Field(
@@ -369,11 +369,11 @@ class EpisodeRuntime:
 
 
 def create_runtime(config: Mapping[str, JsonValue], *, context: RuntimeContext) -> EpisodeRuntime:
-    """The factory ``[runtime] factory = "loops_cookbook.episodes:create_runtime"`` names."""
+    """The factory ``[rollout_runtime] factory = "loops_cookbook.episodes:create_runtime"`` names."""
     try:
         settings = EpisodeSettings.model_validate(config)
     except ValidationError as error:
-        raise RuntimeConfigurationError(f"[runtime.config]: {error}") from None
+        raise RuntimeConfigurationError(f"[rollout_runtime.config]: {error}") from None
     limits = context.limits
     # A cut run() returns once its processes have exited after SIGTERM, or been
     # killed after the kill grace and waited for, and then it has its own
@@ -388,7 +388,7 @@ def create_runtime(config: Mapping[str, JsonValue], *, context: RuntimeContext) 
     if configured is not None and configured < stopped:
         raise RuntimeConfigurationError(
             f"[rollout] rollout_timeout_seconds ({configured:g}s) is below "
-            f"{stopped:g}s: [runtime.config] agent_timeout_seconds "
+            f"{stopped:g}s: [rollout_runtime.config] agent_timeout_seconds "
             f"({settings.agent_timeout_seconds:g}s), [rollout.cleanup] "
             f"process_kill_grace_seconds ({limits.process_kill_grace_seconds:g}s), the "
             f"{GROUP_EXIT_SECONDS:g}s a killed process group is waited for, and "
@@ -401,7 +401,7 @@ def create_runtime(config: Mapping[str, JsonValue], *, context: RuntimeContext) 
     for table, value in (("sandbox", sandbox), ("grading_sandbox", grading_sandbox)):
         if value is not None and value.provider not in limits.provider_deadlines:
             raise RuntimeConfigurationError(
-                f"[runtime.config.{table}] provider {value.provider!r} is not configured in "
+                f"[rollout_runtime.config.{table}] provider {value.provider!r} is not configured in "
                 f"[providers]; configured: {sorted(limits.provider_deadlines)}"
             )
     episode = episode_class(settings.episode)
@@ -421,7 +421,7 @@ def create_runtime(config: Mapping[str, JsonValue], *, context: RuntimeContext) 
     )
     if grading_sandbox is not None and not defines(episode, "grade"):
         raise RuntimeConfigurationError(
-            "[runtime.config.grading_sandbox] requires a per-attempt grade(); "
+            "[rollout_runtime.config.grading_sandbox] requires a per-attempt grade(); "
             "grade_group() receives recorded evidence only"
         )
     options = episode_options(models.options, settings.options, settings.episode)
@@ -429,21 +429,21 @@ def create_runtime(config: Mapping[str, JsonValue], *, context: RuntimeContext) 
         # What ran, defaults included, which config.json's table as written is not. A
         # digest only: a default may come from the environment, and must not reach disk.
         context.evidence.record_digest(
-            "options", _validated_digest(options, "[runtime.config.options]")
+            "options", _validated_digest(options, "[rollout_runtime.config.options]")
         )
     plan = None
     if sandbox is not None and provided is not None:
         spec = sandbox.spec(provided)
         # As the options: what each sandbox is asked for, defaults included.
         context.evidence.record_digest(
-            "sandbox", _validated_digest(spec, "[runtime.config.sandbox]")
+            "sandbox", _validated_digest(spec, "[rollout_runtime.config.sandbox]")
         )
         plan = SandboxPlan(sandbox.request(spec), provided)
     grading_plan = None
     if grading_sandbox is not None and grading_provided is not None:
         spec = grading_sandbox.spec(grading_provided, table="grading_sandbox")
         context.evidence.record_digest(
-            "grading_sandbox", _validated_digest(spec, "[runtime.config.grading_sandbox]")
+            "grading_sandbox", _validated_digest(spec, "[rollout_runtime.config.grading_sandbox]")
         )
         grading_plan = SandboxPlan(
             grading_sandbox.request(spec, logical_key="grading_sandbox"), grading_provided
@@ -464,14 +464,14 @@ def create_runtime(config: Mapping[str, JsonValue], *, context: RuntimeContext) 
 def episode_options(
     model: type[BaseModel] | None, table: Mapping[str, JsonValue] | None, path: str
 ) -> BaseModel | None:
-    """``[runtime.config.options]`` validated with the episode's options model.
+    """``[rollout_runtime.config.options]`` validated with the episode's options model.
 
     Options no model validates are refused rather than passed on unread.
     """
     if model is None:
         if table is not None:
             raise RuntimeConfigurationError(
-                f"[runtime.config.options] is set, and episode {path!r} declares no options "
+                f"[rollout_runtime.config.options] is set, and episode {path!r} declares no options "
                 "model to validate it"
             )
         return None
@@ -479,7 +479,7 @@ def episode_options(
         return model.model_validate(dict(table or {}))
     except ValidationError as error:
         raise RuntimeConfigurationError(
-            f"[runtime.config.options] is not a valid {model.__name__}: {error}"
+            f"[rollout_runtime.config.options] is not a valid {model.__name__}: {error}"
         ) from None
 
 
@@ -507,12 +507,12 @@ def _provided_sandbox(
         if kind is not None:
             raise RuntimeConfigurationError(
                 f"episode {path!r} is written for a {kind.provider!r} sandbox, and "
-                f"[runtime.config] has no {table} table"
+                f"[rollout_runtime.config] has no {table} table"
             )
         return None
     if kind is None:
         raise RuntimeConfigurationError(
-            f"[runtime.config.{table}] provisions a sandbox for every attempt, and episode "
+            f"[rollout_runtime.config.{table}] provisions a sandbox for every attempt, and episode "
             f"{path!r} declares no sandbox kind to use it"
         )
     provided = sandbox_providers.get(sandbox.provider)

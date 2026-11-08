@@ -69,7 +69,7 @@ class AnswerEpisode(Episode[AnswerTask, None]):  # task model, options model
 Real ones: [`patterns/custom_runtime/`](../patterns/custom_runtime/). How the adapter
 maps it onto the contract (`episodes/runtime.py`):
 
-- **`prepare()`** loads `[runtime.files] tasks` and validates every line with the task
+- **`prepare()`** loads `[rollout_runtime.files] tasks` and validates every line with the task
   model; the id is the line's `id` or its position, the digest the canonical JSON.
 - **`sample()`**: `capacity.admit()` (pre-start places apply here) → provision the
   sandbox if the class declares a kind → `Episode(task.copy(), options)` → `setup(Setup(...))` on the
@@ -87,16 +87,16 @@ maps it onto the contract (`episodes/runtime.py`):
 
 The class declares its runtime facts as class attributes: `model_access` (default
 `direct`) and `grading_retries` (default 0). Because each built-in runtime supports
-exactly one mode, `[runtime] model_access` is only for a hand-written runtime that
+exactly one mode, `[rollout_runtime] model_access` is only for a hand-written runtime that
 declares several. Use `Episode[None, None]` for an untyped Episode, which reads raw
 JSON from `self.task.data` (the example in [reference/episode-api.md](reference/episode-api.md)
-is one), but a typed task model is what gets validated at `check`, so prefer it. Everything else is `[runtime.config]`:
+is one), but a typed task model is what gets validated at `check`, so prefer it. Everything else is `[rollout_runtime.config]`:
 `episode = "module:Class"`, `agent_timeout_seconds`, and optional `sandbox`, `grading_sandbox` and
 `options` tables.
 
 ## The Harbor runtime: job + `LoopsAgent`
 
-The user writes a Harbor job file (`[runtime.files] job`) whose tasks each have an
+The user writes a Harbor job file (`[rollout_runtime.files] job`) whose tasks each have an
 enabled verifier, and an agent that subclasses `LoopsAgent` and states its
 `model_access`. Its model is `self.llm()` (direct) or `self.services.model_access`
 (HTTP); `bind_loops_services` is called before Harbor's `setup`. How the adapter maps it
@@ -110,7 +110,7 @@ enabled verifier, and an agent that subclasses `LoopsAgent` and states its
 - **`grade()`**: a *shared* verifier is released to run in the same environment; a
   *separate* one (`environment_mode = "separate"` in the task) is run as a regrade trial
   in a second environment, from the task's declared artifacts. The reward is Harbor's,
-  read as-is, or `[runtime.config]`'s `reward_key` when the verifier returns several.
+  read as-is, or `[rollout_runtime.config]`'s `reward_key` when the verifier returns several.
 - **No group grading.** Regrades follow the job's own `retry:` block, so the runtime
   declares `grading_retries = 0`.
 - On Blaxel and Daytona, the cookbook's `BlaxelEnvironment` and `DaytonaEnvironment`

@@ -61,15 +61,15 @@ def test_training_does_not_own_agent_behavior():
         "system_prompt",
     ):
         values = config_values()
-        values["runtime"][forbidden] = "anything"
+        values["rollout_runtime"][forbidden] = "anything"
         with pytest.raises(ValidationError, match="Extra inputs"):
             Config.model_validate(values)
 
 
 def test_runtime_configuration_reaches_the_model_unchanged():
     opaque = {"path": "/bin/bash", "endpoint": "/v1/chat", "api_key_file": "x", "n": [1, {"a": 2}]}
-    config = make_config(**{"runtime.config": opaque})
-    assert config.runtime.config == opaque
+    config = make_config(**{"rollout_runtime.config": opaque})
+    assert config.rollout_runtime.config == opaque
 
 
 def test_every_setting_has_one_dotted_path():
@@ -107,7 +107,7 @@ def test_a_section_must_be_a_table(tmp_path):
     [
         "rollout.setup_timeout_seconds",
         "rollout.grading.timeout_seconds",
-        "runtime.factory",
+        "rollout_runtime.factory",
         "output.run_name",
     ],
 )
@@ -197,8 +197,8 @@ def test_the_old_producer_settings_are_gone(old):
 
 
 def test_model_access_is_unset_direct_or_openai_http():
-    assert make_config().runtime.model_access is None  # the runtime declares it
-    assert make_config(model_access="openai_http").runtime.model_access == "openai_http"
+    assert make_config().rollout_runtime.model_access is None  # the runtime declares it
+    assert make_config(model_access="openai_http").rollout_runtime.model_access == "openai_http"
     with pytest.raises(ValidationError, match="model_access"):
         make_config(model_access="grpc")
 
@@ -207,15 +207,20 @@ def test_the_gateway_settings_default_to_loopback_and_apply_only_to_http(tmp_pat
     from loops_cookbook.rl.cli import load_training_config
 
     openai = {"advertised_base_url": "http://10.0.0.2:9000", "model_name": "policy"}
-    path = write(tmp_path, {"runtime": {"openai": openai}})
+    path = write(tmp_path, {"rollout_runtime": {"openai": openai}})
     with pytest.raises(ValidationError, match="only when model_access"):
-        load_training_config(path, {"runtime.model_access": "direct"})
+        load_training_config(path, {"rollout_runtime.model_access": "direct"})
     config = load_training_config(path)
-    assert config.runtime.openai is not None
-    assert config.runtime.openai.bind == "127.0.0.1:0"
-    assert config.runtime.openai.advertised_base_url == "http://10.0.0.2:9000"
+    assert config.rollout_runtime.openai is not None
+    assert config.rollout_runtime.openai.bind == "127.0.0.1:0"
+    assert config.rollout_runtime.openai.advertised_base_url == "http://10.0.0.2:9000"
     with pytest.raises(ValidationError):
-        make_config(**{"runtime.model_access": "openai_http", "runtime.openai": {"bind": "nope"}})
+        make_config(
+            **{
+                "rollout_runtime.model_access": "openai_http",
+                "rollout_runtime.openai": {"bind": "nope"},
+            }
+        )
 
 
 def test_slots_can_be_less_than_group_size():
@@ -243,10 +248,10 @@ def test_structured_overrides(tmp_path):
     ("table", "override", "merged"),
     [
         (
-            {"runtime": {"config": {"kept": 1, "changed": 2, "nested": {"x": 1, "y": 2}}}},
-            ("runtime.config", {"changed": 3, "added": 4, "nested": {"y": 5}}),
+            {"rollout_runtime": {"config": {"kept": 1, "changed": 2, "nested": {"x": 1, "y": 2}}}},
+            ("rollout_runtime.config", {"changed": 3, "added": 4, "nested": {"y": 5}}),
             lambda config: (
-                config.runtime.config
+                config.rollout_runtime.config
                 == {"kept": 1, "changed": 3, "added": 4, "nested": {"x": 1, "y": 5}}
             ),
         ),
@@ -264,12 +269,12 @@ def test_structured_overrides(tmp_path):
             ),
         ),
         (
-            {"runtime": {"openai": {"advertised_base_url": "http://10.0.0.2:9000"}}},
-            ("runtime.openai", {"model_name": "policy"}),
+            {"rollout_runtime": {"openai": {"advertised_base_url": "http://10.0.0.2:9000"}}},
+            ("rollout_runtime.openai", {"model_name": "policy"}),
             lambda config: (
-                config.runtime.openai is not None
-                and config.runtime.openai.advertised_base_url == "http://10.0.0.2:9000"
-                and config.runtime.openai.model_name == "policy"
+                config.rollout_runtime.openai is not None
+                and config.rollout_runtime.openai.advertised_base_url == "http://10.0.0.2:9000"
+                and config.rollout_runtime.openai.model_name == "policy"
             ),
         ),
     ],
@@ -469,20 +474,20 @@ def test_paths_resolve_against_whoever_named_them(tmp_path, monkeypatch):
     path = write(
         training,
         {
-            "runtime": {"files": {"job": "job.yaml"}},
+            "rollout_runtime": {"files": {"job": "job.yaml"}},
             "training": {"resume_from": "checkpoints/step-0.json"},
         },
     )
     monkeypatch.chdir(tmp_path)
     config = cli.load_training_config(path)
     assert config.training.resume_from == str(training / "checkpoints" / "step-0.json")
-    assert config.runtime.files["job"] == str(training / "job.yaml")
+    assert config.rollout_runtime.files["job"] == str(training / "job.yaml")
     overridden = _build_config(
         argparse.Namespace(config=path, **{"training.resume_from": "other.json"})
     )
     assert overridden.training.resume_from == str(tmp_path / "other.json")
-    files = cli.load_training_config(path, {"runtime.files": {"job": "shell.yaml"}})
-    assert files.runtime.files["job"] == str(tmp_path / "shell.yaml")
+    files = cli.load_training_config(path, {"rollout_runtime.files": {"job": "shell.yaml"}})
+    assert files.rollout_runtime.files["job"] == str(tmp_path / "shell.yaml")
     absolute = cli.load_training_config(
         path, {"training.resume_from": str(tmp_path / "absolute.json")}
     )
@@ -623,6 +628,22 @@ def test_async_admits_at_most_the_cap_ahead():
         make_config(mode="async", max_steps_off_policy=2, admission_steps_ahead=0)
 
 
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        ({"runtime.factory": "x:y"}, r"\[runtime\] is now \[rollout_runtime\]"),
+        (
+            {"eval.sets.val.runtime.files.tasks": "tasks.jsonl"},
+            r"\[eval\.sets\.<name>\.runtime\] is now \[eval\.sets\.<name>\.rollout_runtime\]",
+        ),
+    ],
+)
+def test_the_old_runtime_table_is_refused_naming_its_new_name(override, message):
+    """An old config's [runtime] would otherwise read as a typo, not as a rename."""
+    with pytest.raises(ValidationError, match=message):
+        make_config(**override)
+
+
 def test_admission_headroom_is_refused_saying_what_replaced_it():
     """A config that set it reads as a typo otherwise, not as a knob that moved."""
     with pytest.raises(ValidationError, match="admission_headroom was removed"):
@@ -719,18 +740,23 @@ def test_an_eval_set_names_files_the_runtime_already_has(tmp_path):
     path = write(
         tmp_path,
         {
-            "runtime": {"files": {"tasks": "train.jsonl"}},
+            "rollout_runtime": {"files": {"tasks": "train.jsonl"}},
             "eval": {
                 "sets": {
-                    "val": {"runtime": {"files": {"tasks": "val.jsonl"}}, "samples_per_task": 2}
+                    "val": {
+                        "rollout_runtime": {"files": {"tasks": "val.jsonl"}},
+                        "samples_per_task": 2,
+                    }
                 }
             },
         },
     )
     config = cli.load_training_config(path)
     # Resolved against the config that named it, as training's own files are.
-    assert config.eval.sets["val"].runtime.files == {"tasks": str(path.parent / "val.jsonl")}
-    assert config.runtime.files["tasks"] == str(path.parent / "train.jsonl")
+    assert config.eval.sets["val"].rollout_runtime.files == {
+        "tasks": str(path.parent / "val.jsonl")
+    }
+    assert config.rollout_runtime.files["tasks"] == str(path.parent / "train.jsonl")
     assert config.eval.sets["val"].samples_per_task == 2
 
 
@@ -738,11 +764,11 @@ def test_an_eval_set_naming_a_file_the_runtime_lacks_is_refused():
     with pytest.raises(ValidationError) as error:
         make_config(
             **{
-                "runtime.files": {"tasks": "train.jsonl", "job": "harbor.yaml"},
-                "eval.sets": {"val": {"runtime": {"files": {"taks": "val.jsonl"}}}},
+                "rollout_runtime.files": {"tasks": "train.jsonl", "job": "harbor.yaml"},
+                "eval.sets": {"val": {"rollout_runtime": {"files": {"taks": "val.jsonl"}}}},
             }
         )
-    assert "eval set 'val' names file(s) taks, which [runtime.files] does not have" in str(
+    assert "eval set 'val' names file(s) taks, which [rollout_runtime.files] does not have" in str(
         error.value
     )
     assert "(job, tasks)" in str(error.value)
@@ -753,8 +779,8 @@ def test_an_eval_set_name_must_fit_a_path_and_a_metric_name(name):
     with pytest.raises(ValidationError, match="eval set names"):
         make_config(
             **{
-                "runtime.files": {"tasks": "train.jsonl"},
-                "eval.sets": {name: {"runtime": {"files": {"tasks": "val.jsonl"}}}},
+                "rollout_runtime.files": {"tasks": "train.jsonl"},
+                "eval.sets": {name: {"rollout_runtime": {"files": {"tasks": "val.jsonl"}}}},
             }
         )
 
@@ -770,4 +796,4 @@ def test_replay_is_refused_for_a_runtime_whose_prompts_carry_images(has_images, 
         with pytest.raises(ValidationError, match="cannot record image prompts"):
             make_config(**values)
     else:
-        assert make_config(**values).runtime.has_images is has_images
+        assert make_config(**values).rollout_runtime.has_images is has_images

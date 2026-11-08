@@ -249,7 +249,7 @@ does not configure logging; that stays with your application. For custom wiring,
 each recipe's `recipe.train` and `recipe.check` directly.
 
 - `loops_cookbook.runtime`: the `RolloutRuntime` contract a runtime implements, and
-  the attempt and evidence types it receives. `[runtime].factory` names the
+  the attempt and evidence types it receives. `[rollout_runtime].factory` names the
   runtime's factory.
 - `loops_cookbook.model_access`: attempt leases, capture, `ModelAccessMode`, and the
   OpenAI-compatible gateway for agents that speak Chat Completions (a runtime whose

@@ -2,12 +2,12 @@
 
 ::
 
-    [runtime]
+    [rollout_runtime]
     factory = "loops_cookbook.episodes:create_runtime"
-    [runtime.config]
+    [rollout_runtime.config]
     episode = "my_env:AnswerEpisode"
     agent_timeout_seconds = 600
-    [runtime.files]
+    [rollout_runtime.files]
     tasks = "tasks.jsonl"
 """
 

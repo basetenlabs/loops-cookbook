@@ -213,7 +213,7 @@ class FakeClient:
 
 
 class FakeSpec(SandboxSpec):
-    """``[runtime.config.sandbox]`` for a ``Fake`` sandbox: a ``box`` with an image."""
+    """``[rollout_runtime.config.sandbox]`` for a ``Fake`` sandbox: a ``box`` with an image."""
 
     resource_kind: ClassVar[str] = "box"
 

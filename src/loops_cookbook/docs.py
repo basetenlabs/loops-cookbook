@@ -32,7 +32,7 @@ GENERATED_BEGIN = (
 GENERATED_END = "<!-- /generated -->"
 
 SECTION_BLURBS = {
-    "runtime": "Where episodes come from: the runtime factory and what it may resolve.",
+    "rollout_runtime": "Where episodes come from: the rollout runtime factory and what it may resolve.",
     "compute": "Where the run executes. Nothing here changes what is learned.",
     "model": "The policy being trained and the compute it is configured for.",
     "sampling": "Defaults for what the policy produces. Agents inherit these and state "
@@ -40,16 +40,16 @@ SECTION_BLURBS = {
     "training": "The optimizer, the batch, and what data is acceptable to train on.",
     "rollout": "How much runs at once, how long each episode may take, and when to give up.",
     "rollout.grading": "Each grade() try's deadline; how many tries a failure earns is the "
-    "runtime's.",
-    "rollout.cleanup": "Deadlines for the runtime's cleanup hooks.",
+    "rollout runtime's.",
+    "rollout.cleanup": "Deadlines for the rollout runtime's cleanup hooks.",
     "output": "What the run leaves behind.",
-    "runtime.openai": "The Chat Completions gateway, with model_access = openai_http.",
-    "rollout.producers.<name>": "One producer a runtime may name, keyed by that name.",
+    "rollout_runtime.openai": "The Chat Completions gateway, with model_access = openai_http.",
+    "rollout.producers.<name>": "One producer a rollout runtime may name, keyed by that name.",
     "eval": "Held-out evals during training, each on a sampler pinned to one step's "
     "weights. Nothing they sample trains.",
-    "eval.sets.<name>": "One held-out task set: training's runtime with these files. A key "
+    "eval.sets.<name>": "One held-out task set: training's rollout runtime with these files. A key "
     "at the path of a training setting overrides that setting for this set.",
-    "eval.sets.<name>.runtime": "Overrides [runtime] for this set.",
+    "eval.sets.<name>.rollout_runtime": "Overrides [rollout_runtime] for this set.",
     "eval.sets.<name>.sampling": "Overrides [sampling] for this set.",
 }
 
@@ -58,15 +58,15 @@ SECTION_BLURBS = {
 # models all the same. Harbor's `reward_key` is checked by hand, so it is prose above.
 BUILT_IN_SECTIONS: tuple[tuple[str, type[BaseModel], str], ...] = (
     (
-        "`[runtime.config]` for Episodes",
+        "`[rollout_runtime.config]` for Episodes",
         EpisodeSettings,
         (
             'With factory = "loops_cookbook.episodes:create_runtime". Its tasks file is the '
-            "`tasks` alias under `[runtime.files]`."
+            "`tasks` alias under `[rollout_runtime.files]`."
         ),
     ),
     (
-        "`[runtime.config.sandbox]` for Episodes",
+        "`[rollout_runtime.config.sandbox]` for Episodes",
         SandboxSettings,
         (
             "An Episode's sandbox. The keys beside `provider` are the provider's sandbox "
@@ -74,17 +74,17 @@ BUILT_IN_SECTIONS: tuple[tuple[str, type[BaseModel], str], ...] = (
         ),
     ),
     (
-        "`[runtime.config.sandbox]` on Blaxel",
+        "`[rollout_runtime.config.sandbox]` on Blaxel",
         BlaxelSandbox,
         'Beside provider = "blaxel".',
     ),
     (
-        "`[runtime.config.sandbox]` on Daytona",
+        "`[rollout_runtime.config.sandbox]` on Daytona",
         DaytonaSandbox,
         'Beside provider = "daytona". Its lifecycle is `[providers.daytona]`\'s.',
     ),
     (
-        "`[runtime.config.grading_sandbox]` for Episodes",
+        "`[rollout_runtime.config.grading_sandbox]` for Episodes",
         SandboxSettings,
         (
             "An Episode's optional separate verifier sandbox, provisioned only on grading "
@@ -92,7 +92,7 @@ BUILT_IN_SECTIONS: tuple[tuple[str, type[BaseModel], str], ...] = (
         ),
     ),
     (
-        "`[runtime.config.grading_sandbox]` on Blaxel",
+        "`[rollout_runtime.config.grading_sandbox]` on Blaxel",
         BlaxelSandbox,
         'Beside provider = "blaxel"; independent of the execution sandbox spec.',
     ),
@@ -262,9 +262,9 @@ Every setting the cookbook reads. Settings live in `train.toml` under the sectio
 shown, and the CLI exposes each key of a table that is always present by its dotted
 path, such as `--rollout.max_concurrent_rollouts`.
 
-A runtime's own settings are opaque to the training config and live in
-`[runtime.config]`; the built-in runtimes' and providers' tables are listed after
-the training config's. For Harbor, `[runtime.config]` is only `reward_key`, and
+A rollout runtime's own settings are opaque to the training config and live in
+`[rollout_runtime.config]`; the built-in rollout runtimes' and providers' tables are listed after
+the training config's. For Harbor, `[rollout_runtime.config]` is only `reward_key`, and
 agent behaviour and environment configuration belong to the Harbor job. A custom
 provider defines its own `[providers.<name>]`. For the settings that only make sense
 together, see [`settings-that-interact.md`](settings-that-interact.md).

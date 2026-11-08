@@ -5,10 +5,10 @@
 
 recipe = "rl"
 
-[runtime]
+[rollout_runtime]
 factory = "loops_cookbook.harbor:create_runtime"
 
-[runtime.files]
+[rollout_runtime.files]
 job = "job_blaxel.yaml"
 
 [providers.blaxel]

@@ -69,7 +69,7 @@ def assemble(
     return Run(
         config,
         trainer,
-        runtime_factory=runtime_factory or import_factory(config.runtime.factory),
+        runtime_factory=runtime_factory or import_factory(config.rollout_runtime.factory),
         renderer_factory=renderer_factory or configured_renderer,
         environ=environ,
         resume=resume,
@@ -269,13 +269,13 @@ class CheckReport:
         """The same human-readable report printed by `loops check`."""
         config, capabilities = self.config, self.capabilities
         lines = [self.model_check]
-        lines.append(f"Runtime: {config.runtime.factory}; tasks: {len(self.tasks)}")
+        lines.append(f"Rollout runtime: {config.rollout_runtime.factory}; tasks: {len(self.tasks)}")
         mode = self.model_access.value if self.model_access else "unresolved"
         lines.append(
             "Capabilities: model access "
             + (
-                f"{mode} (set in [runtime] model_access)"
-                if config.runtime.model_access is not None
+                f"{mode} (set in [rollout_runtime] model_access)"
+                if config.rollout_runtime.model_access is not None
                 else capabilities.model_access_source or mode
             )
             + "; runtime-acquired phases "
@@ -340,7 +340,9 @@ class CheckReport:
             )
             for eval_set in self.eval_sets
         )
-        lines.append("Configuration and runtime checked; no sandbox or Loops trainer launched.")
+        lines.append(
+            "Configuration and rollout runtime checked; no sandbox or Loops trainer launched."
+        )
         return lines
 
 

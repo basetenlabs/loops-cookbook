@@ -117,9 +117,11 @@ def build_sets(
         )
     settings = {
         "max_steps": 5,
-        "runtime.files": {"tasks": "train.jsonl"},
+        "rollout_runtime.files": {"tasks": "train.jsonl"},
         "eval.every_steps": 2,
-        "eval.sets": {name: {"runtime": {"files": {"tasks": f"{name}.jsonl"}}} for name in sets},
+        "eval.sets": {
+            name: {"rollout_runtime": {"files": {"tasks": f"{name}.jsonl"}}} for name in sets
+        },
         **overrides,
     }
     trainer = PacedTrainer() if paced else MemoryTrainer()
@@ -369,7 +371,10 @@ async def test_on_serverless_a_sets_evals_overlap_none_skipped_each_with_its_own
         paced=False,
         **{
             "eval.sets": {
-                "val": {"runtime": {"files": {"tasks": "val.jsonl"}}, "max_concurrent_rollouts": 2}
+                "val": {
+                    "rollout_runtime": {"files": {"tasks": "val.jsonl"}},
+                    "max_concurrent_rollouts": 2,
+                }
             }
         },
     )
@@ -476,7 +481,10 @@ async def test_an_eval_whose_sets_slots_kept_hooks_all_hold_is_skipped_before_it
         **{
             "rollout.rollout_timeout_seconds": 0.3,
             "eval.sets": {
-                "val": {"runtime": {"files": {"tasks": "val.jsonl"}}, "max_concurrent_rollouts": 1}
+                "val": {
+                    "rollout_runtime": {"files": {"tasks": "val.jsonl"}},
+                    "max_concurrent_rollouts": 1,
+                }
             },
         },
     )
@@ -634,7 +642,10 @@ async def test_a_sets_rollout_cap_holds_in_each_of_its_evals(config):
         sets=("val",),
         **{
             "eval.sets": {
-                "val": {"runtime": {"files": {"tasks": "val.jsonl"}}, "max_concurrent_rollouts": 1}
+                "val": {
+                    "rollout_runtime": {"files": {"tasks": "val.jsonl"}},
+                    "max_concurrent_rollouts": 1,
+                }
             }
         },
     )
@@ -764,8 +775,10 @@ async def evaluate_later(config, directory, step, *, sets=("val",), only=(), **o
     }
     trainer = MemoryTrainer()
     settings = {
-        "runtime.files": {"tasks": "train.jsonl"},
-        "eval.sets": {name: {"runtime": {"files": {"tasks": f"{name}.jsonl"}}} for name in sets},
+        "rollout_runtime.files": {"tasks": "train.jsonl"},
+        "eval.sets": {
+            name: {"rollout_runtime": {"files": {"tasks": f"{name}.jsonl"}}} for name in sets
+        },
         **overrides,
     }
     evaluated = await recipe.evaluate(
@@ -869,8 +882,14 @@ async def test_an_eval_after_the_fact_needs_open_files_for_its_eval_rollouts_alo
         "rollout.max_concurrent_rollouts": 48,
         "rollout.max_concurrent_verifiers": 64,
         "eval.sets": {
-            "val": {"runtime": {"files": {"tasks": "val.jsonl"}}, "max_concurrent_rollouts": 4},
-            "hard": {"runtime": {"files": {"tasks": "hard.jsonl"}}, "max_concurrent_rollouts": 64},
+            "val": {
+                "rollout_runtime": {"files": {"tasks": "val.jsonl"}},
+                "max_concurrent_rollouts": 4,
+            },
+            "hard": {
+                "rollout_runtime": {"files": {"tasks": "hard.jsonl"}},
+                "max_concurrent_rollouts": 64,
+            },
         },
     }
     evaluated, _, _ = await evaluate_later(

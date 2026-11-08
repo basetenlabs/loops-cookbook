@@ -53,12 +53,12 @@ class Answer(Episode[None, None]):
     (source / "tasks.jsonl").write_text('{"id":"question"}\n')
     values = config(
         **{
-            "runtime.factory": "loops_cookbook.episodes:create_runtime",
-            "runtime.config": {
+            "rollout_runtime.factory": "loops_cookbook.episodes:create_runtime",
+            "rollout_runtime.config": {
                 "episode": "loaded_project_episode:Answer",
                 "agent_timeout_seconds": 10,
             },
-            "runtime.files": {"tasks": "tasks.jsonl"},
+            "rollout_runtime.files": {"tasks": "tasks.jsonl"},
             "rollout.rollout_timeout_seconds": None,
             "rollout.producers": {"solver": {"trainable": True}},
             "training.max_steps": 1,

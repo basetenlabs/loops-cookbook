@@ -120,6 +120,10 @@ RECIPE = cli.Recipe(
     config=Config,
     check=lambda config, source: recipe.check(config, source=source),
     train=_train,
-    references=("training.resume_from", "runtime.files.*", "eval.sets.*.runtime.files.*"),
+    references=(
+        "training.resume_from",
+        "rollout_runtime.files.*",
+        "eval.sets.*.rollout_runtime.files.*",
+    ),
     errors=(RuntimeConfigurationError, RuntimeExecutionFailure, JournalError),
 )

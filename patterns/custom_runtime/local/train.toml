@@ -4,30 +4,30 @@
 # uv run loops check patterns/custom_runtime/local/train.toml
 #
 # local_sandbox.py makes each sandbox a directory, so this runs anywhere. A real
-# provider such as [providers.blaxel] slots in through [runtime.config.sandbox]:
+# provider such as [providers.blaxel] slots in through [rollout_runtime.config.sandbox]:
 # agent_program.py and verifier.py reach the sandbox only through its usage environment.
 
 recipe = "rl"
 
-[runtime]
+[rollout_runtime]
 factory = "loops_cookbook.episodes:create_runtime"
 
-[runtime.files]
+[rollout_runtime.files]
 tasks = "../../../tasks/hidden_answer.jsonl"   # one hidden answer to learn (tasks/README)
 
-[runtime.config]
+[rollout_runtime.config]
 episode = "local_episode:DirectoryAgentEpisode"
 agent_timeout_seconds = 90   # cut after its reply: graded on what it left; before it: unversioned
 
 # The two programs run with the PATH's python3, which `uv run` makes the training
 # interpreter, with the Blaxel SDK that sandbox_io needs for a Blaxel sandbox.
 # A ./ or ../ path in either command resolves beside local_episode.py.
-[runtime.config.options]
+[rollout_runtime.config.options]
 agent = ["python3", "./agent_program.py"]
 verifier = ["python3", "./verifier.py"]
 grade_against = "files"   # or "sandbox": verify the answer it left in its sandbox
 
-[runtime.config.sandbox]
+[rollout_runtime.config.sandbox]
 provider = "local_sandbox"
 
 [providers.local_sandbox]

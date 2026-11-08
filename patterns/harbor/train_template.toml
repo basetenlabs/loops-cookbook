@@ -1,17 +1,17 @@
 # Training config template for the Harbor runtime. Copy next to your Harbor job and
 # agent, edit, then: uv run loops check train.toml
-# [runtime.files] and resume_from are relative to this file; output_dir is relative to
+# [rollout_runtime.files] and resume_from are relative to this file; output_dir is relative to
 # where you run. `loops run --help` documents every setting.
 
 recipe = "rl"
 
-[runtime]
+[rollout_runtime]
 factory = "loops_cookbook.harbor:create_runtime"
 
-[runtime.files]
+[rollout_runtime.files]
 job = "job.yaml"        # your Harbor JobConfig (JSON or YAML)
 
-[runtime.config]
+[rollout_runtime.config]
 # reward_key = "reward"           # only if your verifier emits several rewards
 
 [model]

@@ -88,7 +88,7 @@ assert command.main(["check", {str(HELLO)!r}]) == 0
 config = cli.load_training_config(
     Path({str(HELLO)!r}),
     {{
-        "runtime.files": {{"tasks": "tasks.jsonl"}},
+        "rollout_runtime.files": {{"tasks": "tasks.jsonl"}},
         "compute.sampler_replica_affinity": True,
         "output.output_dir": "runs",
         "training.max_steps": 1,

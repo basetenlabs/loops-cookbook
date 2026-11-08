@@ -102,7 +102,7 @@ def test_runtime_evidence_is_recorded_once_per_name():
         (
             RuntimeCapabilities(BOTH),
             Preflight(None, 30),
-            r"\[runtime\] model_access is required: the runtime supports \['direct', 'openai_http'\]",
+            r"\[rollout_runtime\] model_access is required: the runtime supports \['direct', 'openai_http'\]",
         ),
         (
             RuntimeCapabilities(DIRECT),

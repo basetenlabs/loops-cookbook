@@ -64,9 +64,9 @@ def write_config(tmp_path: Path, sets: str, eval_table: str = "", training_table
     path.write_text(
         f"""
 recipe = "rl"
-[runtime]
+[rollout_runtime]
 factory = "{__name__}:make_runtime"
-[runtime.files]
+[rollout_runtime.files]
 tasks = "{training}"
 [model]
 base_model = "m"
@@ -125,7 +125,7 @@ def test_check_reports_each_eval_set_and_closes_its_runtime(check, tmp_path):
             tmp_path,
             f"""
 [eval.sets.val]
-runtime.files = {{ tasks = "{val}" }}
+rollout_runtime.files = {{ tasks = "{val}" }}
 samples_per_task = 2
 max_tasks = 2
 max_concurrent_rollouts = 4
@@ -150,7 +150,7 @@ def test_tasks_shared_with_training_are_warned_about_by_id_or_content(check, tmp
         [("t0", "something new"), ("v1", "three plus three"), ("v2", "held out")],
     )
     code, out = check(
-        write_config(tmp_path, f'[eval.sets.val]\nruntime.files = {{ tasks = "{val}" }}')
+        write_config(tmp_path, f'[eval.sets.val]\nrollout_runtime.files = {{ tasks = "{val}" }}')
     )
     assert code == 0, out
     assert "eval set 'val' shares 2 task(s) with training (t0, v1)" in out
@@ -164,7 +164,8 @@ def test_only_the_tasks_a_set_evaluates_count_as_shared(check, tmp_path):
     val = tasks_file(tmp_path, "val.jsonl", [("v0", "held out"), ("t0", "x"), ("t1", "y")])
     code, out = check(
         write_config(
-            tmp_path, f'[eval.sets.val]\nruntime.files = {{ tasks = "{val}" }}\nmax_tasks = 1'
+            tmp_path,
+            f'[eval.sets.val]\nrollout_runtime.files = {{ tasks = "{val}" }}\nmax_tasks = 1',
         )
     )
     assert code == 0, out
@@ -177,7 +178,7 @@ def test_a_run_from_other_weights_is_not_promised_a_base_eval(check, tmp_path):
     code, out = check(
         write_config(
             tmp_path,
-            f'[eval.sets.val]\nruntime.files = {{ tasks = "{val}" }}',
+            f'[eval.sets.val]\nrollout_runtime.files = {{ tasks = "{val}" }}',
             "every_steps = 5",
             'max_steps = 10\ninit_from = "bt://loops:other/state/step-9"',
         )
@@ -194,7 +195,7 @@ def test_a_resumed_run_is_not_promised_a_base_eval(check, tmp_path, monkeypatch)
     code, out = check(
         write_config(
             tmp_path,
-            f'[eval.sets.val]\nruntime.files = {{ tasks = "{val}" }}',
+            f'[eval.sets.val]\nrollout_runtime.files = {{ tasks = "{val}" }}',
             "every_steps = 5",
             "max_steps = 10",
         )
@@ -206,7 +207,7 @@ def test_a_resumed_run_is_not_promised_a_base_eval(check, tmp_path, monkeypatch)
 def test_an_eval_set_whose_runtime_reaches_the_model_another_way_is_refused(check, tmp_path):
     val = tasks_file(tmp_path, "val.jsonl", [("v0", "a")], mode="openai_http")
     code, out = check(
-        write_config(tmp_path, f'[eval.sets.val]\nruntime.files = {{ tasks = "{val}" }}')
+        write_config(tmp_path, f'[eval.sets.val]\nrollout_runtime.files = {{ tasks = "{val}" }}')
     )
     assert code != 0
     assert "eval set 'val' resolves model access 'openai_http', and training 'direct'" in out
@@ -221,9 +222,9 @@ def test_an_eval_set_that_fails_to_prepare_closes_every_runtime_built(check, tmp
             tmp_path,
             f"""
 [eval.sets.good]
-runtime.files = {{ tasks = "{good}" }}
+rollout_runtime.files = {{ tasks = "{good}" }}
 [eval.sets.bad]
-runtime.files = {{ tasks = "{broken}" }}
+rollout_runtime.files = {{ tasks = "{broken}" }}
 """,
         )
     )

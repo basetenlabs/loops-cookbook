@@ -11,7 +11,7 @@ validated as a ``Question``.
   Blaxel sandbox, and ``grade()`` reads it back from there.
 - ``grade_group()`` asks a judge model to rank the group's answers, best first,
   through its own OpenAI-compatible client, set up by ``JudgeOptions`` from
-  ``[runtime.config.options]``: its base URL, its model, and the name of the
+  ``[rollout_runtime.config.options]``: its base URL, its model, and the name of the
   environment variable holding its API key, never the key. It never sees the policy,
   a sandbox or a live episode: only each member's task, transcript, reward and
   metadata. The final reward composes the two: ``rank_weight`` of the rank, the rest
@@ -47,7 +47,7 @@ class Question(BaseModel):
 
 
 class JudgeOptions(BaseModel):
-    """``[runtime.config.options]``: the judge, and how the two rewards compose."""
+    """``[rollout_runtime.config.options]``: the judge, and how the two rewards compose."""
 
     model_config = ConfigDict(extra="forbid")
 

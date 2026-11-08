@@ -162,7 +162,7 @@ async def train(tmp_path, blaxel, policy: Policy, **settings):
         CONFIG,
         tmp_path,
         {
-            "runtime.files": {"tasks": str(task_file(tmp_path, [PORT]))},
+            "rollout_runtime.files": {"tasks": str(task_file(tmp_path, [PORT]))},
             "training.group_size": GROUP,
             "training.groups_per_step": 1,
             "training.max_steps": 1,
@@ -188,10 +188,14 @@ async def train(tmp_path, blaxel, policy: Policy, **settings):
 
 
 def agent(options: Mapping[str, Any] | None = None, **changes: Any) -> dict[str, Any]:
-    """The shipped ``[runtime.config]`` with ``changes``, and ``options`` changed in it."""
-    config = cli.load_training_config(CONFIG).runtime.config
+    """The shipped ``[rollout_runtime.config]`` with ``changes``, and ``options`` changed in it."""
+    config = cli.load_training_config(CONFIG).rollout_runtime.config
     return {
-        "runtime.config": {**config, **changes, "options": {**config["options"], **(options or {})}}
+        "rollout_runtime.config": {
+            **config,
+            **changes,
+            "options": {**config["options"], **(options or {})},
+        }
     }
 
 
@@ -566,9 +570,9 @@ async def test_a_sandbox_that_vanishes_mid_check_is_discarded_never_scored_1(tmp
     ids=["no_turns", "misspelt"],
 )
 def test_check_refuses_bad_agent_options(loops_check, options, problem):
-    config = cli.load_training_config(CONFIG).runtime.config
+    config = cli.load_training_config(CONFIG).rollout_runtime.config
     changed = json.dumps({**config, "options": {**config["options"], **options}})
-    code, _, err = loops_check(CONFIG, "--runtime.config", changed)
+    code, _, err = loops_check(CONFIG, "--rollout_runtime.config", changed)
     assert code == 2
     assert "is not a valid ToolOptions" in err and problem in err
 

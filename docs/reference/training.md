@@ -74,7 +74,7 @@ earlier turn keeps the routes it was sampled with even where a later policy woul
 prefilled it differently. It is off by default; `router_replay = true` enables it.
 
 Loops records text prompts only. A runtime whose prompts carry images sets
-`[runtime] has_images = true`, and `loops check` refuses it with `router_replay = true`.
+`[rollout_runtime] has_images = true`, and `loops check` refuses it with `router_replay = true`.
 An image prompt that reaches a run with replay on fails its generation, and the run
 logs once which settings to change.
 
@@ -273,7 +273,7 @@ checks. Use `resume_from` to continue a run, and `init_from` to start a new one.
 ## Evals
 
 An eval scores the policy on held-out tasks while it trains. Each eval set is training's
-own runtime, with the same factory and `[runtime.config]`, given other files. The
+own runtime, with the same factory and `[rollout_runtime.config]`, given other files. The
 agent, grader and sandboxes are training's. The only thing an eval set requires is
 its tasks:
 
@@ -285,14 +285,14 @@ every_steps = 10
 samples_per_task = 4              # optional; 1 by default
 max_concurrent_rollouts = 16      # this set's rollouts at once
 
-[eval.sets.val.runtime.files]     # replaces these [runtime.files] entries
+[eval.sets.val.rollout_runtime.files]     # replaces these [rollout_runtime.files] entries
 tasks = "val.jsonl"
 
 [eval.sets.val.sampling]          # optional; overrides [sampling] for this set
 temperature = 0.6
 ```
 
-A key at the path of a training setting overrides it for the set: `runtime.files`
+A key at the path of a training setting overrides it for the set: `rollout_runtime.files`
 and `sampling.temperature`. The others are the set's own.
 
 | Eval | When | Weights | Logged at `train/update` |
@@ -666,7 +666,7 @@ left out.
 | Staleness in async | `mode`, `max_steps_off_policy`, `admission_steps_ahead`, `max_policy_delta_in_trajectory` |
 | Which generations train | `[rollout.producers]`: it replaces the default, which declares only `main`, so with a table that omits `main`, a call that names no producer is refused and stops the run |
 | Model formatting | `tokenizer`, `renderer`, `renderer_chat_template_kwargs` (see [renderers.md](renderers.md)), `[model.reasoning_efforts]` |
-| How agents reach the model | `[runtime] model_access`, `[runtime.openai] bind`, `advertised_base_url`, `model_name` |
+| How agents reach the model | `[rollout_runtime] model_access`, `[rollout_runtime.openai] bind`, `advertised_base_url`, `model_name` |
 | Infra | `scope`, `spot_job`, `trainer_replicas`, `sampler_replicas`, `sampler_replica_affinity`, `reuse_from_run_id`, `keep_run`, `shutdown_drain_seconds` |
 | Sampling defaults and the trajectory budget | `temperature`, `max_generation_tokens`, `max_trajectory_tokens` |
 | Checkpoints and logs | `trainer_checkpoint_every`, `sampler_checkpoint_every`, `trace`, `checkpoint_ttl_seconds`, `resume_from`, `init_from`, `init_from_optimizer`, `output_dir`, `run_name`, `wandb_project`, `progress_every_seconds`, `rollout_metrics_limit`, `console` |

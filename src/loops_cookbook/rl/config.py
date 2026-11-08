@@ -1,8 +1,8 @@
 """Training configuration: one TOML file, one nested model per section.
 
-The runtime's own settings are opaque application data under ``[runtime.config]``;
+The runtime's own settings are opaque application data under ``[rollout_runtime.config]``;
 nothing here interprets them. Files a runtime needs resolved are named explicitly in
-``[runtime.files]``. Secrets never appear here: each SDK, runtime, or adapter reads
+``[rollout_runtime.files]``. Secrets never appear here: each SDK, runtime, or adapter reads
 the variables it needs from the environment, loaded from ``.env``.
 """
 
@@ -20,6 +20,17 @@ from loops_cookbook.model_access.producers import DEFAULT_PRODUCER
 from loops_cookbook.settings import RECIPE_DESCRIPTION
 from loops_cookbook.settings import Section as _Section
 from loops_cookbook.settings import TrainingSettings as _TrainingSettings
+
+
+def _refuse_renamed_runtime(data: object, table: str) -> object:
+    # Otherwise an old config's [runtime] reads as a typo ("extra inputs"), not as a
+    # table that was renamed.
+    if isinstance(data, dict) and "runtime" in data:
+        raise ValueError(
+            f"[{table}runtime] is now [{table}rollout_runtime]. Rename the table; its "
+            "keys are unchanged."
+        )
+    return data
 
 
 class OpenAISettings(_Section):
@@ -45,15 +56,16 @@ class OpenAISettings(_Section):
 class RuntimeSettings(_Section):
     factory: str = Field(
         min_length=1,
-        description="Runtime factory as module:callable. Harbor: "
-        "loops_cookbook.harbor:create_runtime; a custom runtime: its module beside this file.",
+        description="Rollout runtime factory as module:callable. Harbor: "
+        "loops_cookbook.harbor:create_runtime; a custom rollout runtime: its module beside "
+        "this file.",
     )
     model_access: Literal["direct", "openai_http"] | None = Field(
         default=None,
         description="How the agent reaches the model. direct: the cookbook's llm() client, "
         "for in-process agents; openai_http: an OpenAI-compatible Chat Completions "
-        "endpoint per attempt. Unset: the one the runtime declares (an Episode class's "
-        "model_access, a Harbor job's agents'); set only for a runtime that supports "
+        "endpoint per attempt. Unset: the one the rollout runtime declares (an Episode class's "
+        "model_access, a Harbor job's agents'); set only for a rollout runtime that supports "
         "several.",
     )
     openai: OpenAISettings | None = Field(
@@ -62,11 +74,11 @@ class RuntimeSettings(_Section):
     )
     config: dict[str, JsonValue] = Field(
         default_factory=dict[str, JsonValue],
-        description="Opaque runtime settings, handed to the factory unchanged.",
+        description="Opaque rollout runtime settings, handed to the factory unchanged.",
     )
     files: dict[str, str] = Field(
         default_factory=dict[str, str],
-        description="Files the runtime may resolve, as alias = path. Relative to this "
+        description="Files the rollout runtime may resolve, as alias = path. Relative to this "
         "config file, or to the shell when passed as a command-line flag.",
     )
     has_images: bool = Field(
@@ -78,7 +90,9 @@ class RuntimeSettings(_Section):
     @model_validator(mode="after")
     def _gateway(self) -> Self:
         if self.openai is not None and self.model_access == "direct":
-            raise ValueError('[runtime.openai] applies only when model_access = "openai_http"')
+            raise ValueError(
+                '[rollout_runtime.openai] applies only when model_access = "openai_http"'
+            )
         return self
 
 
@@ -436,7 +450,7 @@ class CleanupSettings(_Section):
     cancellation_grace_seconds: float = Field(
         default=5,
         gt=0,
-        description="How long a cancelled runtime hook may take to stop before the run fails.",
+        description="How long a cancelled rollout runtime hook may take to stop before the run fails.",
     )
     process_kill_grace_seconds: float = Field(
         default=10,
@@ -488,7 +502,7 @@ class RolloutSettings(_Section):
     )
     producers: dict[str, ProducerSpec] = Field(
         default={DEFAULT_PRODUCER: ProducerSpec(trainable=True)},
-        description="Every producer a runtime may use, by name, and whether its generations "
+        description="Every producer a rollout runtime may use, by name, and whether its generations "
         "receive gradient; a call that names no producer uses main, and an undeclared name "
         "is refused. Setting the table replaces the default, so list main if calls rely "
         "on it.",
@@ -497,9 +511,9 @@ class RolloutSettings(_Section):
         default=None,
         gt=0,
         description="Backstop on a rollout's time holding sampling capacity, less "
-        "resource-service time such as a sandbox create; a runtime bounds its own agent "
-        "below it. Unset: the runtime's derived clock (Episodes derive one from their "
-        "agent deadline); required for a runtime that derives none.",
+        "resource-service time such as a sandbox create; a rollout runtime bounds its own agent "
+        "below it. Unset: the rollout runtime's derived clock (Episodes derive one from their "
+        "agent deadline); required for a rollout runtime that derives none.",
     )
     setup_timeout_seconds: float = Field(
         gt=0,
@@ -510,12 +524,12 @@ class RolloutSettings(_Section):
         default=0,
         ge=0,
         description="Extra attempts a rollout may use after an episode failure before it "
-        "has a valid rollout. A last resort: runtimes retry their own steps, and model-call "
+        "has a valid rollout. A last resort: rollout runtimes retry their own steps, and model-call "
         "failures are never retried here because the Loops SDK already retried them.",
     )
     grading: GradingSettings = Field(description="Per-try grading deadline.")
     cleanup: CleanupSettings = Field(
-        default_factory=CleanupSettings, description="Cleanup deadlines for runtime hooks."
+        default_factory=CleanupSettings, description="Cleanup deadlines for rollout runtime hooks."
     )
 
     @model_validator(mode="after")
@@ -584,7 +598,7 @@ EVAL_SET_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 class EvalRuntimeSettings(_Section):
     files: dict[str, str] = Field(
         min_length=1,
-        description="Replaces these [runtime.files] entries for this set; the runtime, "
+        description="Replaces these [rollout_runtime.files] entries for this set; the rollout runtime, "
         "its config and every other file are training's.",
     )
 
@@ -599,7 +613,15 @@ class EvalSetSettings(_Section):
     """A key at the path of a training setting overrides it for this set; the others
     are the set's own."""
 
-    runtime: EvalRuntimeSettings = Field(description="Overrides [runtime] for this set.")
+    rollout_runtime: EvalRuntimeSettings = Field(
+        description="Overrides [rollout_runtime] for this set."
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _renamed_runtime(cls, data: object) -> object:
+        return _refuse_renamed_runtime(data, "eval.sets.<name>.")
+
     sampling: EvalSamplingSettings = Field(
         default_factory=EvalSamplingSettings, description="Overrides [sampling] for this set."
     )
@@ -666,7 +688,7 @@ class Config(_Section):
         description=RECIPE_DESCRIPTION,
         json_schema_extra={"cli": False},
     )
-    runtime: RuntimeSettings = Field(description="Where episodes come from.")
+    rollout_runtime: RuntimeSettings = Field(description="Where episodes come from.")
     model: ModelSettings = Field(description="The policy being trained.")
     sampling: SamplingSettings = Field(description="Defaults for what the policy produces.")
     training: TrainingSettings = Field(description="The optimizer and the batch.")
@@ -686,6 +708,11 @@ class Config(_Section):
         "factory as adapter = module:callable.",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _renamed_runtime(cls, data: object) -> object:
+        return _refuse_renamed_runtime(data, "")
+
     @model_validator(mode="after")
     def _trajectory_fits_the_trainer(self) -> Self:
         # The two halves of one decision: the cap is what you want the agent to
@@ -701,13 +728,13 @@ class Config(_Section):
 
     @model_validator(mode="after")
     def _eval_files_are_runtime_files(self) -> Self:
-        known = sorted(self.runtime.files)
+        known = sorted(self.rollout_runtime.files)
         for name, eval_set in self.eval.sets.items():
-            unknown = sorted(set(eval_set.runtime.files) - set(known))
+            unknown = sorted(set(eval_set.rollout_runtime.files) - set(known))
             if unknown:
                 raise ValueError(
                     f"eval set {name!r} names file(s) {', '.join(unknown)}, which "
-                    f"[runtime.files] does not have ({', '.join(known) or 'none'})"
+                    f"[rollout_runtime.files] does not have ({', '.join(known) or 'none'})"
                 )
         return self
 
@@ -715,10 +742,10 @@ class Config(_Section):
     def _replay_records_text_only(self) -> Self:
         # Replay names the sampler's record of every generation, and Loops records
         # tokenized text prompts only: an image prompt would fail to sample.
-        if self.runtime.has_images and self.training.router_replay:
+        if self.rollout_runtime.has_images and self.training.router_replay:
             raise ValueError(
                 "router_replay records every generation, and Loops cannot record image "
-                "prompts: set [training] router_replay = false with [runtime] has_images = true"
+                "prompts: set [training] router_replay = false with [rollout_runtime] has_images = true"
             )
         return self
 

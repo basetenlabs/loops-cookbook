@@ -187,7 +187,7 @@ async def test_the_gateway_gets_the_configured_endpoint_and_model(rl_run):
             await run.close_runtime(opened[0])
             await run.close_resources()
 
-    http = await gateway(HttpRuntime(), **{"runtime.openai": endpoint})
+    http = await gateway(HttpRuntime(), **{"rollout_runtime.openai": endpoint})
     assert http is not None and http.model == "policy-x"
     assert http._settings.bind == "0.0.0.0:0"
     assert http._settings.advertised_base_url == "http://sandbox-host:9000"
@@ -197,7 +197,9 @@ async def test_the_gateway_gets_the_configured_endpoint_and_model(rl_run):
 async def test_gateway_settings_for_a_runtime_that_declares_direct_access_are_refused(
     rl_run,
 ):
-    run, _, runtime = rl_run(**{"runtime.openai": {"model_name": "policy"}})
-    with pytest.raises(RuntimeConfigurationError, match=r"\[runtime.openai\] is set, and the"):
+    run, _, runtime = rl_run(**{"rollout_runtime.openai": {"model_name": "policy"}})
+    with pytest.raises(
+        RuntimeConfigurationError, match=r"\[rollout_runtime.openai\] is set, and the"
+    ):
         await asyncio.wait_for(run.execute(), timeout=5)
     assert runtime.samples == []

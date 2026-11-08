@@ -26,7 +26,7 @@ CHECKPOINTS: Tables = {
 # batch and optimizer, and the deadlines and concurrency a run must have.
 MINIMAL: Tables = {
     "recipe": "rl",
-    "runtime": {"factory": "m:create"},
+    "rollout_runtime": {"factory": "m:create"},
     "model": {"base_model": "m", "lora_rank": 32},
     "sampling": {"max_generation_tokens": 4096},
     "training": {
@@ -87,7 +87,7 @@ def episode_config(tmp_path: Path, episode: str, tasks: list[dict]) -> Tables:
     return merged(
         MINIMAL,
         {
-            "runtime": {
+            "rollout_runtime": {
                 "factory": "loops_cookbook.episodes:create_runtime",
                 "config": {"episode": episode, "agent_timeout_seconds": 20},
                 "files": {"tasks": task_file(tmp_path, tasks)},

@@ -58,7 +58,7 @@ An adapter that can back an Episode's sandbox is also a `SandboxProvider`
 `close_client(client)` closes it, and `alive(resource)` says whether the resource is
 still usable. The provider ships its kind for Episodes to name, such as
 `class Blaxel(SandboxKind[SandboxInstance]): provider = "blaxel"`, which types the
-client, and whose `spec` types `[runtime.config.sandbox]`: for Blaxel, `image`,
+client, and whose `spec` types `[rollout_runtime.config.sandbox]`: for Blaxel, `image`,
 `memory_mb` and `ttl`, flat beside `provider`, with any other key, and a value of
 another type, refused; `ttl` is a whole number and one unit, `s`, `m`, `h`, `d` or
 `w`, as Blaxel takes it. All three are required. Blaxel's adapter is one; `loops check` refuses an Episode sandbox from an

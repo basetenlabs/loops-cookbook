@@ -429,7 +429,7 @@ class AttemptLease:
             self._wiring.on_unrecordable_prompt()
             raise SamplingFailure(
                 "this prompt has images, and Loops cannot record an image prompt for router "
-                "replay: set [runtime] has_images = true and [training] router_replay = false"
+                "replay: set [rollout_runtime] has_images = true and [training] router_replay = false"
             )
         try:
             response = await sampler.sample_async(

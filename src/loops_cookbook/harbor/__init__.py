@@ -1,7 +1,7 @@
 """The Harbor runtime: your Harbor job and agent become the rollout runtime.
 
-Select it with ``[runtime].factory = "loops_cookbook.harbor:create_runtime"`` and
-name the Harbor job as the ``job`` alias under ``[runtime.files]``.
+Select it with ``[rollout_runtime].factory = "loops_cookbook.harbor:create_runtime"`` and
+name the Harbor job as the ``job`` alias under ``[rollout_runtime.files]``.
 """
 
 try:

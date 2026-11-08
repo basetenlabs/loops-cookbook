@@ -27,7 +27,7 @@ class RuntimeConfigurationError(ValueError):
 
 
 class RuntimeFileResolver:
-    """Resolves exactly the aliases declared in ``[runtime.files]``."""
+    """Resolves exactly the aliases declared in ``[rollout_runtime.files]``."""
 
     def __init__(self, files: Mapping[str, Path]) -> None:
         self._files = dict(files)
@@ -37,7 +37,7 @@ class RuntimeFileResolver:
             return self._files[alias]
         except KeyError:
             raise RuntimeConfigurationError(
-                f"[runtime.files] declares no alias {alias!r}; declared: {sorted(self._files)}"
+                f"[rollout_runtime.files] declares no alias {alias!r}; declared: {sorted(self._files)}"
             ) from None
 
 
@@ -130,15 +130,15 @@ def build_runtime(
     factory: RuntimeFactory, config: Mapping[str, JsonValue], context: RuntimeContext
 ) -> RolloutRuntime:
     """Construct the runtime from a private deep copy of exactly the user's values."""
-    private = json_value(deepcopy(dict(config)), where="[runtime.config]")
+    private = json_value(deepcopy(dict(config)), where="[rollout_runtime.config]")
     if not isinstance(private, dict):
-        raise RuntimeConfigurationError("[runtime.config] must be a table")
+        raise RuntimeConfigurationError("[rollout_runtime.config] must be a table")
     return factory(private, context=context)
 
 
 @dataclass(frozen=True, slots=True)
 class Preflight:
-    # [runtime] model_access as configured; None when the runtime's declaration decides.
+    # [rollout_runtime] model_access as configured; None when the runtime's declaration decides.
     model_access: ModelAccessMode | None
     rollout_timeout_seconds: float | None
 
@@ -151,18 +151,18 @@ def model_access_mode(
     if configured is None:
         if len(modes) != 1:
             raise RuntimeConfigurationError(
-                "[runtime] model_access is required: the runtime supports "
+                "[rollout_runtime] model_access is required: the runtime supports "
                 f"{[mode.value for mode in modes]}"
             )
         return modes[0]
     if len(modes) == 1:
         raise RuntimeConfigurationError(
-            f"[runtime] model_access is set, and the runtime already declares "
+            f"[rollout_runtime] model_access is set, and the runtime already declares "
             f"{modes[0].value!r}; the runtime states it once, so remove the setting"
         )
     if configured not in modes:
         raise RuntimeConfigurationError(
-            f"[runtime] model_access = {configured.value!r}, but the runtime supports "
+            f"[rollout_runtime] model_access = {configured.value!r}, but the runtime supports "
             f"{[mode.value for mode in modes]}"
         )
     return configured

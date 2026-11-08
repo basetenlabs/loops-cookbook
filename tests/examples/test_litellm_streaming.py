@@ -42,7 +42,10 @@ async def test_a_streaming_litellm_agent_trains_through_the_gateway(tmp_path, mo
     config = offline_config(
         EXAMPLE / "train.toml",
         tmp_path,
-        {"runtime.files": {"tasks": str(task_file(tmp_path, TASKS))}, "training.max_steps": 1},
+        {
+            "rollout_runtime.files": {"tasks": str(task_file(tmp_path, TASKS))},
+            "training.max_steps": 1,
+        },
     )
     outcome, trainer, _ = await train_offline(config)
     assert outcome.ok and outcome.steps == 1

@@ -6,14 +6,14 @@ the agent deadline, and calls `close()` once. It is an ordinary runtime
 underneath, so everything in [failures.md](failures.md) holds for it.
 
 ```toml
-[runtime]
+[rollout_runtime]
 factory = "loops_cookbook.episodes:create_runtime"   # model access: the class's model_access
 
-[runtime.config]
+[rollout_runtime.config]
 episode = "my_env:AnswerEpisode"   # module:Class, importable beside this file
 agent_timeout_seconds = 600        # required
 
-[runtime.files]
+[rollout_runtime.files]
 tasks = "tasks.jsonl"
 ```
 
@@ -51,9 +51,9 @@ class AnswerEpisode(Episode[None, None]):
 | `grading_retries` | class variable, default `0` | How many more times a failed `grade()` or `grade_group()` is tried. Nonzero only if grading is safe to run again, as an LLM judge is. |
 | `Episode[TaskModel, OptionsModel]` | two explicit type arguments | Pydantic models for task data and options; use `None` when unused. |
 | `execution_kind`, `grading_kind` | class variables, each default `None` | Independently declare sandbox requirements, such as `Blaxel` or `Daytona` ([daytona.md](daytona.md#for-an-episode)). The TOML tables choose providers and specs. `check` refuses missing or unused tables, provider/kind mismatches, and invalid declarations. |
-| `[runtime.config.sandbox]` | beside `provider`, the keys of the provided kind's spec, flat | For `Blaxel` (`BlaxelSandbox`), each required: `image`; `memory_mb`, as Harbor's; `ttl` as in Harbor's Blaxel environment, such as `"1h"`: a backstop behind the run's own release, so it must outlast one episode; a whole number and one unit (`s`, `m`, `h`, `d`, `w`) as Blaxel takes it. `loops check` refuses a key the spec does not declare, so a typo is refused, not ignored, and a value of another type, since a spec validates strictly (`memory_mb = true` is refused, not read as 1). A provider's kind declares its spec as `spec`, a `SandboxSpec`, which the [model rules](#typed-tasks-and-options) hold for. The validated spec's dump, defaults included, is what each sandbox is asked for, so the run records its digest as `sandbox` in `runtime_evidence_digests.json`, as it does the options'. |
+| `[rollout_runtime.config.sandbox]` | beside `provider`, the keys of the provided kind's spec, flat | For `Blaxel` (`BlaxelSandbox`), each required: `image`; `memory_mb`, as Harbor's; `ttl` as in Harbor's Blaxel environment, such as `"1h"`: a backstop behind the run's own release, so it must outlast one episode; a whole number and one unit (`s`, `m`, `h`, `d`, `w`) as Blaxel takes it. `loops check` refuses a key the spec does not declare, so a typo is refused, not ignored, and a value of another type, since a spec validates strictly (`memory_mb = true` is refused, not read as 1). A provider's kind declares its spec as `spec`, a `SandboxSpec`, which the [model rules](#typed-tasks-and-options) hold for. The validated spec's dump, defaults included, is what each sandbox is asked for, so the run records its digest as `sandbox` in `runtime_evidence_digests.json`, as it does the options'. |
 
-`[runtime.config.grading_sandbox]` uses the same provider/spec rules as `sandbox`,
+`[rollout_runtime.config.grading_sandbox]` uses the same provider/spec rules as `sandbox`,
 but binds `grading_kind` and is provisioned only when per-attempt `grade()` is admitted.
 
 A retry is a fresh attempt: a new `Episode`, a new sandbox, and the agent runs again.
@@ -64,7 +64,7 @@ classmethod.
 
 ## What you are given
 
-- **`task`**: `task.id` and `task.data`, one line of `[runtime.files] tasks`. The file
+- **`task`**: `task.id` and `task.data`, one line of `[rollout_runtime.files] tasks`. The file
   is JSONL, one object per task. A line's `id` names its task; a line without one is
   named by its position, counting from 0. Each task is digested by its canonical JSON,
   and each attempt gets its own copy of the data. `task.value` is the line as the
@@ -174,7 +174,7 @@ class JudgedEpisode(Episode[MathTask, JudgeOptions]):
 ```
 
 ```toml
-[runtime.config.options]
+[rollout_runtime.config.options]
 url = "https://judge.example.com/v1"
 ```
 
@@ -184,7 +184,7 @@ fine as long as the class you name as `episode` binds every type parameter; a
 parameter no class binds is its default, and `loops check` refuses one that leaves
 a parameter with no default open.
 
-- **Tasks.** Every line of `[runtime.files] tasks` but its `id` is validated with the
+- **Tasks.** Every line of `[rollout_runtime.files] tasks` but its `id` is validated with the
   task model when the runtime is built, and `loops check` refuses a line it rejects,
   naming the file and line. `task.data` is then the validated model's JSON dump (its
   schema's, so a `model_dump` the model overrides is not it) with the line's `id`
@@ -194,7 +194,7 @@ a parameter with no default open.
   task order from the beginning, as it does for any change to the task set. A line's
   `id` names its task and is not the model's, so `check` refuses a task model with an
   `id` field; read it as `task.id`.
-- **Options.** `[runtime.config.options]` is validated with the options model when the
+- **Options.** `[rollout_runtime.config.options]` is validated with the options model when the
   runtime is built. `check` refuses options it rejects, and refuses an options table
   from an episode with no options model. The validated options' JSON dump, defaults
   included, is what ran, so the run records its digest, never its values, as
@@ -227,7 +227,7 @@ a parameter with no default open.
   refused too. A secret comes from the environment or `.env`; an option may name the
   variable that holds it, and the episode reads it. A default an options model fills
   in, from the environment or not, changes the options digest and never reaches disk.
-- **Resuming.** `[runtime.config]` as written is covered by the
+- **Resuming.** `[rollout_runtime.config]` as written is covered by the
   `runtime_config_digest`, and the validated options and sandbox spec by the
   contract's `runtime_evidence_digests`. Resuming with changed options logs "Resuming with
   changed settings (runtime_config_digest, runtime_evidence_digests)", or only
@@ -336,13 +336,13 @@ class CheckedEpisode(Episode[TaskModel, OptionsModel]):
 ```
 
 ```toml
-[runtime.config.sandbox]
+[rollout_runtime.config.sandbox]
 provider = "blaxel"
 image = "agent-image"
 memory_mb = 4096
 ttl = "1h"
 
-[runtime.config.grading_sandbox]
+[rollout_runtime.config.grading_sandbox]
 provider = "blaxel"
 image = "verifier-image"
 memory_mb = 2048
@@ -452,7 +452,7 @@ so no attempt's cleanup waits for its group:
 - `reward`: what `grade()` gave, or `None`.
 - `metadata`: what `run()` returned, with `grade()`'s metadata.
 
-`options` is `[runtime.config.options]` as the episode's options model validated it at
+`options` is `[rollout_runtime.config.options]` as the episode's options model validated it at
 `check`, the same value `self.options` holds, a private copy per call (`None` without an
 options model). `grade_group()` never gets the policy: a judge brings its own client,
 configured there. Options hold no secrets, so a judge's options name the environment

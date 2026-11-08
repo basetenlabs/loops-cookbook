@@ -408,4 +408,4 @@ async def test_asking_http_access_for_a_client_states_the_runtimes_mode(gateway)
     with pytest.raises(ModelAccessError) as refused:
         access.llm()
     message = str(refused.value)
-    assert "declares openai_http" in message and "[runtime]" not in message
+    assert "declares openai_http" in message and "[rollout_runtime]" not in message

@@ -1,7 +1,7 @@
 """The LLM-judge example: an Episode whose groups a judge model ranks through its own client.
 
 The judge is a scripted OpenAI-compatible server on loopback, so the whole path runs
-offline: the episode's own HTTP client, its settings from ``[runtime.config.options]``,
+offline: the episode's own HTTP client, its settings from ``[rollout_runtime.config.options]``,
 and the group stage of a real ``Run``.
 """
 
@@ -23,11 +23,11 @@ from loops_cookbook.runtime import PermanentGradingFailure
 ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE = ROOT / "examples" / "llm_judge"
 CONFIG = EXAMPLE / "train.toml"
-SHIPPED = cli.load_training_config(CONFIG).runtime.config
+SHIPPED = cli.load_training_config(CONFIG).rollout_runtime.config
 
 
 def options(**changes):
-    """The shipped ``[runtime.config.options]`` with ``changes``, as a ``--runtime.config`` override."""
+    """The shipped ``[rollout_runtime.config.options]`` with ``changes``, as a ``--rollout_runtime.config`` override."""
     return json.dumps({"options": {**SHIPPED["options"], **changes}})
 
 
@@ -47,7 +47,7 @@ def test_the_shipped_judge_names_its_key_by_variable_never_by_value(monkeypatch)
     ],
 )
 def test_check_refuses_a_bad_judge_option(loops_check, changes, problem):
-    code, _, err = loops_check(CONFIG, "--runtime.config", options(**changes))
+    code, _, err = loops_check(CONFIG, "--rollout_runtime.config", options(**changes))
     assert code == 2, err
     assert "is not a valid JudgeOptions" in err and problem in err
 
@@ -55,7 +55,7 @@ def test_check_refuses_a_bad_judge_option(loops_check, changes, problem):
 def test_check_refuses_a_judge_whose_key_variable_is_not_set(loops_check, monkeypatch):
     monkeypatch.delenv("NO_SUCH_JUDGE_KEY", raising=False)
     changed = options(judge_api_key_env="NO_SUCH_JUDGE_KEY")
-    code, _, err = loops_check(CONFIG, "--runtime.config", changed)
+    code, _, err = loops_check(CONFIG, "--rollout_runtime.config", changed)
     assert code == 2, err
     assert "the judge's API key variable NO_SUCH_JUDGE_KEY is not set" in err
 
@@ -103,7 +103,7 @@ async def test_a_judge_ranks_every_group_of_a_real_run_through_the_episodes_own_
     monkeypatch.setenv("TEST_JUDGE_KEY", "judge-secret")
     shipped = cli.load_training_config(EXAMPLE / "train.toml")
     options = {
-        **shipped.runtime.config["options"],
+        **shipped.rollout_runtime.config["options"],
         "judge_base_url": judge.base_url,
         "judge_api_key_env": "TEST_JUDGE_KEY",
     }
@@ -111,7 +111,7 @@ async def test_a_judge_ranks_every_group_of_a_real_run_through_the_episodes_own_
         EXAMPLE / "train.toml",
         tmp_path,
         {
-            "runtime.config": {**shipped.runtime.config, "options": options},
+            "rollout_runtime.config": {**shipped.rollout_runtime.config, "options": options},
             "training.max_steps": 1,
         },
     )
@@ -121,7 +121,7 @@ async def test_a_judge_ranks_every_group_of_a_real_run_through_the_episodes_own_
     assert len(judge.requests) == groups  # one call per group, never one per rollout
     for request in judge.requests:
         assert request["authorization"] == "Bearer judge-secret"
-        assert request["model"] == shipped.runtime.config["options"]["judge_model"]
+        assert request["model"] == shipped.rollout_runtime.config["options"]["judge_model"]
         assert "Question: In one or two sentences" in request["messages"][0]["content"]
     # The baseline policy answers one word, within max_words: grade() gives 1 to all,
     # and the judge's reversed ranking puts member i in place size - 1 - i.

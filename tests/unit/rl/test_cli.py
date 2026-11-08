@@ -233,8 +233,8 @@ def _pattern_config(tmp_path, monkeypatch, table):
     pattern = Path(__file__).resolve().parents[3] / "patterns/custom_runtime/in_process_direct"
     monkeypatch.syspath_prepend(str(pattern))  # the episode module, beside its config
     shipped = tomllib.loads((pattern / "train.toml").read_text())
-    tasks = (pattern / shipped["runtime"]["files"]["tasks"]).resolve()
-    here = {"runtime": {"files": {"tasks": tasks}}}
+    tasks = (pattern / shipped["rollout_runtime"]["files"]["tasks"]).resolve()
+    here = {"rollout_runtime": {"files": {"tasks": tasks}}}
     return write_toml(tmp_path / "train.toml", shipped, here, table)
 
 

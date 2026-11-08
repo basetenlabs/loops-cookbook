@@ -1,4 +1,4 @@
-"""Tasks as data: one JSON object per line of ``[runtime.files] tasks``.
+"""Tasks as data: one JSON object per line of ``[rollout_runtime.files] tasks``.
 
 The cookbook loads the file once, when the runtime is built, and digests each task
 by its canonical JSON, so the run record names exactly the data every rollout ran

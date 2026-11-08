@@ -70,7 +70,7 @@ class BlaxelSettings(BaseModel):
         default_factory=dict[str, str],
         description="Labels every sandbox, image builders included, carries besides the run's "
         "ownership labels, such as an owner to find a team's sandboxes by. "
-        "They win over the same keys from a Harbor job's or [runtime.config.sandbox]'s "
+        "They win over the same keys from a Harbor job's or [rollout_runtime.config.sandbox]'s "
         "labels.",
     )
 

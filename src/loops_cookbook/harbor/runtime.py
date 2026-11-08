@@ -1046,9 +1046,9 @@ class HarborRuntime:
 
 
 def create_runtime(config: Mapping[str, JsonValue], *, context: RuntimeContext) -> HarborRuntime:
-    """The Harbor runtime factory: ``[runtime].factory = "loops_cookbook.harbor:create_runtime"``.
+    """The Harbor runtime factory: ``[rollout_runtime].factory = "loops_cookbook.harbor:create_runtime"``.
 
-    ``[runtime.files].job`` names the Harbor job. ``[runtime.config].reward_key``
+    ``[rollout_runtime.files].job`` names the Harbor job. ``[rollout_runtime.config].reward_key``
     selects the verifier reward when it emits several; ``reward_gate`` names a
     ``RewardGate`` as ``module:attribute``. A trial whose agent timed out or failed is
     graded as Harbor grades it: its verifier's reward trains.
