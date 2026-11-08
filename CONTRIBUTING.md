@@ -71,12 +71,17 @@ To release what is on `develop`:
    `gh pr create -B main -H develop -t "Release v0.2.0"`.
 4. CI on a PR that the workflow opened waits for a maintainer. Start it with
    **Approve and run**.
-5. Merge the PR with **Create a merge commit**. The **release** workflow then tags the
-   merge commit. It runs lint, pyright and the tests, against `uv.lock` and against both
-   ends of the dependency ranges, which is the **dependency-ranges** check. It builds the
-   wheel and the sdist, and checks that they carry the tag's version. It publishes them
-   to PyPI. Then it publishes a GitHub release with them attached. The release also
-   lists the dependency versions of both checks, and the notes since the last release.
+5. Merge the PR with **Create a merge commit**. The push to `main` starts the
+   **release** workflow, which finds the PR that made the merge commit and tags the
+   commit with the version in its title. The PR's required checks already ran lint,
+   pyright and the tests against `uv.lock` on the same tree, so the workflow doesn't
+   run them again. It builds the wheel and the sdist, and checks that they carry the
+   tag's version. At the same time it tests both ends of the dependency ranges, which
+   is the **dependency-ranges** check.
+6. Approve the **pypi** deployment. The upload waits for the build and for both
+   dependency-ranges checks. It publishes the wheel and the sdist to PyPI. Then the
+   workflow publishes a GitHub release with them attached. The release also lists the
+   dependency versions of both checks, and the notes since the last release.
 
 The **dependency-ranges** workflow also runs each night. It resolves the newest versions
 that the ranges allow, and the floor of each direct dependency.
@@ -106,8 +111,9 @@ To fix a release while `develop` holds work that isn't ready to ship:
 To publish a pre-release, push a pre-release tag, such as with
 `git tag v0.2.0-alpha.1 && git push origin v0.2.0-alpha.1`. The tag must name a commit
 on `main` or `develop`, because an upload to PyPI is permanent. That tag builds as
-version `0.2.0a1`, and it is published as a pre-release. A pushed `vX.Y.Z` tag is
-refused, because releases come only from a merged PR.
+version `0.2.0a1`, and it is published as a pre-release. A pre-release has no PR to run
+the checks, so the workflow runs lint, pyright and the tests itself. A pushed `vX.Y.Z`
+tag is refused, because releases come only from a merged PR.
 
 ## Diagrams
 

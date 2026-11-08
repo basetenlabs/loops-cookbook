@@ -1,16 +1,15 @@
 name: release
 # Two ways in:
-# - a release PR ("Release vX.Y.Z") merged into main: tag its merge commit and publish;
+# - a release PR ("Release vX.Y.Z") merged into main: the push to main tags its merge
+#   commit and publishes it;
 # - a vX.Y.Z-alpha.N tag on a commit on main or develop: publish a pre-release.
 # A tag pushed with the workflow token starts no other workflow, so tagging and
-# publishing happen in this one workflow: build tests and builds, pypi uploads
-# through trusted publishing, and github-release pushes the tag and attaches the
-# build. Only pypi can get a PyPI token, and it runs no project code.
+# publishing happen in this one workflow. The build job builds, pypi uploads through
+# trusted publishing, and github-release pushes the tag and attaches the build. Only
+# pypi can get a PyPI token, and it runs no project code.
 on:
-  pull_request:
-    types: [closed]
-    branches: [main]
   push:
+    branches: [main]
     tags: ["v*"]
 
 permissions:
@@ -21,15 +20,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Runs beside build. pypi waits for both, so a failure on either end of the ranges
+  # still stops the upload.
   dependency-ranges:
-    if: github.event_name == 'push' || github.event.pull_request.merged
     uses: ./.github/workflows/dependency-ranges.yml
     with:
-      ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+      ref: ${{ github.sha }}
 
   build:
-    needs: dependency-ranges
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read  # to find the release PR that made a commit on main
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
       previous: ${{ steps.tag.outputs.previous }}
@@ -37,15 +39,28 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           fetch-depth: 0
 
       - name: Name the release
         id: tag
         env:
-          TITLE: ${{ github.event.pull_request.title }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+          if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+            # Every commit on main is the merge commit of a release PR. GitHub can take
+            # a few seconds to link a new merge commit to its PR, so ask again before
+            # giving up.
+            TITLE=""
+            for attempt in 1 2 3 4 5 6; do
+              TITLE=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq \
+                "[.[] | select(.merged_at != null and .base.ref == \"main\" and .merge_commit_sha == \"$GITHUB_SHA\")][0].title // empty")
+              [[ -n "$TITLE" ]] && break
+              sleep 10
+            done
+            if [[ -z "$TITLE" ]]; then
+              echo "::error::$GITHUB_SHA on main is not the merge commit of a PR into main; a release is made by merging a \"Release vX.Y.Z\" PR"
+              exit 1
+            fi
             VERSION=$(python3 scripts/release_version.py title "$TITLE")
             TAG="v$VERSION"
             # Tagged here so the build reads its version from it; github-release pushes it.
@@ -75,22 +90,23 @@ jobs:
           enable-cache: true
 
       - run: uv sync --locked --extra harbor-blaxel --extra harbor-daytona --extra wandb
-      - run: uv run ruff check src tests patterns examples tasks scripts
-      - run: uv run pyright
-      - run: uv run pytest -q
+      # A release PR's required checks already ran these on the merge commit's tree, and
+      # main changes only through release PRs. A pre-release tag has no PR, so it runs
+      # them here.
+      - if: steps.tag.outputs.prerelease == 'true'
+        run: uv run --locked ruff check src tests patterns examples tasks scripts
+      - if: steps.tag.outputs.prerelease == 'true'
+        run: uv run --locked pyright
+      - if: steps.tag.outputs.prerelease == 'true'
+        run: uv run --locked pytest -q
       - run: uv build
 
-      # The release states the versions it was tested with: the lock, and both ends of
-      # its ranges on the day (dependency-ranges.yml).
+      # The release states the versions it was tested with. This is the lock; the two
+      # ends of the ranges come from dependency-ranges.
       - run: >-
           uv export --locked --no-hashes --no-emit-project
           --extra harbor-blaxel --extra harbor-daytona --extra wandb
           --output-file tested/dependencies-lock.txt
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: dependencies-*
-          merge-multiple: true
-          path: tested
 
       # The version comes from the tag (hatch-vcs); a dirty or mis-fetched checkout
       # would build a .dev version instead.
@@ -122,8 +138,8 @@ jobs:
   pypi:
     # Before the tag is pushed: a failed upload leaves no tag to clean up. A rerun
     # after a later job fails skips the files PyPI already has.
-    # Set up the pypi environment with required reviewers before the first release.
-    needs: build
+    # The pypi environment needs a reviewer's approval.
+    needs: [build, dependency-ranges]
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -150,7 +166,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           fetch-depth: 0
       - uses: actions/download-artifact@v8
         with:
@@ -160,6 +175,11 @@ jobs:
         with:
           name: tested
           path: tested/
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dependencies-*
+          merge-multiple: true
+          path: tested
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -167,7 +187,7 @@ jobs:
           PREVIOUS: ${{ needs.build.outputs.previous }}
           PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+          if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
             # A rerun after the push and before the release finds the tag already
             # fetched: reuse it if it names this commit, so the release can still be made.
             if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then

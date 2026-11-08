@@ -312,7 +312,7 @@ If you break a rule, its test fails.
   - The `contracts` job runs `tests/contracts` against real tokenizers and image
     processors, with `--extra vision`.
 
-  The `dependency-ranges` workflow runs each night and before each release. It tests
+  The `dependency-ranges` workflow runs each night and with each release. It tests
   the newest versions that the dependency ranges allow, and the floor of each direct
   dependency, such as `transformers`. The `pr-title` workflow checks that a PR's title
   is a Conventional Commit. It only warns.
