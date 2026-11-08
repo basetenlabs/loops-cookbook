@@ -776,6 +776,20 @@ class Manifest(run_record.Manifest):
         return self
 
 
+def _task_ids(tasks: object) -> object:
+    """Return a contract's task list as task IDs.
+
+    A contract that an older version of the cookbook recorded holds ``[id, digest]``
+    pairs. Those pairs name the same IDs in the same order.
+    """
+    if isinstance(tasks, list):
+        return [
+            task[0] if isinstance(task, list) and len(task) == 2 else task  # pyright: ignore[reportUnknownVariableType]
+            for task in tasks  # pyright: ignore[reportUnknownVariableType]
+        ]
+    return tasks
+
+
 class Run:
     """One RL run, which collects rollouts, trains on them and records everything in its directory.
 
@@ -1242,7 +1256,7 @@ class Run:
             )
         if (
             before.get("shuffle_seed") != now.get("shuffle_seed")
-            or stored.get("tasks") != current["tasks"]
+            or _task_ids(stored.get("tasks")) != current["tasks"]
         ):
             logger.warning(
                 "Task set or order changed, so the checkpoint's cursor at group %d "
@@ -1279,7 +1293,7 @@ class Run:
         files = {alias: _content_digest(path) for alias, path in self._runtime_files().items()}
         return {
             "training": json.loads(json.dumps(training)),
-            "tasks": [[task.id, task.digest] for task in tasks],
+            "tasks": [task.id for task in tasks],
             "runtime_config_digest": _digest(_canonical(config.rollout_runtime.config)),
             "runtime_file_digests": files,
             "runtime_evidence_digests": self._runtime_evidence.digests,
@@ -1738,7 +1752,6 @@ class Run:
             else ModelAccessMode(config.rollout_runtime.model_access)
         )
         ids = {task.id for task in training}
-        digests = {task.digest for task in training}
         built: list[EvalSet] = []
         try:
             for name, settings in config.eval.sets.items():
@@ -1780,7 +1793,7 @@ class Run:
                     await self.close_runtime(runtime)
                     raise
                 evaluated = tasks[: settings.max_tasks]
-                shared = [t.id for t in evaluated if t.id in ids or t.digest in digests]
+                shared = [t.id for t in evaluated if t.id in ids]
                 self.eval_shared[name] = len(shared)
                 if shared:
                     logger.warning(

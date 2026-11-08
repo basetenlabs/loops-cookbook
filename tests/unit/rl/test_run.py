@@ -39,7 +39,7 @@ from loops_cookbook.runtime.api import (
 )
 from loops_cookbook.runtime.driver import RuntimeExecutionFailure
 
-from .conftest import TASK, KeepingTrainer, MemoryRuntime, records, unused
+from .conftest import TASK, TASK_DIGEST, KeepingTrainer, MemoryRuntime, records, unused
 
 
 async def test_the_snapshot_is_one_merged_view_while_running_and_silent_after(rl_run):
@@ -849,7 +849,7 @@ async def test_a_checkpoint_records_where_to_resume_and_what_a_resume_must_match
     state = json.loads((await first_manifest()).read_text())
     assert state["next_step"] == 1 and state["next_group_index"] == 1
     contract = state["contract"]
-    assert contract["tasks"] == [[TASK.id, TASK.digest]]
+    assert contract["tasks"] == [TASK.id]
     assert contract["runtime_config_digest"].startswith("sha256:")
     assert contract["runtime_file_digests"] == {}
     assert contract["producers"] == {"main": True}
@@ -869,6 +869,32 @@ async def test_a_resume_continues_the_task_order_or_restarts_one_that_changed(
     manifest = await first_manifest()
     # max_steps counts the run's updates, the one before the resume included.
     resumed, _, runtime = rl_run(resuming(), max_steps=2, resume_from=str(manifest), **changed)
+    outcome = await resumed.execute()
+    assert outcome.ok and (outcome.steps, outcome.next_step) == (1, 2)
+    assert all(r.identity.group_id.startswith(first_group) for r in runtime.samples)
+
+
+@pytest.mark.parametrize(
+    ("stored", "first_group"),
+    [
+        ([[TASK.id, "sha256:" + "f" * 64]], "g0000001-"),
+        ([["another-task", "sha256:" + "f" * 64]], "g0000000-"),
+    ],
+    ids=["same ids, other digests", "other ids"],
+)
+async def test_a_manifest_that_recorded_tasks_with_digests_resumes_by_their_ids(
+    rl_run, first_manifest, stored, first_group
+):
+    """A manifest from an older version of the cookbook holds ``[id, digest]`` pairs.
+
+    The same IDs in the same order keep the cursor, whatever the digests. Other IDs
+    restart the task order.
+    """
+    manifest = await first_manifest()
+    state = json.loads(manifest.read_text())
+    state["contract"]["tasks"] = stored
+    manifest.write_text(json.dumps(state))
+    resumed, _, runtime = rl_run(resuming(), max_steps=2, resume_from=str(manifest))
     outcome = await resumed.execute()
     assert outcome.ok and (outcome.steps, outcome.next_step) == (1, 2)
     assert all(r.identity.group_id.startswith(first_group) for r in runtime.samples)
@@ -1845,7 +1871,8 @@ async def test_every_rollouts_record_has_the_same_fields_meaning_the_same_thing(
         None,
     )
     assert (trained["policy_version"], trained["step"]) == (0, 0)
-    assert never["task_digest"] == ungraded["task_digest"] == trained["task_digest"] == TASK.digest
+    assert never["task_digest"] is None  # it ran nothing
+    assert ungraded["task_digest"] == trained["task_digest"] == TASK_DIGEST
 
 
 @pytest.mark.parametrize(("limit", "dropped"), [(None, True), (64, False)])

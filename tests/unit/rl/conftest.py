@@ -12,7 +12,9 @@ from loops_cookbook.model_access.api import ModelAccessMode
 from loops_cookbook.rl import recipe
 from loops_cookbook.runtime.api import EpisodeResult, GradeResult, RuntimeCapabilities
 
-TASK = TaskRef("task-agent", "sha256:" + "0" * 64)
+TASK = TaskRef("task-agent")
+# The digest that each attempt of TASK reports for the task it ran.
+TASK_DIGEST = "sha256:" + "0" * 64
 
 
 def unused(*args, **kwargs):
@@ -41,7 +43,7 @@ class MemoryRuntime:
         conversation = attempt.services.model_access.llm().conversation()
         for _ in range(self.generations):
             await conversation.generate(messages=[{"role": "user", "content": "x"}])
-        return EpisodeResult()
+        return EpisodeResult(task_digest=TASK_DIGEST)
 
     async def grade(self, attempt, rollout):
         await asyncio.sleep(0)

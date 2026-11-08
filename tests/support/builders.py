@@ -93,7 +93,7 @@ def digest(text: str) -> str:
 
 
 def task(task_id: str = "task") -> TaskRef:
-    return TaskRef(task_id, digest(task_id))
+    return TaskRef(task_id)
 
 
 def identity(

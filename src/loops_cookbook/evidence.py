@@ -614,15 +614,28 @@ def _continues(ids: tuple[int, ...] | TokenSpan, previous: Sample) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class TaskRef:
-    """A task as the cookbook knows it, by its ID and a ``sha256:`` digest of what it holds."""
+    """A task that the rollout runtime prepared, named by its ID.
+
+    What the task held when an attempt ran is part of that attempt's evidence, in
+    ``Rollout.task_digest``.
+    """
 
     id: str
-    digest: str  # Exactly sha256:<64 lowercase hex characters>.
 
     def __post_init__(self) -> None:
         _identity(self.id, "task id")
-        if type(self.digest) is not str or not _DIGEST.fullmatch(self.digest):
-            raise TrajectoryError(f"task {self.id!r} digest must be sha256:<64 lowercase hex>")
+
+
+def check_task_digest(digest: object, *, where: str) -> str | None:
+    """Return ``digest`` after checking it.
+
+    It must be None, or exactly ``sha256:`` followed by 64 lowercase hex characters.
+    """
+    if digest is not None and (type(digest) is not str or not _DIGEST.fullmatch(digest)):
+        raise TrajectoryError(
+            f"{where} task digest must be 'sha256:' followed by 64 lowercase hex characters"
+        )
+    return digest
 
 
 @dataclass(frozen=True, slots=True)
@@ -756,8 +769,13 @@ class Rollout:
 
     They train nothing, but they date a rollout whose every generation was discarded.
     Such a rollout is still graded, and it still counts in its group's baseline."""
+    task_digest: str | None = None
+    """What the task held when this attempt ran, as its rollout runtime reported it.
+
+    It is None when the rollout runtime reports no digest."""
 
     def __post_init__(self) -> None:
+        check_task_digest(self.task_digest, where="rollout")
         object.__setattr__(self, "samples", tuple(self.samples))
         object.__setattr__(
             self, "metadata", json_mapping(deepcopy(dict(self.metadata)), where="metadata")

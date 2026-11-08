@@ -137,9 +137,11 @@ class PinnedSampler:
 
 DriverFactory = Callable[[RunCapacity, Callable[[SystemicFailure], None]], AttemptDriver]
 
-# One rollout's outcome, which is the graded rollout or why it was discarded, and its
-# transcript, which the eval records and a group grader reads.
-_Outcome = tuple[Rollout | Discard | str, SealedTranscript | None]
+# One rollout's outcome holds three things. The first is the graded rollout or why it
+# was discarded. The second is its transcript, which the eval records and a group
+# grader reads. The third is the digest of the task it sampled, which a grading failure
+# keeps.
+_Outcome = tuple[Rollout | Discard | str, SealedTranscript | None, str | None]
 
 
 async def evaluate(
@@ -203,8 +205,8 @@ async def evaluate(
         try:
             outcome = await attempts.sample(task, group_id, rollout_id)
             if isinstance(outcome, Discard):
-                return outcome, None
-            return await attempts.grade(outcome), outcome.transcript
+                return outcome, None, None
+            return await attempts.grade(outcome), outcome.transcript, outcome.rollout.task_digest
         finally:
             # A hook kept past its grace is still running, so its slot stays taken until
             # it ends, even into the set's later evals. Once kept hooks hold every slot,
@@ -287,12 +289,12 @@ async def _grade_group(
     A failure is retried within the rollout runtime's ``grading_retries``. After the
     last try fails, the members are discarded as ``grading_failed``.
     """
-    graded = [i for i, (outcome, _) in enumerate(outcomes) if isinstance(outcome, Rollout)]
+    graded = [i for i, (outcome, _, _) in enumerate(outcomes) if isinstance(outcome, Rollout)]
     if not graded:
         return outcomes
     members: list[MemberEvidence] = []
     for i in graded:
-        rollout, transcript = outcomes[i]
+        rollout, transcript, _ = outcomes[i]
         if transcript is None:
             raise RuntimeError("a group grader's rollout was sealed without its transcript")
         assert isinstance(rollout, Rollout)
@@ -312,12 +314,16 @@ async def _grade_group(
             attempts.group_failed(group_id, error, ids)
             scored = list(outcomes)
             for i in graded:
-                scored[i] = (Discard.GRADING_FAILED.value, outcomes[i][1])
+                scored[i] = (Discard.GRADING_FAILED.value, *outcomes[i][1:])
             return scored
         attempts.group_scored()
         scored = list(outcomes)
         for i, member, reward in zip(graded, members, rewards, strict=True):
-            scored[i] = (replace(member.rollout, reward=reward), member.transcript)
+            scored[i] = (
+                replace(member.rollout, reward=reward),
+                member.transcript,
+                member.rollout.task_digest,
+            )
         return scored
     raise AssertionError("unreachable")
 
@@ -327,7 +333,7 @@ def _row(task: TaskRef, rollout_id: str, index: int, outcome: _Outcome) -> dict[
     graded = isinstance(result, Rollout)
     return {
         "task_id": task.id,
-        "task_digest": task.digest,
+        "task_digest": outcome[2],
         "sample": index,
         "rollout_id": rollout_id,
         "reward": result.reward if isinstance(result, Rollout) else None,

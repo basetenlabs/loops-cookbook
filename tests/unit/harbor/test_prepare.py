@@ -83,11 +83,10 @@ async def test_prepare_rejects_an_agent_it_cannot_bind_before_expanding_the_job(
         await runtime.prepare()
 
 
-async def test_prepare_keeps_develops_task_ids_and_harbors_task_digest(tmp_path):
+async def test_prepare_keeps_develops_task_ids(tmp_path):
     runtime = runtime_for(job(tmp_path, HILL_CLIMB, "AnswerAgent"), tmp_path / "work")
     (task,) = await runtime.prepare()
     assert task.id == "0:hill_climb"  # develop's IDs: the index, then the directory name
-    assert task.digest.startswith("sha256:") and len(task.digest) == 71
 
 
 async def test_model_access_is_computed_from_the_jobs_agents(tmp_path):
@@ -716,3 +715,26 @@ async def test_one_image_named_under_several_tags_is_looked_up_once(tmp_path):
     runtime, asked = blaxel_runtime(tmp_path, task, {"my-image": frozenset({"v1", "v2"})})
     assert await runtime.prepare()
     assert asked == ["my-image"]
+
+
+@pytest.mark.parametrize("backing", ["local", "blaxel"])
+async def test_check_hashes_no_task(tmp_path, monkeypatch, backing):
+    """A probe trial is read and never run, so it writes no lock and names no image.
+
+    prepare() returns task IDs alone, so check never reads a task's whole content.
+    """
+    import harbor.environments.base as environment_base
+    import harbor.trial.trial as trial_module
+
+    def hashed(*args, **kwargs):
+        raise AssertionError("check hashed a task")
+
+    monkeypatch.setattr(trial_module, "build_trial_lock", hashed)
+    monkeypatch.setattr(environment_base, "environment_content_hash", hashed)
+    task = sized_task(tmp_path, cpus=1, memory_mb=256)
+    if backing == "blaxel":
+        runtime, _ = blaxel_runtime(tmp_path, task)
+    else:
+        runtime = runtime_for(job(tmp_path, task, "AnswerAgent"), tmp_path / "work")
+    prepared = await runtime.prepare()
+    assert [ref.id for ref in prepared] == ["0:sized"]

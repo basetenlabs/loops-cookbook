@@ -407,6 +407,10 @@ class EpisodeResult:
     """
 
     metadata: Mapping[str, JsonValue] = field(default_factory=dict[str, JsonValue])
+    # The content digest of the task as this attempt ran it, in the form
+    # sha256:<64 lowercase hex characters>. The run records it with the rollout. It is
+    # None when the rollout runtime has no digest to report.
+    task_digest: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -455,9 +459,8 @@ class RolloutRuntime(Protocol):
     async def prepare(self) -> Sequence[TaskRef]:
         """Load the tasks, and return a ``TaskRef`` for each.
 
-        The cookbook calls it once, before any attempt. The list must not be empty, and a
-        task ID that repeats must keep its digest. A failure here stops the run before it
-        starts.
+        The cookbook calls it once, before any attempt. The list must not be empty. A task
+        ID may repeat. A failure here stops the run before it starts.
         """
         ...
 

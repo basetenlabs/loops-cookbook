@@ -127,6 +127,10 @@ async def test_an_episode_class_trains_through_the_shared_pipeline_in_its_own_sa
     records = [json.loads(line) for line in (run.out / "rollouts.jsonl").read_text().splitlines()]
     creates = [operation for operation, _ in provider.calls if operation == "create"]
     assert len(creates) == len(records) == 4  # one sandbox per attempt
+    lines = {task["id"]: task for task in runs.TASKS}
+    assert [record["task_digest"] for record in records] == [
+        task_digest(lines[record["task_id"]]) for record in records
+    ]
     assert provider.store == {}  # every one released
     assert [client.closed for client in provider.clients] == [1] * 4  # and its client closed
     (recorded,) = [json.loads(line) for line in (run.out / "steps.jsonl").read_text().splitlines()]

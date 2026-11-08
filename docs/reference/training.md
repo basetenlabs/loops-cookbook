@@ -450,9 +450,8 @@ When something goes wrong, the eval reacts as this table shows:
 | The run stops in the middle of the eval. | The run deactivates the eval's sampler and writes no file, and the log says that the eval didn't finish. A resume doesn't run it again. |
 
 `loops check` builds each eval set's rollout runtime and prints a line for it. It warns
-about tasks that an eval set shares with training, matched by ID or by the rollout
-runtime's task digest. An episode's digest covers the task's `id`, so the check doesn't
-catch the same task under another ID. The check refuses a set whose rollout runtime
+about tasks that an eval set shares with training, matched by ID. It doesn't catch
+the same task under another ID. The check refuses a set whose rollout runtime
 reaches the model in a different way from training's, because one gateway serves both.
 A rollout runtime with a group grader scores each task's samples together.
 
@@ -753,8 +752,10 @@ has the same fields, and each field means the same thing in every record:
 
 - `policy_version` is the oldest policy version among the rollout's trainable samples.
   It is `null` when the rollout sealed no attempt.
-- `task_digest` and `sample_ids` name what the rollout ran and sampled. `sample_ids` is
-  empty when the rollout sealed no attempt.
+- `task_digest` is the rollout runtime's digest of the task as the attempt ran it. It
+  is `null` when the rollout runtime reported none.
+- `sample_ids` names what the rollout sampled. It is empty when the rollout sealed no
+  attempt.
 - `step` is the update that trained the rollout. It is `null` for a discarded rollout.
 - `generations_undelivered` and `generations_discarded_by_agent` describe the attempt
   that the record names. The first counts the generations the cookbook dropped at

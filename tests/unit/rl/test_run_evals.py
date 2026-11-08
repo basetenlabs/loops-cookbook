@@ -22,8 +22,8 @@ from loops_cookbook.rl import recipe
 from loops_cookbook.rl.run import Run
 from loops_cookbook.runtime.api import EpisodeResult, GradeResult, RuntimeCapabilities
 
-TRAIN_TASK = TaskRef("train-0", "sha256:" + "0" * 64)
-EVAL_TASKS = [TaskRef("e0", "sha256:" + "1" * 64), TaskRef("e1", "sha256:" + "2" * 64)]
+TRAIN_TASK = TaskRef("train-0")
+EVAL_TASKS = [TaskRef("e0"), TaskRef("e1")]
 
 
 class EpisodeRuntime:

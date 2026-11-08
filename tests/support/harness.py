@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from hashlib import sha256
 from types import SimpleNamespace
 from typing import Any
 
@@ -41,7 +40,7 @@ from loops_cookbook.runtime.driver import AttemptDriver, DriverSettings, Systemi
 from loops_cookbook.trainer import Capacity
 from support.resources import no_resources
 
-TASK = TaskRef("task", f"sha256:{sha256(b'task').hexdigest()}")
+TASK = TaskRef("task")
 
 
 class Renderer:

@@ -32,7 +32,7 @@ apart.
 
 | Hook | When the engine calls it | What it must do |
 | --- | --- | --- |
-| `prepare()` | Once, at preflight. | It returns the tasks as `TaskRef(id, digest)`, with one digest per id. |
+| `prepare()` | Once, at preflight. | It returns the tasks as `TaskRef(id)`. Each attempt reports its task's digest in `EpisodeResult.task_digest`. |
 | `sample(attempt)` | Once per attempt. | It runs the episode and returns `EpisodeResult` metadata, never evidence. |
 | `grade(attempt, rollout)` | Once per graded try. | It returns `GradeResult(reward, metadata)`. The reward must be a finite number that isn't a bool. |
 | `grade_group(members)` | Once per complete group. This hook isn't one of the six. It is an optional `GroupGrader` that a rollout runtime may also implement. | It returns one final reward per member, in order. |
@@ -84,7 +84,8 @@ adapter in `episodes/runtime.py` maps the class onto the contract like this:
 
 - **`prepare()`** loads the `tasks` file named in `[rollout_runtime.files]`, and
   validates every line with the task model. A task's id is the line's `id`, or the
-  line's position when it has none. Its digest is the line's canonical JSON.
+  line's position when it has none. Each attempt's `task_digest` is the digest of the
+  task's canonical JSON.
 - **`sample()`** runs these steps in order:
   1. It calls `capacity.admit()`. The pre-start places apply here.
   2. If the class declares a sandbox type, and `[rollout_runtime.config]` has a
@@ -132,9 +133,10 @@ Harbor's `setup`.
 The adapter in `harbor/runtime.py` and `harbor/integration.py` maps the job onto the
 contract like this. A trial is Harbor's word for one run of an agent on one task.
 
-- **`prepare()`** has Harbor resolve the dataset, and returns one `TaskRef` per task
-  with Harbor's content digest. It refuses an unsupported job here, so the refusal
-  happens at `check`.
+- **`prepare()`** has Harbor resolve the dataset, and returns one `TaskRef` per task.
+  It hashes nothing. It refuses an unsupported job here, so the refusal happens at
+  `check`. Each sampling trial reports Harbor's content digest of the task it loaded,
+  and that digest becomes its rollout's `task_digest`.
 - **`sample()`** submits a trial to a Harbor queue that the cookbook hooks into, with
   Harbor's own retries forced to 0. Then it follows the trial through Harbor's hooks.
   It takes admission when the environment starts, holds sampling capacity around the

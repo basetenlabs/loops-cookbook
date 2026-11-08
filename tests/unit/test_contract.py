@@ -116,14 +116,14 @@ def test_each_package_exports_exactly_its_contract(package):
 
 
 FIELDS = {
-    "TaskRef": ("id", "digest"),
+    "TaskRef": ("id",),
     "AttemptIdentity": ("run_id", "group_id", "rollout_id", "attempt_id"),
     "AttemptSpec": ("identity", "task"),
     "AttemptServices": ("model_access", "capacity", "resources", "processes", "metrics"),
     "ProcessCommand": ("argv", "cwd", "env"),
     "ProcessResult": ("exit_code", "signal", "stdout_tail", "stderr_tail", "elapsed_seconds"),
     "AttemptContext": ("spec", "services"),
-    "EpisodeResult": ("metadata",),
+    "EpisodeResult": ("metadata", "task_digest"),
     "GradeResult": ("reward", "metadata"),
     "RuntimeCapabilities": (
         "model_access_modes",
@@ -165,7 +165,15 @@ FIELDS = {
         "max_tokens",
         "clamped_from",
     ),
-    "Rollout": ("identity", "task", "samples", "reward", "metadata", "discarded_versions"),
+    "Rollout": (
+        "identity",
+        "task",
+        "samples",
+        "reward",
+        "metadata",
+        "discarded_versions",
+        "task_digest",
+    ),
 }
 
 

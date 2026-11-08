@@ -6,7 +6,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
-from hashlib import sha256
 from typing import Any
 
 import pytest
@@ -40,9 +39,7 @@ VERSION = 5  # the step's weights: every eval sample is at this version
 
 
 def tasks(n: int) -> tuple[TaskRef, ...]:
-    return tuple(
-        TaskRef(f"t{i}", f"sha256:{sha256(f't{i}'.encode()).hexdigest()}") for i in range(n)
-    )
+    return tuple(TaskRef(f"t{i}") for i in range(n))
 
 
 async def odd_tasks_fail(attempt, rollout) -> GradeResult:
@@ -382,3 +379,30 @@ async def test_an_eval_whose_slots_kept_hooks_all_hold_stops_rather_than_waits(c
     later = dataclasses.replace(shared, tasks=tasks(2))
     with pytest.raises(SystemicFailure, match=f"hold all {cap} of its slots"):
         await asyncio.wait_for(run(later, driver, drain=0.2), 5)
+
+
+DIGEST = "sha256:" + "a" * 64
+
+
+async def reports_its_digest(attempt) -> EpisodeResult:
+    await generate(attempt)
+    return EpisodeResult(task_digest=DIGEST)
+
+
+async def grade_fails(attempt, rollout) -> GradeResult:
+    raise RuntimeError("the grader broke")
+
+
+@pytest.mark.parametrize("grader", ["grade", "grade_group"])
+async def test_a_sample_whose_grading_fails_keeps_the_digest_of_the_task_it_ran(grader):
+    if grader == "grade":
+        runtime = Runtime(on_sample=reports_its_digest, on_grade=grade_fails)
+    else:
+        runtime = GroupRuntime([RuntimeError("judge down")])
+        runtime.on_sample = reports_its_digest
+    eval_set, driver = build(runtime, n_tasks=1, samples=2, group_grading=grader == "grade_group")
+    rows = (await run(eval_set, driver)).rows
+    assert [(row["discarded"], row["task_digest"]) for row in rows] == [
+        ("grading_failed", DIGEST),
+        ("grading_failed", DIGEST),
+    ]
