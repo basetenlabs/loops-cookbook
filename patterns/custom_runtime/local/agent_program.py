@@ -1,13 +1,13 @@
-"""The agent program: one model call, one tool call in its sandbox, one result file.
+"""The agent program, which makes one model call and one tool call, and writes one result.
 
-It is a separate program the cookbook does not import, standard library only, so
-it runs under any Python. It reads everything from its environment:
+The cookbook does not import this program. It uses only the standard library, so it
+runs under any Python. It reads everything from its environment:
 
-- ``OPENAI_BASE_URL``, ``OPENAI_API_KEY``, ``OPENAI_MODEL``: the attempt's model
-  connection, through the run's gateway;
-- ``AGENT_INSTRUCTION``: the task;
-- its sandbox's usage environment, which ``sandbox_io`` reads: the sandbox is where
-  it works, and it never creates or deletes it.
+- ``OPENAI_BASE_URL``, ``OPENAI_API_KEY`` and ``OPENAI_MODEL`` give the attempt's model
+  connection, through the run's gateway.
+- ``AGENT_INSTRUCTION`` gives the task.
+- Its sandbox's usage environment, which ``sandbox_io`` reads, gives the sandbox it
+  works in. The program never creates or deletes that sandbox.
 
 It writes ``result.json`` in its working directory, which is the attempt's own.
 """
@@ -41,7 +41,7 @@ def ask(instruction: str) -> str:
 
 def main() -> None:
     answer = ask(os.environ["AGENT_INSTRUCTION"])
-    # The tool call: the agent's work lands in its sandbox.
+    # This write is the tool call. It puts the agent's work in its sandbox.
     sandbox_io.write("answer.txt", answer)
     # Written aside and renamed into place, so a kill mid-write leaves no result
     # rather than half of one, which the verifier could not score.

@@ -444,7 +444,7 @@ async def test_a_judge_that_ignores_its_deadline_stops_the_run_unsettled(
     assert outcome.status == "aborted"
     assert "grade_group() ignored cancellation" in (outcome.reason or "")
     # Still running, so it keeps its slot, and the run does not end clean.
-    assert "Runtime hook grade_group:g0000000-" in caplog.text
+    assert "Rollout runtime hook grade_group:g0000000-" in caplog.text
     assert "ignored cancellation and still holds its permit" in caplog.text
 
 

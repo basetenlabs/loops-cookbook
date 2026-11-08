@@ -1,8 +1,8 @@
-"""Open a config as a project, to check and train it from Python as ``loops`` does.
+"""Open a config as a project, so you can check and train it from Python as ``loops`` does.
 
 The config names its recipe with ``recipe = "rl"`` or ``recipe = "sft"``, and that
-recipe's ``Recipe`` checks and trains it. ``loops`` loads its config through
-``load`` too, and adds the automatic ``.env`` loading a library leaves to its caller.
+recipe's ``Recipe`` checks and trains it. ``loops`` also loads its config through
+``load``. It adds the automatic ``.env`` loading that a library leaves to its caller.
 """
 
 from __future__ import annotations
@@ -38,12 +38,12 @@ _RUN_CONFIGS: tuple[type[RunConfig], ...] = (rl.RECIPE.config, sft.RECIPE.config
 
 
 def run_config(config: BaseModel) -> RunConfig:
-    """``config``'s sections every recipe has (``_RUN_CONFIGS``)."""
+    """Return ``config`` typed as the sections that every recipe has, which ``_RUN_CONFIGS`` checks."""
     return cast(RunConfig, config)
 
 
 class NoRunFound(ValueError):
-    """No ``<run_name>-<time>-<id>`` directory in ``output_dir`` has trained."""
+    """Raised when no ``<run_name>-<time>-<id>`` directory in ``output_dir`` has trained."""
 
     def __init__(self, output_dir: str, run_name: str) -> None:
         super().__init__(f"no {run_name}-<time>-<id> directory in {output_dir} has trained")
@@ -51,7 +51,7 @@ class NoRunFound(ValueError):
 
 
 class NoManifest(ValueError):
-    """The latest run, ``directory``, kept no resume manifest."""
+    """Raised when the latest run, ``directory``, kept no resume manifest."""
 
     def __init__(self, directory: Path) -> None:
         super().__init__(f"the latest run, {directory}, kept no resume manifest")
@@ -59,7 +59,7 @@ class NoManifest(ValueError):
 
 
 class ResumeFromSet(ValueError):
-    """``[training] resume_from`` already names ``resume_from``, another run to resume."""
+    """Raised when ``[training] resume_from`` already names another run to resume."""
 
     def __init__(self, resume_from: str) -> None:
         super().__init__(f"[training] resume_from already names {resume_from}")
@@ -67,13 +67,13 @@ class ResumeFromSet(ValueError):
 
 
 def recipe_of(path: Path) -> Recipe[Any]:
-    """The recipe ``path`` names with its ``recipe`` key."""
+    """Return the recipe that ``path`` names with its ``recipe`` key."""
     declared = load_config_file(path.expanduser()).get("recipe")
     if declared is None:
-        raise ValueError(f'{path} names no recipe; add recipe = "rl" or recipe = "sft"')
+        raise ValueError(f'{path} names no recipe. Add recipe = "rl" or recipe = "sft"')
     if not isinstance(declared, str) or declared not in RECIPES:
         raise ValueError(
-            f"{path}: recipe = {declared!r} is not a recipe; use "
+            f"{path}: recipe = {declared!r} is not a recipe. Use "
             + " or ".join(f'"{name}"' for name in RECIPES)
         )
     return RECIPES[declared]
@@ -93,32 +93,36 @@ class Project[C: BaseModel]:
         return self.source.path
 
     def describe(self) -> list[str]:
-        """Where the config came from and where its runs go, as ``loops check`` prints
-        them before the check's own lines."""
+        """Say where the config came from and where its runs go.
+
+        ``loops check`` prints these lines before the check's own lines.
+        """
         return [*self.source.describe(), f"  runs: {run_config(self.config).output.output_dir}"]
 
     async def check(self) -> Report:
-        """Check the config as ``loops check`` does; launches no trainer or sandbox.
+        """Check the config as ``loops check`` does, without launching a trainer or a sandbox.
 
-        It may download model or data files, and an RL check writes a run under
-        ``output_dir/preflight``. ``describe()`` gives the lines ``loops check`` prints.
+        The check may download model or data files, and an RL check writes a run under
+        ``output_dir/preflight``. The report's ``describe()`` gives the lines that
+        ``loops check`` prints.
         """
         return await self.recipe.check(self.config, self.source)
 
     async def train(self) -> Outcome:
-        """Train as ``loops run`` does; returns the run's ``Outcome``."""
+        """Train as ``loops run`` does, and return the run's ``Outcome``."""
         return await self.recipe.train(self.config, self.source)
 
     def resume_latest(self) -> Project[C]:
-        """This project set to resume its latest run, as ``loops run --resume`` does: the
-        ``<output_dir>/<run_name>-<time>-<id>`` that trained most recently
-        (``latest_run``), from the manifest it wrote last.
+        """Return this project set to resume its latest run, as ``loops run --resume`` does.
 
-        ``NoRunFound`` when there is no such run, rather than a fresh run: a mistyped
-        ``run_name`` would otherwise train from scratch under a resume's name.
-        ``NoManifest`` when that run kept no manifest: an older run is never taken in its
-        place. ``ResumeFromSet`` when ``resume_from`` is set, since the two would name
-        different runs.
+        The latest run is the ``<output_dir>/<run_name>-<time>-<id>`` that trained most
+        recently, as ``latest_run`` finds it. It resumes from the manifest it wrote last.
+
+        This raises ``NoRunFound`` when there is no such run, rather than starting a
+        fresh run, because a mistyped ``run_name`` would otherwise train from scratch
+        under a resume's name. It raises ``NoManifest`` when that run kept no manifest,
+        so an older run is never taken in its place. It raises ``ResumeFromSet`` when
+        ``resume_from`` is set, because the two would name different runs.
         """
         training = run_config(self.config).training
         if training.resume_from:
@@ -131,8 +135,10 @@ class Project[C: BaseModel]:
         return replace(self, config=self.config.model_copy(update={"training": training}))
 
     def latest_run(self) -> Path:
-        """The run of this config that trained most recently (``latest_run``);
-        ``NoRunFound`` when none has, so nothing starts in its place."""
+        """Return the run of this config that trained most recently, as ``latest_run`` finds it.
+
+        This raises ``NoRunFound`` when none has, so nothing starts in its place.
+        """
         output = run_config(self.config).output
         directory = latest_run(output.output_dir, output.run_name)
         if directory is None:
@@ -146,14 +152,14 @@ def load(
     overrides: Mapping[str, JsonValue] | None = None,
     env_file: str | Path | None = None,
 ) -> Project[Any]:
-    """The project ``path`` holds, validated and ready to check or train.
+    """Load the project that ``path`` holds, validated and ready to check or train.
 
-    A file the config names is relative to the config, a symlink followed to the file
-    it points to; a dotted override that names one is relative to the working
-    directory, as a ``loops`` flag is. ``output_dir``
-    is resolved now, so a later change of directory does not move it. The config's
-    directory becomes importable. ``env_file``, relative to the config, fills only
-    variables the process does not set; without it no ``.env`` is read.
+    A file that the config names is relative to the config. A symlinked config is
+    followed to the file it points to. A dotted override that names a file is relative
+    to the working directory, as a ``loops`` flag is. ``output_dir`` is resolved now, so
+    a later change of directory does not move it. The config's directory becomes
+    importable. ``env_file`` is relative to the config, and it fills only variables
+    that the process does not set. Without it, no ``.env`` is read.
     """
     source = ConfigSource.of(Path(path))
     return load_as(recipe_of(source.file), source, overrides=overrides, env_file=env_file)
@@ -166,9 +172,10 @@ def load_as[C: BaseModel](
     overrides: Mapping[str, JsonValue] | None = None,
     env_file: str | Path | None = None,
 ) -> Project[C]:
-    """``load`` for a config already known to be ``recipe``'s, as ``loops`` knows it.
+    """Run ``load`` for a config already known to be ``recipe``'s, as ``loops`` knows it.
 
-    It reads the real file ``source`` reached, so everything comes from one directory.
+    It reads the real file that ``source`` reached, so everything comes from one
+    directory.
     """
     config = recipe.load(source.file, overrides)
     if env_file is not None:

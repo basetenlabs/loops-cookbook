@@ -1,8 +1,8 @@
-"""Train agents with RL on Baseten Loops: what `loops` does with an RL config.
+"""What the `loops` command does with an RL config, to train agents with RL on Baseten Loops.
 
-`loops check` asks Loops whether it serves the model, builds the runtime and
-discovers its tasks; it launches nothing. `loops cleanup` releases the provider
-resources a stopped run left behind.
+`loops check` asks Loops whether it serves the model, builds the rollout runtime and
+discovers its tasks. It launches nothing. `loops cleanup` releases the provider
+resources that a stopped run left behind.
 """
 
 from __future__ import annotations
@@ -26,18 +26,19 @@ from loops_cookbook.runtime.context import RuntimeConfigurationError
 from loops_cookbook.runtime.driver import RuntimeExecutionFailure
 
 CLEANUP = (
-    "Release every provider resource a stopped run left behind, from its resource journal "
-    "(--state-dir) or, when the journal is lost, by the run's ownership labels (--run-id). "
-    "Exits 0 when every resource is proven released and 1 while any is not. A label "
-    "sweep never proves nothing was missed, so it exits 3, not 0, once everything it "
-    "listed is released; 2 is a configuration error or a held journal lock."
+    "Release every provider resource that a stopped run left behind. The command reads "
+    "the run's resource journal (--state-dir) or, when the journal is lost, finds the "
+    "resources by the run's ownership labels (--run-id). It exits 0 when every resource "
+    "is proven released, and 1 while any is not. A label sweep can never prove that "
+    "nothing was missed, so it exits 3, not 0, once everything it listed is released. "
+    "Exit code 2 means a configuration error or a held journal lock."
 )
-# A label sweep released everything it listed; only the listings' completeness is unproven.
+# A label sweep released everything it listed. Only the listings' completeness is unproven.
 SWEEP_LISTING_UNCONFIRMED = 3
 
 
 def load_training_config(path: Path, overrides: dict[str, Any] | None = None) -> Config:
-    """Load training settings, resolving file references against whoever named them."""
+    """Load the training settings, resolving each file reference against whoever named it."""
     return RECIPE.load(path, overrides)
 
 
@@ -46,7 +47,7 @@ def add_cleanup_arguments(cleanup: argparse.ArgumentParser) -> None:
         "config",
         type=Path,
         metavar="CONFIG",
-        help="The run's training TOML or JSON; only its [providers] tables are read.",
+        help="The run's training TOML or JSON. Only its [providers] tables are read.",
     )
     source = cleanup.add_mutually_exclusive_group(required=True)
     source.add_argument(
@@ -59,9 +60,9 @@ def add_cleanup_arguments(cleanup: argparse.ArgumentParser) -> None:
         "--run-id",
         metavar="ID",
         help=(
-            "Sweep by ownership labels when the journal is gone; only once the run has "
-            "stopped. Exits 1 while a listed resource is unresolved or a listing failed, and "
-            "3 once every listed resource is released."
+            "Sweep by ownership labels when the journal is gone. Use it only once the run "
+            "has stopped. It exits 1 while a listed resource is unresolved or a listing "
+            "failed, and 3 once every listed resource is released."
         ),
     )
     cleanup.add_argument(
@@ -70,7 +71,7 @@ def add_cleanup_arguments(cleanup: argparse.ArgumentParser) -> None:
 
 
 def _providers(path: Path) -> dict[str, dict[str, JsonValue]]:
-    """The ``[providers]`` tables of a training config, and nothing else from it."""
+    """Return the ``[providers]`` tables of a training config, and nothing else from it."""
     tables = load_config_file(path).get("providers", {})
     return TypeAdapter(dict[str, dict[str, JsonValue]]).validate_python(tables)
 
@@ -97,15 +98,16 @@ async def cleanup(args: argparse.Namespace) -> int:
         return 0
     if args.state_dir is None and only_listings_unconfirmed(report):
         print(
-            f"Released everything listed under {source}. A label sweep cannot prove nothing "
-            "else is left, because provider listings lag; rerun it once they settle, and "
-            f"check the provider for anything still labeled loops.run_id={args.run_id}.",
+            f"Released everything listed under {source}. A label sweep cannot prove that "
+            "nothing else is left, because provider listings lag. Rerun it once they "
+            "settle, and check the provider for anything still labeled "
+            f"loops.run_id={args.run_id}.",
             file=sys.stderr,
         )
         return SWEEP_LISTING_UNCONFIRMED
     print(
         f"Cleanup incomplete from {source}: {len(report.unresolved)} resource(s) are not "
-        "proven released; rerun the same command once the provider settles.",
+        "proven released. Rerun the same command once the provider settles.",
         file=sys.stderr,
     )
     return 1

@@ -1,4 +1,4 @@
-"""A runtime that reaches the model over the run's OpenAI-compatible gateway."""
+"""A rollout runtime that reaches the model over the run's OpenAI-compatible gateway."""
 
 import asyncio
 

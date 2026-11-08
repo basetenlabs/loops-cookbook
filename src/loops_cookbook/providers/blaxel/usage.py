@@ -1,13 +1,13 @@
-"""Blaxel usage code: reaching a sandbox the run's registry already owns.
+"""Reach a Blaxel sandbox that the run's registry already owns.
 
-Nothing here creates, deletes, or holds an adapter. A caller has the
-``ProviderResource`` a provisioned sandbox's handle carries, and gets the SDK's usage
-client for exactly that sandbox, or a failure. So code outside the registry, such as
-Harbor's environment, can use a sandbox without being able to bypass the registry's
-ownership.
+Nothing here creates or deletes a sandbox, or holds an adapter. A caller passes the
+``ProviderResource`` that a provisioned sandbox's handle carries. It gets back the
+SDK's usage client for exactly that sandbox, or a failure. Code outside the registry,
+such as Harbor's environment, can therefore use a sandbox without bypassing the
+registry's ownership.
 
-A sandbox is usable only while it is ``DEPLOYED``; ``deployed`` is that rule, and
-the adapter's provisioning and liveness and ``attach`` all read it.
+A sandbox is usable only while it is ``DEPLOYED``. The ``deployed`` function holds that
+rule, and the adapter's provisioning, its liveness check and ``attach`` all use it.
 """
 
 from __future__ import annotations
@@ -25,9 +25,9 @@ POLL_SECONDS = 2.0
 
 
 def deployed(status: object) -> bool:
-    """Whether a sandbox in ``status`` is usable.
+    """Return whether a sandbox in ``status`` is usable.
 
-    Being readable proves nothing: a deleted sandbox stays readable, as
+    Being readable proves nothing, because a deleted sandbox stays readable, as
     ``TERMINATED``, for many minutes.
     """
     return status == DEPLOYED
@@ -39,11 +39,11 @@ async def attach(
     timeout_seconds: float,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> SandboxInstance:
-    """The usage client for the provisioned sandbox, once it is ``DEPLOYED``.
+    """Return the usage client for the provisioned sandbox, once it is ``DEPLOYED``.
 
-    Bounded by ``timeout_seconds``, the provider's attach deadline. The sandbox must
-    carry the ownership labels it was created with. The client has the network
-    deadlines installed; its caller closes it with ``close_clients``.
+    ``timeout_seconds``, the provider's attach deadline, bounds the wait. The sandbox must
+    carry the ownership labels it was created with. The client has the network deadlines
+    installed, and the caller closes it with ``close_clients``.
     """
     sandbox: SandboxInstance | None = None
     try:
@@ -64,7 +64,8 @@ async def attach(
                     )
                 await sleep(POLL_SECONDS)
     except BaseException:
-        if sandbox is not None:  # a client read just before the deadline
+        # A client read just before the deadline still needs closing.
+        if sandbox is not None:
             await close_clients(sandbox)
         raise
     observed = sandbox.metadata.to_dict()

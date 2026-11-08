@@ -1,45 +1,47 @@
-"""The provider-neutral ownership state machine over the resource journal.
+"""Track who owns each provider resource, with a state machine over the resource journal.
 
-Every provider resource the cookbook owns moves through one durable machine. Each
-transition is journaled and fsynced at the point named, and the recovery a crash at
-that point needs is fixed by what the journal already holds:
+The state machine works the same for every provider. Every provider resource the
+cookbook owns moves through it. Each transition is journaled and fsynced at the point
+named below. What the journal already holds then fixes the recovery that a crash at
+that point needs.
 
-1. ``intent``: the immutable creation intent, before any provider call. A crash
-   after it leaves an identity whose create may or may not have happened;
-   recovery reconciles it by name and ownership labels.
-2. the adapter's ``create``, under the provisioning permit and create deadline. A
-   create the provider refuses for now is sent again within that deadline, after a
-   wait that holds no permit. How many of a provider's creates are in flight at once
-   follows its refusals (``_CreateWindow``).
-3. ``created`` with the exact provider identity, or ``create_failed`` with the
-   known disposition. A crash between 2 and 3 is the same as a crash after 1. A
-   create that happened but left the resource unusable is ``created`` (so it is
-   released) and still fails the provision.
-4. ``reconciled``: an ambiguous create looked up by identity. ``FOUND`` makes the
-   resource owned; ``PROVEN_ABSENT`` closes it; ``UNKNOWN`` keeps it unresolved.
-   A lookup's not-found proves nothing, except for a settled create: one inherited
-   from a stopped process and older than ``SETTLE_SECONDS``.
-5. ``leased`` and ``unleased``: a scope borrowing a run resource. A crash leaves
-   the lease recorded, and the lease's scope is released at recovery anyway.
-6. ``release_deferred`` while a dependant or lease is live, then ``released`` with
-   its cleanup status. Only ``RELEASED`` and ``ALREADY_ABSENT`` close an identity;
-   ``UNCONFIRMED`` keeps it for ``loops cleanup``. A crash during a release
-   repeats it, which a provider release must tolerate.
+1. ``intent`` records the immutable creation intent, before any provider call. A crash
+   after it leaves an identity whose create may or may not have happened. Recovery
+   reconciles it by name and ownership labels.
+2. The adapter's ``create`` runs under the provisioning permit and the create
+   deadline. A create that the provider refuses for now is sent again within that
+   deadline, after a wait that holds no permit. How many of a provider's creates are in
+   flight at once follows its refusals, as ``_CreateWindow`` describes.
+3. ``created`` records the exact provider identity, or ``create_failed`` records the
+   known disposition. A crash between steps 2 and 3 is the same as a crash after step
+   1. A create that happened but left the resource unusable is recorded as
+   ``created``, so it is released, and the provision still fails.
+4. ``reconciled`` records an ambiguous create looked up by identity. ``FOUND`` makes the
+   resource owned, ``PROVEN_ABSENT`` closes it, and ``UNKNOWN`` keeps it unresolved. A
+   lookup's not-found answer proves nothing, except for a settled create. A settled
+   create is one inherited from a stopped process and older than ``SETTLE_SECONDS``.
+5. ``leased`` and ``unleased`` record a scope borrowing a run resource. A crash leaves
+   the lease recorded, and recovery releases the lease's scope anyway.
+6. ``release_deferred`` is recorded while a dependant or lease is live, and then
+   ``released`` with its cleanup status. Only ``RELEASED`` and ``ALREADY_ABSENT``
+   close an identity. ``UNCONFIRMED`` keeps it for ``loops cleanup``. A crash during a
+   release repeats the release, which a provider release must tolerate.
 
-Operations on one resource identity are serialized; nothing takes a registry-wide
-lock across provider I/O. The provisioning permit is held only while an operation
-talks to the provider, so a caller waiting on another's identity or prerequisite
-holds none.
+Operations on one resource identity are serialized, and nothing takes a registry-wide
+lock across provider calls. The provisioning permit is held only while an operation
+talks to the provider, so a caller waiting on another identity or a prerequisite holds
+none.
 
-Every operation that uses an adapter or writes the journal runs as tracked work
-(``_track``): creates, releases, prerequisite lookups and sandbox usage alike. That is
-what makes closing safe and bounded. ``begin_shutdown`` stops provisioning: work that
-has sent nothing yet stops there, a create recorded as never created, and a caller
-still waiting on a key or a prerequisite gets a ``DEFINITELY_NOT_CREATED`` failure
-without one being started. ``close`` then waits for the tracked work, up to its
-deadline; past it the work is cut off, each operation recorded as far as it got, and
-what is left stays in the journal, unresolved, for ``loops cleanup``. Only once no
-work is left are the journal and the adapters closed.
+Every operation that uses an adapter or writes the journal runs as tracked work,
+through ``_track``. That covers creates, releases, prerequisite lookups and sandbox
+usage alike, and it makes closing safe and bounded. ``begin_shutdown`` stops
+provisioning. Work that has sent nothing yet stops there, and its create is recorded
+as never created. A caller still waiting on a key or a prerequisite gets a
+``DEFINITELY_NOT_CREATED`` failure, and no create is started for it. ``close`` then
+waits for the tracked work, up to its deadline. Past the deadline the work is cut off,
+and each operation is recorded as far as it got. What is left stays in the journal,
+unresolved, for ``loops cleanup``. The journal and the adapters close only once no
+work is left.
 """
 
 from __future__ import annotations
@@ -100,65 +102,72 @@ class _SandboxAdapter(ResourceAdapter, SandboxProvider[Any], Protocol):
 
 
 OWNERSHIP_LABELS = ("loops.run_id", "loops.scope", "loops.owner_id", "loops.resource_id")
-# How long after its intent a create that a stopped process left unresolved is
-# settled: past any provider's visibility lag, so a not-found lookup means absent.
+# How long after its intent a create that a stopped process left unresolved counts as
+# settled. The time is past any provider's visibility lag, so a not-found lookup then
+# means absent.
 SETTLE_SECONDS = 600
-# The wait before sending a refused create again: up to 1 s, doubling to 30 s, each
-# scaled by a random jitter, since a refusal is usually a limit other clients share.
+# The wait before sending a refused create again. It starts at up to 1 s and doubles to
+# at most 30 s. Each wait is scaled by a random jitter, because a refusal usually comes
+# from a limit that other clients share.
 REFUSED_FIRST_WAIT_SECONDS = 1.0
 REFUSED_MAX_WAIT_SECONDS = 30.0
-# A provider's creates in flight at once, at most and to start with, when the registry
-# is not told the provisioning limit.
+# The most creates a provider has in flight at once, and the number it starts with, when
+# the registry is not told the provisioning limit.
 DEFAULT_CREATE_WINDOW = 4
 # How long a closing registry waits, once its deadline has passed and it has cut off
 # the creates and releases still in flight, for them and its adapters to stop.
 CUT_OFF_GRACE_SECONDS = 5.0
-# How long after a transient helper (such as an image build) fails to create a request
-# for the same key fails at once with that failure, rather than creating it again: the
-# requests queued behind a failed build would otherwise each rebuild it, one by one.
+# How long after a transient helper, such as an image build, fails to create a request
+# for the same key fails at once with that failure, instead of creating it again.
+# Otherwise the requests queued behind a failed build would each rebuild it, one by one.
 FAILED_HELPER_COOLDOWN_SECONDS = 90.0
 
 
 class ResourceContractError(RuntimeError):
-    """A caller used the resource services outside their contract."""
+    """Raised when a caller uses the resource services outside their contract."""
 
 
 class _State(str, Enum):
-    PENDING = "pending"  # intent recorded; the create's outcome is not yet known
+    PENDING = "pending"  # The intent is recorded, and the create's outcome is not known.
     OWNED = "owned"
-    AMBIGUOUS = "ambiguous"  # the create may have happened; not yet reconciled
-    DEFERRED = "deferred"  # release requested while a dependant or lease is live
-    UNCONFIRMED = "unconfirmed"  # released or lost, but absence is not proven
-    CLOSED = "closed"  # proven gone, or never created
+    AMBIGUOUS = "ambiguous"  # The create may have happened, and is not yet reconciled.
+    DEFERRED = "deferred"  # A release was requested while a dependant or lease is live.
+    UNCONFIRMED = "unconfirmed"  # Released or lost, but absence is not proven.
+    CLOSED = "closed"  # Proven gone, or never created.
 
 
 @dataclass(slots=True)
 class _CreateWindow:
-    """How many of one provider's creates may be in flight: sent and not yet answered.
+    """Limit how many of one provider's creates may be in flight, meaning sent and not yet answered.
 
-    TCP's congestion window. A refusal is usually a limit the provider's other callers
-    share, and its room changes with their load, so the window follows the refusals:
-    it halves on a refusal and grows by ``1 / size`` for each create the provider
-    answers without refusing, about one a window, between 1 and ``cap``. Any such
-    answer, even a failure or a timeout, is room the provider did not refuse; were only
-    successes to widen it, a provider that fails creates would hold it narrow for good.
-    A burst refused together is one signal, so only a refusal of a create sent since
-    the last halving halves it again. A fractional size admits the next whole create
-    (1.5 is 2 slots), so one halving of a small window leaves room to recover. Creates
-    wait for a slot in the order they first asked for one, so a retry keeps its place
-    ahead of creates that arrived after it.
+    It works like TCP's congestion window. A refusal usually comes from a limit that the
+    provider's other callers share, and the room under it changes with their load. The
+    window therefore follows the refusals. It halves on a refusal. It grows by
+    ``1 / size`` for each create the provider answers without refusing, which is about
+    one per window. It stays between 1 and ``cap``.
+
+    Any answer that is not a refusal, even a failure or a timeout, shows room that the
+    provider did not refuse. If only successes widened the window, a provider that
+    fails creates would hold it narrow for good. A burst refused together is one
+    signal, so only a refusal of a create sent since the last halving halves the window
+    again. A fractional size admits the next whole create, so 1.5 means 2 slots. One
+    halving of a small window therefore leaves room to recover. Creates wait for a slot
+    in the order they first asked for one, so a retry keeps its place ahead of creates
+    that arrived after it.
     """
 
     provider: str
     cap: int
-    size: float = 0.0  # set to ``cap`` at first
+    size: float = 0.0  # Set to ``cap`` at first.
     in_flight: int = 0
-    epoch: int = 0  # halvings so far; a create remembers the epoch it was sent in
+    # The number of halvings so far. A create remembers the epoch it was sent in.
+    epoch: int = 0
     waiting: list[tuple[int, asyncio.Future[None]]] = field(
         default_factory=list[tuple[int, asyncio.Future[None]]]
-    )  # a heap, by place in line
-    refusals: int = 0  # since the window last left its cap
-    narrowed_at: float | None = None  # when it left its cap, while it is below it
+    )  # A heap, ordered by place in line.
+    refusals: int = 0  # The refusals since the window last left its cap.
+    # When the window left its cap, while it is below the cap.
+    narrowed_at: float | None = None
 
     def __post_init__(self) -> None:
         self.size = float(self.cap)
@@ -167,7 +176,7 @@ class _CreateWindow:
         """Give free slots to the creates longest in line."""
         while self.waiting and self.in_flight < max(1, math.ceil(self.size)):
             _, waiter = heapq.heappop(self.waiting)
-            if waiter.done():  # stopped waiting
+            if waiter.done():  # The waiter stopped waiting.
                 continue
             self.in_flight += 1
             waiter.set_result(None)
@@ -180,12 +189,15 @@ class _Entry:
     resource: ProviderResource | None = None
     holders: set[str] = field(default_factory=set[str])
     result: CleanupResult | None = None
-    releasing: bool = False  # a release was requested and has not yet deferred or finished
-    sent: bool = False  # the create may have reached the provider
-    abandoned: bool = False  # its caller stopped: a refused create is not sent again
-    written_at_ns: int | None = None  # when this process recorded the intent
-    # When a create this process inherited, with no recorded outcome, is settled: no
-    # create for it can still be in flight. None for an intent this process wrote.
+    # A release was requested and has not yet deferred or finished.
+    releasing: bool = False
+    sent: bool = False  # The create may have reached the provider.
+    # The caller stopped, so a refused create is not sent again.
+    abandoned: bool = False
+    written_at_ns: int | None = None  # When this process recorded the intent.
+    # When a create that this process inherited, with no recorded outcome, is settled.
+    # After that, no create for it can still be in flight. It is None for an intent
+    # this process wrote.
     settles_at_ns: int | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
@@ -199,23 +211,23 @@ def _no_permit() -> AbstractAsyncContextManager[None]:
 
 
 async def close_adapters(adapters: Mapping[str, ResourceAdapter]) -> None:
-    """Close every adapter at once, so one that fails or hangs holds up none of the
-    others; the first failure or cancellation, in the adapters' order, is raised.
+    """Close every adapter at once, so one that fails or hangs holds up none of the others.
 
-    Whoever holds the adapters when their next owner cannot take them closes them
-    here: a registry when it closes, and a composition root whose run, registry or
-    sweep never started.
+    The first failure or cancellation, in the adapters' order, is raised. Whoever holds
+    the adapters when their next owner cannot take them closes them here. That is a
+    registry when it closes, or a composition root whose run, registry or sweep never
+    started.
     """
     outcomes = await asyncio.gather(
         *(adapter.close() for adapter in adapters.values()), return_exceptions=True
     )
     for outcome in outcomes:
-        if isinstance(outcome, BaseException):  # a cancelled close is not a closed one
+        if isinstance(outcome, BaseException):  # A cancelled close is not a closed one.
             raise outcome
 
 
 class ResourceRegistry:
-    """Owns every resource of one run: its journal, identities, and cleanup."""
+    """Own every resource of one run, including its journal, identities and cleanup."""
 
     def __init__(
         self,
@@ -240,7 +252,7 @@ class ResourceRegistry:
         self._monotonic = monotonic
         self._create_window = create_window
         self._windows: dict[str, _CreateWindow] = {}
-        self._in_line = itertools.count()  # each create's place in its window's line
+        self._in_line = itertools.count()  # Each create's place in its window's line.
         self._adapters = dict(adapters)
         self._mode = mode
         self._run_id = run_id
@@ -248,20 +260,26 @@ class ResourceRegistry:
         self._entries: dict[str, _Entry] = {}
         self._keys: dict[tuple[ResourceScope, str, str], str] = {}
         self._key_locks: dict[tuple[ResourceScope, str, str], asyncio.Lock] = {}
-        self._built: dict[tuple[ResourceScope, str, str], ResourceHandle] = {}  # released helpers
-        # Helpers whose create failed: when, and rendered error details, until cooldown.
+        # Helpers that were created and then released.
+        self._built: dict[tuple[ResourceScope, str, str], ResourceHandle] = {}
+        # Helpers whose create failed, with when and the error's details, until the
+        # cooldown ends.
         self._failed_helpers: dict[tuple[ResourceScope, str, str], tuple[float, str]] = {}
         # Every operation that uses an adapter or writes the journal, while it runs.
         self._work: set[asyncio.Task[Any]] = set()
-        self._unsent: set[asyncio.Task[Any]] = set()  # work that has sent nothing yet
-        self._creates: dict[str, asyncio.Future[ProviderResource]] = {}  # by resource id
-        self._stopping = False  # provisioning has stopped: the registry is closing
+        self._unsent: set[asyncio.Task[Any]] = set()  # Work that has sent nothing yet.
+        # Creates in flight, keyed by resource id.
+        self._creates: dict[str, asyncio.Future[ProviderResource]] = {}
+        # Provisioning has stopped, because the registry is closing.
+        self._stopping = False
         self._closed = False
-        self._finishing: asyncio.Task[None] | None = None  # the close, once begun
-        self._cutting_off = False  # the close deadline passed: work is cancelled at once
-        self._idle = False  # the close found no work left: none may start
-        # A journal damaged before this process opened it is cleanup-only: its
-        # releases are not recorded. One that fails later refuses every append.
+        self._finishing: asyncio.Task[None] | None = None  # The close, once begun.
+        # The close deadline passed, so work is cancelled at once.
+        self._cutting_off = False
+        # The close found no work left, so no new work may start.
+        self._idle = False
+        # A journal damaged before this process opened it is cleanup-only, and its
+        # releases are not recorded. A journal that fails later refuses every append.
         self._cleanup_only = journal.damage is not None
         for record in journal.records:
             self._replay(record)
@@ -284,8 +302,8 @@ class ResourceRegistry:
     ) -> ResourceRegistry:
         """Lock and replay the run's journal.
 
-        ``write`` is the run's mode and needs the run's ``run_id``; ``reconcile``
-        replays without provisioning, for ``loops cleanup``. Both fail while
+        ``write`` is the run's mode, and it needs the run's ``run_id``. ``reconcile``
+        replays without provisioning, for ``loops cleanup``. Both modes fail while
         another process holds the journal.
         """
         if mode == "write" and not run_id:
@@ -315,11 +333,11 @@ class ResourceRegistry:
             raise
 
     def _record(self, event: str, resource_id: str, payload: Mapping[str, JsonValue]) -> None:
-        """Journal one transition; a damaged journal is cleanup-only and takes no records.
+        """Journal one transition. A damaged journal is cleanup-only and takes no records.
 
-        Cleanup of a damaged journal still reconciles and releases what it replayed,
-        and a rerun repeats that from the same records, which is safe because a
-        provider release tolerates repetition.
+        Cleanup of a damaged journal still reconciles and releases what it replayed. A
+        rerun repeats that from the same records, which is safe because a provider
+        release tolerates repetition.
         """
         if not self._cleanup_only:
             self._journal.append(event, resource_id, payload)
@@ -330,7 +348,8 @@ class ResourceRegistry:
         payload = record.payload
         if record.event == "intent":
             intent = _intent_from(payload)
-            # Replayed, so written by a process the journal lock says has stopped.
+            # The record is replayed, so a process that the journal lock says has
+            # stopped wrote it.
             settles = record.recorded_at_ns + SETTLE_SECONDS * 1_000_000_000
             self._entries[record.resource_id] = _Entry(intent, settles_at_ns=settles)
             key = (intent.scope, intent.owner_id, intent.request.logical_key)
@@ -385,10 +404,10 @@ class ResourceRegistry:
     async def provision(
         self, request: ResourceRequest, *, scope: ResourceScope, owner_id: str
     ) -> ResourceHandle:
-        """Provision ``request`` for ``owner_id`` in ``scope``, its prerequisites first."""
+        """Provision ``request`` for ``owner_id`` in ``scope``, after its prerequisites."""
         if self._mode != "write":
             raise ResourceContractError("this registry does not provision")
-        self._check_provisioning(request)  # a closed registry is a closing one
+        self._check_provisioning(request)  # A closed registry is also a closing one.
         adapter = self._adapter(request.provider)
         depends_on = list(request.depends_on)
         prerequisites = await self._awaited(
@@ -397,9 +416,9 @@ class ResourceRegistry:
         )
         for prerequisite in prerequisites:
             run_id = self._run_id or ""
-            # Shared by every request that needs it and owned by the run, so it is
-            # provisioned to completion whoever waits: one waiter's cancellation
-            # must not abandon a create the others are waiting for.
+            # Every request that needs the prerequisite shares it, and the run owns it.
+            # It is therefore provisioned to completion whoever waits, because one
+            # waiter's cancellation must not abandon a create the others wait for.
             handle = await _detached(
                 self.provision(prerequisite, scope=ResourceScope.RUN, owner_id=run_id)
             )
@@ -412,7 +431,7 @@ class ResourceRegistry:
         key = (scope, owner_id, request.logical_key)
         lock = self._key_locks.setdefault(key, asyncio.Lock())
         async with lock:
-            # Checked again once the key is this caller's: a caller that waited on it
+            # Check again once the key is this caller's. A caller that waited on it
             # while the registry began closing starts nothing.
             self._check_provisioning(request)
             if request.release_after_create:
@@ -431,7 +450,7 @@ class ResourceRegistry:
                 raise
 
     def _raise_if_cooling(self, key: tuple[ResourceScope, str, str]) -> None:
-        """Fail at once if the helper ``key`` names failed to create within the cooldown."""
+        """Fail at once if the helper that ``key`` names failed to create within the cooldown."""
         now = self._monotonic()
         for expired_key, (failed_at, _) in tuple(self._failed_helpers.items()):
             if now - failed_at >= FAILED_HELPER_COOLDOWN_SECONDS:
@@ -468,10 +487,10 @@ class ResourceRegistry:
     async def _reuse(
         self, key: tuple[ResourceScope, str, str], request: ResourceRequest
     ) -> ResourceHandle | None:
-        """The live handle ``key`` already names, or ``None`` to create a new one.
+        """Return the live handle that ``key`` already names, or ``None`` to create a new one.
 
-        A released or releasing key starts a new identity, but only once the old one
-        is proven gone, so a name derived from the key never collides with it.
+        A released or releasing key starts a new identity, but only once the old one is
+        proven gone. A name derived from the key therefore never collides with it.
         """
         wanted = (request.provider, request.kind, _specification_digest(request))
         built = self._built.get(key) if request.release_after_create else None
@@ -505,7 +524,7 @@ class ResourceRegistry:
                 )
             return ResourceHandle(entry.intent, entry.resource)
         if entry.state is not _State.CLOSED:
-            # A release, so it runs on whoever waits for it.
+            # This is a release, so it runs on whoever waits for it.
             await self._awaited(
                 self._track(self._wait_until_gone(entry)),
                 lambda: self._closing(request),
@@ -539,9 +558,9 @@ class ResourceRegistry:
         scope: ResourceScope,
         owner_id: str,
     ) -> ResourceHandle:
-        # Checked again with no await before the entry exists, so a dependency cannot
-        # begin releasing between the check and this resource counting as its dependant,
-        # and a registry cannot begin closing between the check and the intent.
+        # Check again with no await before the entry exists. A dependency then cannot
+        # begin releasing between the check and this resource counting as its dependant.
+        # The registry also cannot begin closing between the check and the intent.
         self._check_provisioning(request)
         self._check_dependencies(request, scope)
         resource_id = uuid.uuid4().hex
@@ -574,24 +593,24 @@ class ResourceRegistry:
     async def _uncancellable_create(
         self, adapter: ResourceAdapter, entry: _Entry
     ) -> ProviderResource:
-        """The create, which a cancellation cannot cut off once it may have been sent.
+        """Run the create, which a cancellation cannot cut off once it may have been sent.
 
-        A create cut off mid-request leaves a resource nobody can prove exists or not
-        until the create settles. So a cancellation that arrives once the create is sent
-        waits for it to land, bounded by its own deadline, and only then propagates: the
-        resource is then owned, and released and proven gone like any other. One that
-        arrives while the create still waits for a permit, or for its next try after a
-        refusal, stops it there, as never sent; a create refused once its caller stopped
-        is not sent again. The entry's lock is held until the outcome is recorded, so a
-        release waits for it.
+        A create cut off mid-request leaves a resource that nobody can prove exists or
+        not until the create settles. A cancellation that arrives once the create is sent
+        therefore waits for it to land, bounded by its own deadline, and only then
+        propagates. The resource is then owned, and released and proven gone like any
+        other. A cancellation that arrives while the create still waits for a permit, or
+        for its next try after a refusal, stops it there, as never sent. A create refused
+        after its caller stopped is not sent again. The entry's lock is held until the
+        outcome is recorded, so a release waits for it.
 
-        A transient helper (``release_after_create``) that exists once its create ends,
-        whether it is usable or not, is released before this returns. It is released
-        from the create's own task, which a closing registry waits for or cuts off, so
-        a helper that lands while the registry closes is released before its journal
-        closes. A create that failed releases, from that task too, each deferred
-        dependency it alone was holding. A create the closing registry stops fails as a
-        ``ProvisioningFailure``.
+        A transient helper, one with ``release_after_create``, is released before this
+        returns if it exists once its create ends, whether it is usable or not. It is
+        released from the create's own task, which a closing registry waits for or cuts
+        off. A helper that lands while the registry closes is therefore released before
+        the journal closes. A create that failed also releases, from that task, each
+        deferred dependency that it alone was holding. A create that the closing
+        registry stops fails as a ``ProvisioningFailure``.
         """
         resource_id = entry.intent.resource_id
 
@@ -602,8 +621,8 @@ class ResourceRegistry:
             except asyncio.CancelledError as error:
                 if not self._stopping:
                     raise
-                # Stopped by the closing registry, which records how far it got. A
-                # caller that stopped it itself still raises its own cancellation.
+                # The closing registry stopped the create, and records how far it got.
+                # A caller that stopped it still raises its own cancellation.
                 raise ProvisioningFailure(
                     f"creating {entry.intent.desired_name} stopped: the resource registry "
                     "is closing",
@@ -651,9 +670,11 @@ class ResourceRegistry:
         try:
             resource = await self._send_create(adapter, entry)
         except asyncio.CancelledError:
-            if not entry.sent:  # stopped waiting for a permit or a try: nothing is in flight
+            # A create stopped while waiting for a permit or a try has nothing in flight.
+            if not entry.sent:
                 self._record_failure(entry, CreationDisposition.DEFINITELY_NOT_CREATED, None)
-            elif self._stopping:  # cut off in flight by a closing registry: it may exist
+            # A create that a closing registry cut off in flight may exist.
+            elif self._stopping:
                 self._record_failure(entry, CreationDisposition.AMBIGUOUS, None)
             raise
         except ProvisioningFailure as error:
@@ -661,8 +682,8 @@ class ResourceRegistry:
                 self._record_failure(entry, error.disposition, None)
                 raise
             if error.disposition is CreationDisposition.DEFINITELY_CREATED:
-                # The resource exists but is not usable, such as a sandbox that
-                # deployed into a failed state: owned, so it is released, and the
+                # The resource exists but is not usable, such as a sandbox that deployed
+                # into a failed state. It is owned, so it is released, and the
                 # provision still fails.
                 if error.resource is not None:
                     self._own(entry, "created", error.resource)
@@ -679,14 +700,15 @@ class ResourceRegistry:
         return resource
 
     async def _send_create(self, adapter: ResourceAdapter, entry: _Entry) -> ProviderResource:
-        """The adapter's create, sent again while the provider refuses it.
+        """Send the adapter's create, and send it again while the provider refuses it.
 
         Every try first waits for a slot in the provider's create window, holding no
-        permit. Every try shares the kind's one create deadline, from the first permit,
-        so a wait for a slot before the first send costs none of it. A refusal left
-        nothing, so between tries nothing is in flight and the wait holds no permit.
-        A retry is sent only while half the deadline is left, for the create that
-        lands; past that, the last refusal is the create's failure.
+        permit. Every try shares the kind's one create deadline, which starts at the
+        first permit, so a wait for a slot before the first send costs none of it. A
+        refusal left nothing, so between tries nothing is in flight and the wait holds
+        no permit. A retry is sent only while half the deadline is left, so the create
+        that lands has time to finish. Past that point, the last refusal becomes the
+        create's failure.
         """
         name = entry.intent.desired_name
         budget = adapter.deadlines.create_for(entry.intent.request.kind)
@@ -710,7 +732,8 @@ class ResourceRegistry:
                     if deadline is None:
                         deadline = loop.time() + budget
                     elif refusal is not None and loop.time() > deadline - budget / 2:
-                        raise refusal  # past half its deadline waiting to be sent: never sent
+                        # It waited past half its deadline to be sent, so it was never sent.
+                        raise refusal
                     entry.sent = True
                     try:
                         async with asyncio.timeout_at(deadline):
@@ -720,7 +743,7 @@ class ResourceRegistry:
                         if not refused:
                             raise
                         refusal = error
-                    except Exception:  # a failure or timeout, but not a refusal
+                    except Exception:  # A failure or timeout, but not a refusal.
                         refused = False
                         raise
                     else:
@@ -741,7 +764,7 @@ class ResourceRegistry:
                 REFUSED_FIRST_WAIT_SECONDS * 2 ** (tries - 1), REFUSED_MAX_WAIT_SECONDS
             )
             if entry.abandoned:
-                raise refusal  # the caller stopped; nothing is in flight to wait for
+                raise refusal  # The caller stopped, and nothing is in flight to wait for.
             if waited + wait > budget / 2 or loop.time() + wait > deadline - budget / 2:
                 logger.warning("%s: refused %d times; giving up: %s", name, tries, refusal)
                 raise refusal
@@ -752,18 +775,19 @@ class ResourceRegistry:
         raise AssertionError("unreachable")
 
     async def _take_slot(self, window: _CreateWindow, place: int) -> None:
-        """Wait, holding no permit, for a slot in ``window``, in line at ``place``."""
+        """Wait for a slot in ``window``, in line at ``place``, holding no permit."""
         waiter = asyncio.get_running_loop().create_future()
         heapq.heappush(window.waiting, (place, waiter))
         window.wake()
         try:
             await waiter
         except asyncio.CancelledError:
-            if waiter.done() and not waiter.cancelled():  # given a slot as it stopped
+            # The waiter was given a slot just as it stopped.
+            if waiter.done() and not waiter.cancelled():
                 window.in_flight -= 1
                 window.wake()
             else:
-                waiter.cancel()  # its entry in the line is skipped
+                waiter.cancel()  # Its entry in the line is skipped.
             raise
 
     def _answered(
@@ -773,11 +797,11 @@ class ResourceRegistry:
         refused: bool | None,
         refusal: ProvisioningFailure | None,
     ) -> None:
-        """Free a create's slot; a refusal narrows the window and any other answer widens it.
+        """Free a create's slot. A refusal narrows the window, and any other answer widens it.
 
-        ``refused`` is ``None`` for a create that was not sent, or was stopped before
-        its answer: that says nothing about the provider's room. Any other answer,
-        a success, a failure, or a timeout, was not a refusal, so it widens the window.
+        ``refused`` is ``None`` for a create that was not sent, or was stopped before its
+        answer. That says nothing about the provider's room. Any other answer, such as a
+        success, a failure or a timeout, was not a refusal, so it widens the window.
         """
         window.in_flight -= 1
         before = window.size
@@ -837,7 +861,7 @@ class ResourceRegistry:
         found = await self._reconcile(adapter, entry)
         if found.status is ReconcileStatus.FOUND and found.resource is not None:
             if found.unusable is not None:
-                # Owned by the lookup, so it is released; the provision still fails.
+                # The lookup made it owned, so it is released. The provision still fails.
                 raise ProvisioningFailure(
                     f"{entry.intent.desired_name} exists but cannot be used: {found.unusable}",
                     CreationDisposition.DEFINITELY_CREATED,
@@ -856,10 +880,11 @@ class ResourceRegistry:
         ) from cause
 
     async def _reconcile(self, adapter: ResourceAdapter, entry: _Entry) -> ReconcileResult:
-        """Look an unresolved create up by identity; a failed lookup proves nothing.
+        """Look up an unresolved create by identity. A failed lookup proves nothing.
 
-        Unless the create is settled: inherited from a stopped process and older than
-        ``SETTLE_SECONDS``, so the adapter may take a not-found answer as absence.
+        The exception is a settled create, one inherited from a stopped process and older
+        than ``SETTLE_SECONDS``. For that create, the adapter may take a not-found answer
+        as absence.
         """
         settled = entry.settles_at_ns is not None and self._clock() >= entry.settles_at_ns
         try:
@@ -884,7 +909,7 @@ class ResourceRegistry:
         return found
 
     def _unsettled(self, entry: _Entry, evidence: str) -> str:
-        """Why a lookup that found nothing proves nothing yet, and when it will."""
+        """Explain why a lookup that found nothing proves nothing yet, and when it will."""
         settles = entry.settles_at_ns
         if settles is None and entry.written_at_ns is not None:
             settles = entry.written_at_ns + SETTLE_SECONDS * 1_000_000_000
@@ -938,11 +963,12 @@ class ResourceRegistry:
             raise ResourceContractError(f"{resource_id} is not a live resource")
         return self._adapter(entry.intent.request.provider).usage_environment(entry.resource)
 
-    # A sandbox's usage, not its ownership: no journal record and no provisioning
-    # permit, as for its usage environment; each call is bounded all the same.
+    # These methods cover a sandbox's usage, not its ownership. Like the usage
+    # environment, they write no journal record and take no provisioning permit. Each
+    # call still has a deadline.
 
     async def sandbox_client(self, resource_id: str) -> object:
-        """The provider's own client for a live sandbox, within its attach deadline."""
+        """Return the provider's own client for a live sandbox, within the attach deadline."""
         self._check_open()
         provider, resource = self._sandbox(resource_id)
 
@@ -953,15 +979,21 @@ class ResourceRegistry:
         return await self._awaited(self._track(attach()), _closed_under)
 
     async def close_sandbox_client(self, resource_id: str, client: object) -> None:
-        """Close a client ``sandbox_client`` gave for ``resource_id``; the caller bounds it."""
+        """Close a client that ``sandbox_client`` gave for ``resource_id``.
+
+        The caller puts the deadline on this call.
+        """
         self._check_open()
         entry = self._entries[resource_id]
         provider = self._sandbox_provider(entry.intent.request.provider)
         await self._awaited(self._track(provider.close_client(client)), _closed_under)
 
     async def sandbox_alive(self, resource_id: str) -> bool:
-        """The provider's fact of whether a live sandbox is still usable, within the attach
-        deadline: reaching a sandbox and reading whether it is there are one operation."""
+        """Return the provider's fact of whether a live sandbox is still usable.
+
+        The attach deadline applies, because reaching a sandbox and reading whether it is
+        there are one operation.
+        """
         self._check_open()
         provider, resource = self._sandbox(resource_id)
 
@@ -997,8 +1029,8 @@ class ResourceRegistry:
     async def release(self, resource_id: str) -> CleanupResult:
         """Release one resource, or defer it while something live still needs it.
 
-        Runs as its own task, so a caller that is cancelled mid-release does not
-        cancel the release; a repeated release returns without provider I/O.
+        The release runs as its own task, so a caller cancelled mid-release does not
+        cancel the release. A repeated release returns without calling the provider.
         """
         self._check_open()
         return await self._awaited(
@@ -1012,7 +1044,7 @@ class ResourceRegistry:
         )
 
     def _start_release(self, resource_id: str) -> asyncio.Task[CleanupResult]:
-        """Start releasing ``resource_id`` as a task ``close`` waits for or cuts off."""
+        """Start releasing ``resource_id`` as a task that ``close`` waits for or cuts off."""
         entry = self._entries[resource_id]
         entry.releasing = entry.live
         return self._track(self._release(resource_id))
@@ -1039,7 +1071,8 @@ class ResourceRegistry:
             provider = entry.intent.request.provider
             adapter = self._adapters.get(provider)
             if adapter is None:
-                # Kept for a cleanup configured with this provider, not skipped silently.
+                # Keep it for a cleanup configured with this provider, rather than skip
+                # it silently.
                 result = self._finish(
                     entry,
                     CleanupStatus.UNCONFIRMED,
@@ -1051,9 +1084,9 @@ class ResourceRegistry:
         return result
 
     async def _cascade(self, entry: _Entry) -> None:
-        """Release each deferred dependency ``entry`` was the last thing holding.
+        """Release each deferred dependency that ``entry`` was the last thing holding.
 
-        Each release is one ``close`` waits for or cuts off, whoever cascades it.
+        ``close`` waits for or cuts off each such release, whoever cascades it.
         """
         if entry.live:
             return
@@ -1076,8 +1109,9 @@ class ResourceRegistry:
         )
 
     async def _release_now(self, entry: _Entry, adapter: ResourceAdapter) -> CleanupResult:
-        """Release under the permit and deadlines; absence counts only when proven."""
-        if entry.resource is None:  # an unresolved create, however far recovery got
+        """Release under the permit and deadlines. Absence counts only when proven."""
+        # An unresolved create, however far recovery got.
+        if entry.resource is None:
             found = await self._reconcile(adapter, entry)
             if found.status is ReconcileStatus.PROVEN_ABSENT:
                 return self._finish(entry, CleanupStatus.ALREADY_ABSENT, found.evidence)
@@ -1099,8 +1133,8 @@ class ResourceRegistry:
     async def release_scope(self, scope: ResourceScope, owner_id: str) -> CleanupReport:
         """Release everything ``owner_id`` holds in ``scope``, dependants first.
 
-        Resources nothing else in the scope depends on are released together, so one
-        waiting out its create does not hold up the rest.
+        Resources that nothing else in the scope depends on are released together, so
+        one waiting out its create does not hold up the rest.
         """
         self._check_open()
         for entry in list(self._entries.values()):
@@ -1119,9 +1153,10 @@ class ResourceRegistry:
         return CleanupReport(scope, owner_id, tuple(results))
 
     async def release_all(self) -> CleanupReport:
-        """Everything the journal still holds, episodes before the run: the recovery path.
+        """Release everything the journal still holds, episodes before the run.
 
-        No lease survives the process that took it, so every recorded lease ends first.
+        This is the recovery path. No lease survives the process that took it, so every
+        recorded lease ends first.
         """
         self._check_open()
         for entry in list(self._entries.values()):
@@ -1137,7 +1172,7 @@ class ResourceRegistry:
                     if e.intent.scope is scope and e.live
                 }
             )
-            # Owners are independent, so their releases run together; permits bound them.
+            # Owners are independent, so their releases run together, limited by permits.
             reports = await asyncio.gather(*(self.release_scope(scope, owner) for owner in owners))
             for report in reports:
                 results.extend(report.results)
@@ -1145,7 +1180,7 @@ class ResourceRegistry:
 
     @property
     def unresolved(self) -> CleanupReport:
-        """Every identity whose absence is not proven, exactly as recorded."""
+        """Return every identity whose absence is not proven, exactly as recorded."""
         return CleanupReport(
             None,
             None,
@@ -1163,13 +1198,13 @@ class ResourceRegistry:
         )
 
     def _track[T](self, work: Coroutine[Any, Any, T], *, unsent: bool = False) -> asyncio.Task[T]:
-        """Run ``work`` as tracked work, which ``close`` waits for, or cuts off, before
-        it closes the journal and the adapters.
+        """Run ``work`` as tracked work.
 
-        Every operation that uses an adapter or writes the journal runs this way, so
-        nothing can outlive them. ``unsent`` work has sent the provider nothing, so
-        ``begin_shutdown`` stops it. Work that starts once the close deadline passed
-        is cut off as it starts, and none may start once the close found none left.
+        ``close`` waits for or cuts off tracked work before it closes the journal and the
+        adapters. Every operation that uses an adapter or writes the journal runs this
+        way, so nothing can outlive them. ``unsent`` work has sent the provider nothing,
+        so ``begin_shutdown`` stops it. Work that starts after the close deadline passed
+        is cut off as it starts. No work may start once the close found none left.
         """
         if self._idle:
             work.close()
@@ -1179,7 +1214,8 @@ class ResourceRegistry:
             task.cancel()
         self._work.add(task)
         task.add_done_callback(self._work.discard)
-        # Seen even when its caller is gone; a caller still waiting gets it all the same.
+        # Retrieve the exception even when the caller is gone. A caller still waiting
+        # gets it all the same.
         task.add_done_callback(_retrieve_exception)
         if unsent:
             self._unsent.add(task)
@@ -1193,12 +1229,13 @@ class ResourceRegistry:
         *,
         shield: bool = False,
     ) -> T:
-        """``task``'s result for its caller, or, when the closing registry stopped it
-        and not the caller, what ``cut_off`` gives: a result, or the error to raise.
+        """Return ``task``'s result to its caller.
 
-        A caller that was itself cancelled still gets its cancellation; one that was
-        not never gets a bare one. ``shield`` keeps ``task`` running when its caller
-        is cancelled, as a release does.
+        When the closing registry stopped the task, and the caller did not, it returns
+        what ``cut_off`` gives, which is a result or the error to raise. A caller that
+        was itself cancelled still gets its cancellation. A caller that was not
+        cancelled never gets a bare cancellation. ``shield`` keeps ``task`` running when
+        its caller is cancelled, as a release needs.
         """
         try:
             return await (asyncio.shield(task) if shield else task)
@@ -1211,12 +1248,12 @@ class ResourceRegistry:
         return outcome
 
     def begin_shutdown(self) -> None:
-        """Stop provisioning, at the start of closing; releases still run.
+        """Stop provisioning at the start of closing. Releases still run.
 
-        A create not yet sent, or a prerequisite still being resolved, stops where it
-        is: a create is recorded as never created, and its caller, like a caller
-        waiting on a key or a prerequisite and every later ``provision``, fails as
-        ``DEFINITELY_NOT_CREATED`` without starting a create. A create already sent
+        A create not yet sent, or a prerequisite still being resolved, stops where it is.
+        Such a create is recorded as never created. Its caller fails as
+        ``DEFINITELY_NOT_CREATED`` without starting a create, and so does a caller waiting
+        on a key or a prerequisite, and every later ``provision``. A create already sent
         runs on, for ``close`` to wait for.
         """
         if self._stopping:
@@ -1230,19 +1267,20 @@ class ResourceRegistry:
             task.cancel()
 
     async def close(self, timeout: float | None = None) -> None:
-        """Stop provisioning, wait for the work in flight, then unlock the journal and
-        close every adapter once.
+        """Stop provisioning, wait for work in flight, then unlock the journal and close adapters.
 
-        The closing itself is one task, started by the first ``close``: once no work
-        is left, it records what never started, unlocks the journal, and closes the
-        adapters. A ``close`` cancelled before that leaves it running.
+        Each adapter is closed once.
 
-        With a ``timeout``, work still running when it passes is cut off: a create is
-        recorded as ambiguous and a release as not made, each kept, unresolved, for
+        The closing itself is one task, which the first ``close`` starts. Once no work is
+        left, it records what never started, unlocks the journal and closes the adapters.
+        A ``close`` cancelled before that leaves the task running.
+
+        With a ``timeout``, work still running when it passes is cut off. A create is then
+        recorded as ambiguous, and a release as not made. Each is kept, unresolved, for
         ``loops cleanup``. The closing then has ``CUT_OFF_GRACE_SECONDS`` more, so
-        ``close`` returns within ``timeout`` and that grace. Work that ignores its
-        cancellation is reported, and keeps the journal and the adapters open until it
-        stops: nothing in this process can stop it sooner.
+        ``close`` returns within ``timeout`` plus that grace. Work that ignores its
+        cancellation is reported. It keeps the journal and the adapters open until it
+        stops, because nothing in this process can stop it sooner.
         """
         if self._finishing is None:
             self.begin_shutdown()
@@ -1268,8 +1306,7 @@ class ResourceRegistry:
         )
 
     async def _close_when_idle(self) -> None:
-        """Once no work is left, record what never started, unlock the journal, and
-        close every adapter."""
+        """Once no work is left, record what never started, unlock the journal, close adapters."""
         while self._work:
             await asyncio.wait(set(self._work))
         self._idle = True
@@ -1282,8 +1319,7 @@ class ResourceRegistry:
             await close_adapters(self._adapters)
 
     def _cut_off(self) -> None:
-        """Cancel the work still in flight when the close deadline passed, and any
-        that starts after."""
+        """Cancel the work in flight when the close deadline passed, and any that starts after."""
         self._cutting_off = True
         logger.warning(
             "%d resource create(s) and %d other operation(s) were still in flight when "
@@ -1295,7 +1331,7 @@ class ResourceRegistry:
             task.cancel()
 
     def _close_unsent(self) -> None:
-        """Record as never created each create this process stopped before it started."""
+        """Record as never created each create that this process stopped before it started."""
         for resource_id, entry in self._entries.items():
             if (
                 entry.state is _State.PENDING
@@ -1324,7 +1360,10 @@ def _local_time(ns: int) -> str:
 
 
 def describe(error: BaseException, seconds: float) -> str:
-    """An operation's failure as evidence; a deadline that ran out says how long it was."""
+    """Describe an operation's failure as evidence.
+
+    A deadline that ran out says how long it was.
+    """
     if isinstance(error, TimeoutError) and not str(error):
         return f"TimeoutError: no answer within {seconds:g}s"
     return f"{type(error).__name__}: {error}"
@@ -1336,7 +1375,10 @@ async def validate(
     resource: ProviderResource,
     permit: Permit = _no_permit,
 ) -> bool:
-    """Whether ``resource`` is the one ``intent`` owns; a failed check proves nothing."""
+    """Return whether ``resource`` is the one that ``intent`` owns.
+
+    A failed check proves nothing, so it returns ``False``.
+    """
     try:
         async with permit(), asyncio.timeout(adapter.deadlines.reconcile_seconds):
             return await adapter.validate_ownership(intent, resource)
@@ -1347,9 +1389,9 @@ async def validate(
 async def release_resource(
     adapter: ResourceAdapter, resource: ProviderResource, permit: Permit = _no_permit
 ) -> tuple[CleanupStatus, str | None]:
-    """Release ``resource``, then prove it gone, each under the permit and its deadline.
+    """Release ``resource``, then prove it gone, each step under the permit and its deadline.
 
-    ``RELEASED`` needs authoritative absence; anything less is ``UNCONFIRMED``.
+    ``RELEASED`` needs authoritative absence. Anything less is ``UNCONFIRMED``.
     """
     deadlines = adapter.deadlines
     try:
@@ -1372,7 +1414,7 @@ async def release_resource(
 
 
 def _dependants_first(entries: list[_Entry]) -> list[list[_Entry]]:
-    """``entries`` in layers, each released before anything its members depend on."""
+    """Split ``entries`` into layers, each released before anything its members depend on."""
     remaining = {entry.intent.resource_id: entry for entry in entries}
     layers: list[list[_Entry]] = []
     while remaining:
@@ -1465,7 +1507,7 @@ def _mapping(value: JsonValue) -> dict[str, JsonValue]:
 async def _prerequisites(
     adapter: ResourceAdapter, request: ResourceRequest
 ) -> list[ResourceRequest]:
-    """What ``request`` needs created first, within the provider's reconcile deadline."""
+    """Return what ``request`` needs created first, within the provider's reconcile deadline."""
     try:
         async with asyncio.timeout(adapter.deadlines.reconcile_seconds):
             return list(await adapter.prerequisites(request))
@@ -1482,13 +1524,13 @@ def _closed_under() -> ResourceContractError:
 
 
 def _caller_cancelled() -> bool:
-    """Whether the running task was itself asked to stop."""
+    """Return whether the running task was itself asked to stop."""
     caller = asyncio.current_task()
     return caller is not None and caller.cancelling() > 0
 
 
 async def _detached[T](work: Coroutine[Any, Any, T]) -> T:
-    """``work``'s result, with ``work`` running on to completion if the caller is cancelled."""
+    """Return ``work``'s result, and let ``work`` run to completion if the caller is cancelled."""
     task = asyncio.ensure_future(work)
     task.add_done_callback(lambda done: done.cancelled() or done.exception())
     return await asyncio.shield(task)

@@ -148,7 +148,7 @@ async def test_a_close_that_raises_is_a_cleanup_failure_never_the_rollouts_outco
     assert graded.reward == 1.0  # the rollout committed; its cleanup failed after
     attempt = script.of("init")[0].phase.attempt_id
     expected = (
-        f"1 consecutive cleanup infrastructure failures: runtime finish() for g-r1 attempt "
+        f"1 consecutive cleanup infrastructure failures: rollout runtime finish() for g-r1 attempt "
         f"{attempt} failed: SandboxLost: the environment went away"
     )
     assert [str(error) for error in built.rig.systemic] == [expected]

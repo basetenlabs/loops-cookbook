@@ -430,7 +430,7 @@ def test_a_run_on_another_runtime_draws_no_harbor_rows():
 
 
 def test_a_harbor_run_draws_its_rows_from_the_first_frame():
-    """The cap is reported when the runtime prepares, so the rows are there before
+    """The cap is reported when the rollout runtime prepares, so the rows are there before
     any trial is, and the region never grows a row mid-run."""
     first = {"runtime/harbor/trial_cap": 96}
     text = drawn(first)

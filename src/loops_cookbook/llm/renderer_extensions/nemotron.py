@@ -1,17 +1,18 @@
-"""Nemotron 3 Ultra and Nemotron 3.5 Super VL.
+"""The cookbook's renderers for Nemotron 3 Ultra and Nemotron 3.5 Super VL.
 
-References, pinned in ``tests/contracts/test_nemotron_extension.py``:
-nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16 and
-nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16, each ``chat_template.jinja`` with
-its tokenizer, and Super VL's image processor.
+``tests/contracts/test_nemotron_extension.py`` pins the references. They are the
+``chat_template.jinja`` and tokenizer of nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16
+and of nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16, plus Super VL's image
+processor.
 
-For text, Super VL's template is Ultra's: the same reasoning glue and the same options,
-``enable_thinking``, ``truncate_history_thinking`` and ``medium_effort`` (which appends
-``{reasoning effort: efficient}`` to the last user message). Prime's Nemotron 3.5
-renderer, written for 3.5 Lightning, has no ``medium_effort``, and it writes an image
-that follows text without the newline the template puts between them.
+For text, Super VL's template is Ultra's. It has the same reasoning glue and the same
+options, namely ``enable_thinking``, ``truncate_history_thinking`` and
+``medium_effort``. ``medium_effort`` appends ``{reasoning effort: efficient}`` to the
+last user message. Prime's Nemotron 3.5 renderer was written for 3.5 Lightning and has
+no ``medium_effort``. It also writes an image that follows text without the newline
+that the template puts between them.
 
-Both renderers bridge where Prime's decline:
+Both renderers bridge in two cases where Prime's renderers decline:
 
 - Under ``medium_effort``, when no user message is added. The hint then stays where
   it was rendered, and the new turns' tokens are those of the same renderer without it.
@@ -37,16 +38,16 @@ _PER_TOKEN = ("token_ids", "message_indices", "sampled_mask", "is_content")
 
 
 def ultra(tokenizer, chat_template_kwargs):
-    """Renderer factory for Nemotron 3 Ultra."""
+    """Build the renderer for Nemotron 3 Ultra."""
     config = Nemotron3UltraRendererConfig(**dict(chat_template_kwargs))
     return PrimeRenderer(UltraRenderer(tokenizer, config))
 
 
 def super_vl(tokenizer, chat_template_kwargs, *, processor=None):
-    """Renderer factory for Nemotron 3.5 Super VL.
+    """Build the renderer for Nemotron 3.5 Super VL.
 
-    Image parts need the model's processor. It is loaded from ``tokenizer.name_or_path``
-    on first use unless ``processor`` is given.
+    Image parts need the model's processor. Unless ``processor`` is given, it is loaded
+    from ``tokenizer.name_or_path`` on first use.
     """
     config = Nemotron3UltraRendererConfig(**dict(chat_template_kwargs))
     return PrimeRenderer(SuperVLRenderer(tokenizer, config, processor=processor))
@@ -99,8 +100,11 @@ class SuperVLRenderer(Nemotron35Renderer):
             self._unhinted._get_processor = self._get_processor
 
     def _get_processor(self):
-        """Prime's, which approves only the exact casing of the model's name; the Hub,
-        and the cookbook's selection, accept any casing."""
+        """Load the processor as Prime does, but accept the model's name in any casing.
+
+        Prime approves only the exact casing of the model's name. The Hub and the
+        cookbook's renderer selection accept any casing.
+        """
         name = getattr(self._tokenizer, "name_or_path", None) or ""
         prefix = self._processor_model_prefix
         if (
@@ -121,9 +125,12 @@ class SuperVLRenderer(Nemotron35Renderer):
 
     @classmethod
     def _logical_multimodal_content(cls, content: list[Any]) -> tuple[str, list[dict[str, Any]]]:
-        """The template's ``render_content``: image parts become ``<image>``, numbered
-        ``<image N><image>`` when the message has several, after a newline when they
-        follow text. Text that already holds ``<image>`` places the images itself."""
+        """Render content as the template's ``render_content`` does.
+
+        Each image part becomes ``<image>``, numbered ``<image N><image>`` when the
+        message has several. An image that follows text comes after a newline. Text
+        that already holds ``<image>`` places the images itself.
+        """
         _refuse_plain_strings(content)
         images = [item for item in content if cls._is_image_part(item)]
         texts = [item for item in content if item.get("type") in ("text", "input_text")]
@@ -146,8 +153,11 @@ class SuperVLRenderer(Nemotron35Renderer):
         return rendered, images
 
     def render(self, messages, *, tools=None, add_generation_prompt=False, process_multimodal=True):
-        """Prime's, with images found inside the ``<img>`` frame their processor output
-        carries, and the image markers that text writes kept as text (``_as_text``)."""
+        """Render as Prime does, but find images by the ``<img>`` frame around them.
+
+        The processor's output carries that frame. Image markers that text writes are
+        kept as text, as ``_as_text`` describes.
+        """
         transformed, images = self._transform_multimodal_messages(
             messages, process_multimodal=process_multimodal
         )
@@ -156,17 +166,20 @@ class SuperVLRenderer(Nemotron35Renderer):
         )
         runs = self._image_runs(rendered, 0, images, _owners(messages, images))
         if runs is None:
-            raise ValueError("Rendered Nemotron image placeholders were not found.")
+            raise ValueError("the rendered Nemotron image placeholders were not found")
         rendered, runs = self._as_text(rendered, 0, runs)
         if not images:
             return rendered
         return replace(rendered, multi_modal_data=_with_images(MultiModalData(), images, runs))
 
     def _as_text(self, rendered, start: int, runs: list[PlaceholderRange]):
-        """``<image>``, ``<img>`` and ``</img>`` written in text, such as an HTML page a
-        tool read, tokenize as the image markers. The sampler takes image positions only
-        from images, so from ``start`` each marker outside an image's frame is encoded
-        as the characters it was written as. Returns the tokens and the moved runs."""
+        """Encode image markers that text writes as the characters they were written as.
+
+        ``<image>``, ``<img>`` and ``</img>`` written in text tokenize as the image
+        markers. Such text can be an HTML page that a tool read. The sampler takes image
+        positions only from images. So from ``start``, each marker outside an image's
+        frame is encoded as its characters. This returns the tokens and the moved runs.
+        """
         framed = {k for run in runs for k in range(run.offset - 1, run.offset + run.length + 1)}
         tokens = rendered.token_ids
         if not any(
@@ -189,10 +202,13 @@ class SuperVLRenderer(Nemotron35Renderer):
         return replace(rendered, **columns), moved
 
     def _image_runs(self, rendered, start: int, images, owners) -> list[PlaceholderRange] | None:
-        """The placeholder run of each image, in order from ``start``: the frame its
-        expansion wrote, ``<img>``, as many ``<image>`` as the processor gave it,
-        ``</img>``, searched for only among the tokens of the message that holds the
-        image. ``None`` if one is missing."""
+        """Return the placeholder run of each image, in order from ``start``.
+
+        Each run is the frame the image's expansion wrote. That frame is ``<img>``, then
+        as many ``<image>`` tokens as the processor gave the image, then ``</img>``. A
+        frame is searched for only among the tokens of the message that holds the
+        image. This returns ``None`` if a frame is missing.
+        """
         image, (opening, closing) = self._image_token_id(), self._image_frame
         tokens, indices = list(rendered.token_ids), list(rendered.message_indices)
         runs, cursor = [], start
@@ -228,7 +244,7 @@ class SuperVLRenderer(Nemotron35Renderer):
                 process_multimodal=process_multimodal,
             )
         if self._effort_hint:
-            # A new user message moves the hint, so Prime declines: process no images.
+            # A new user message moves the hint, so Prime declines. Process no images.
             return None
         messages, images = self._transform_multimodal_messages(
             new_messages, process_multimodal=process_multimodal
@@ -241,8 +257,8 @@ class SuperVLRenderer(Nemotron35Renderer):
         kept = [*previous_prompt_ids, *previous_completion_ids]
         shared = _shared_prefix(bridged.token_ids, kept)
         if not images and previous_multi_modal_data is None:
-            # Text only, where Prime may have trimmed the reply: the new tokens start
-            # where the bridge stops repeating the prompt and the reply.
+            # This is text only, and Prime may have trimmed the reply. So the new tokens
+            # start where the bridge stops repeating the prompt and the reply.
             return self._as_text(bridged, shared, [])[0]
         if shared != len(kept):
             return None
@@ -268,7 +284,7 @@ def _with_images(prior: MultiModalData, images, runs) -> MultiModalData:
 
 
 def _shared_prefix(tokens, kept) -> int:
-    """How many of ``kept`` begin ``tokens``."""
+    """Count how many tokens of ``kept`` begin ``tokens``."""
     for k, (token, expected) in enumerate(zip(tokens, kept)):
         if token != expected:
             return k
@@ -276,8 +292,11 @@ def _shared_prefix(tokens, kept) -> int:
 
 
 def _owners(messages, images) -> list[int]:
-    """The index in ``messages`` of the message holding each image, in the order
-    ``_transform_multimodal_messages`` processed them; none when it processed none."""
+    """Return the index in ``messages`` of the message holding each image.
+
+    The indices follow the order that ``_transform_multimodal_messages`` processed the
+    images in. The list is empty when it processed none.
+    """
     if not images:
         return []
     return [
@@ -290,9 +309,9 @@ def _owners(messages, images) -> list[int]:
 
 
 def _refuse_plain_strings(content: Any) -> None:
-    """The template renders a plain string part in a content list as nothing."""
+    """Refuse plain string parts in a content list, which the template renders as nothing."""
     if isinstance(content, list) and any(isinstance(part, str) for part in content):
         raise ValueError(
-            "Nemotron 3.5 Super VL's template drops plain string parts in a content list; "
-            'write them as {"type": "text", "text": ...}'
+            "Nemotron 3.5 Super VL's template drops plain string parts in a content list. "
+            'Write them as {"type": "text", "text": ...}.'
         )

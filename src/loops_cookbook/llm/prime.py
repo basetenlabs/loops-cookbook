@@ -1,4 +1,4 @@
-"""Adapter from Prime Intellect's renderers to the cookbook's ``Renderer`` contract."""
+"""An adapter that makes Prime Intellect's renderers meet the cookbook's ``Renderer`` contract."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ from loops_cookbook.llm.rendering import (
 
 
 class PrimeRenderer:
-    """Expose Prime rendering and parsing to the Loops capture client."""
+    """Wraps a Prime renderer so the cookbook's model client can render and parse with it."""
 
     def __init__(self, renderer, *, prepare_extension=None):
         self._renderer = renderer
@@ -42,22 +42,22 @@ class PrimeRenderer:
 
     @property
     def thread_safe(self) -> bool:
-        """Several threads may render and bridge through this renderer at once.
+        """Return whether several threads may render and bridge through this renderer at once.
 
-        Prime's text renderers keep nothing between calls, and their tokenizer's encode
-        is safe to share while nothing turns on its truncation or padding, which no
-        renderer does. Its multimodal renderers cache images and load their processor on
-        first use, unguarded, so a ``RenderPool`` leaves them on the loop.
+        Prime's text renderers keep nothing between calls. Their tokenizer's encode is
+        safe to share while nothing turns on its truncation or padding, and no renderer
+        does. Prime's multimodal renderers cache images and load their processor on
+        first use, without a lock, so a ``RenderPool`` leaves them on the loop.
         """
         return not renderers.base.is_multimodal(self._renderer)
 
     @property
     def supports_images(self) -> bool:
-        """Multimodal renderers whose placeholder run per image equals its token count.
+        """Return whether the renderer is multimodal with one placeholder per image token.
 
         Kimi K2.5 renders one ``<|media_pad|>`` per image and lets the engine expand
-        it, so its rendered length is not the trainer's ``expected_tokens``; it needs
-        a translation the cookbook does not implement yet.
+        it. So its rendered length is not the trainer's ``expected_tokens``, and it
+        needs a translation that the cookbook does not implement.
         """
         return renderers.base.is_multimodal(self._renderer) and not _is_kimi(self._renderer)
 
@@ -97,28 +97,32 @@ class PrimeRenderer:
         )
 
     # ``tokenize`` and ``detokenize`` read Prime's private ``_tokenizer``, which every
-    # Prime renderer holds; the Prime pin in pyproject.toml is what keeps it there.
+    # Prime renderer holds. The Prime pin in pyproject.toml keeps it there.
     def tokenize(self, text: str) -> tuple[int, ...]:
-        """``text`` as the model's tokenizer encodes it, special tokens included."""
+        """Return ``text`` as the model's tokenizer encodes it, special tokens included."""
         return tuple(token_ids(self._renderer._tokenizer.encode(text, add_special_tokens=False)))
 
     def detokenize(self, ids: Sequence[int]) -> str:
-        """The exact text of ``ids``, special tokens included."""
+        """Return the exact text of ``ids``, special tokens included."""
         return self._renderer._tokenizer.decode(list(ids), skip_special_tokens=False)
 
     # Prime's thinking renderers keep their ``</think>`` token ID in a private
-    # ``_think_end``, as they keep ``_tokenizer``; the same pin keeps it there.
+    # ``_think_end``, as they keep ``_tokenizer``. The same pin keeps it there.
     def reasoning_tokens(self, completion_ids: Sequence[int], parsed: ParsedReply) -> int | None:
-        """The completion's tokens before its reasoning closed: all of them when it never
-        did, 0 without reasoning. ``None`` when this renderer has no single-token
-        ``</think>`` to find."""
+        """Count the completion's tokens before its reasoning closed.
+
+        The count is all of them when the reasoning never closed, and 0 without
+        reasoning. It is ``None`` when this renderer has no single-token ``</think>``
+        to find.
+        """
         end = getattr(self._renderer, "_think_end", None)
         if not isinstance(end, int):
             return None
-        # The parser says whether there was reasoning; the marker only says where it
-        # ended. A ``</think>`` written with reasoning off is the answer's. Parsers
-        # report reasoning of whitespace alone as none, so it counts 0: telling it
-        # from a ``</think>`` in an answer needs the prompt, too much for a usage count.
+        # The parser says whether there was reasoning, and the marker only says where it
+        # ended. A ``</think>`` written with reasoning off belongs to the answer. Parsers
+        # report reasoning of whitespace alone as none, so it counts 0. Telling it apart
+        # from a ``</think>`` in an answer needs the prompt, which is too much work for
+        # a usage count.
         if parsed.reasoning_complete is False:
             return len(completion_ids)
         if parsed.reasoning_content is None:
@@ -135,11 +139,13 @@ class PrimeRenderer:
         previous_messages: Sequence[Message] = (),
         previous_prompt_input: ModelInput | None = None,
     ) -> RenderedPrompt | None:
-        """Optional exact-prefix fast path; caller must confirm history/tools are unchanged.
+        """Extend the sampled prefix with the new messages, instead of rendering in full.
 
-        For image-capable renderers ``previous_prompt_input`` is required: without the
-        previous prompt's chunk structure, earlier images cannot be carried into the
-        new prompt, so the bridge declines and the caller re-renders in full.
+        This is an optional fast path. The caller must confirm that the earlier history
+        and the tools are unchanged. An image-capable renderer requires
+        ``previous_prompt_input``. Without the previous prompt's chunk structure, earlier
+        images can't be carried into the new prompt. So the bridge declines, and the
+        caller renders in full.
         """
         prior = len(prompt_ids) + len(completion_ids)
         messages = check_messages(new_messages, tool_output_images=self._renders_tool_output_images)
@@ -153,12 +159,12 @@ class PrimeRenderer:
             if previous_prompt_input is None:
                 return None
             previous_count = len(image_placeholders(previous_prompt_input))
-            # Prime reads any prior data, even with no images in it, as earlier images,
+            # Prime reads any prior data as earlier images, even with no images in it,
             # and its Nemotron 3.5 renderer then declines every bridge.
             if previous_count:
                 options["previous_multi_modal_data"] = _slim_multimodal(previous_prompt_input)
         previous_input = previous_prompt_input or ModelInput.from_ints(list(prompt_ids))
-        # Prime takes lists: this call is the one place the bridge expands the prefix.
+        # Prime takes lists, so this call is the one place the bridge expands the prefix.
         result = _call(
             self._renderer.bridge_to_next_turn,
             list(prompt_ids),
@@ -172,7 +178,7 @@ class PrimeRenderer:
         ids = token_ids(result.token_ids)
         if not ids.startswith(prompt_ids, completion_ids):
             return None
-        # Prime merges prior images ahead of the new turn's; only the tail is new here.
+        # Prime merges prior images ahead of the new turn's, so only the tail is new here.
         tail = [
             (offset - prior, length) for offset, length in _placeholders(result)[previous_count:]
         ]
@@ -183,8 +189,11 @@ class PrimeRenderer:
 
     @property
     def _renders_tool_output_images(self) -> bool:
-        """GLM's template renders images inside bundled tool ``output`` entries and the
-        cookbook's GLM extension flattens them; Prime's renderers would drop them."""
+        """Return whether the renderer renders images inside bundled tool ``output`` entries.
+
+        GLM's template renders them, and the cookbook's GLM extension flattens them.
+        Prime's own renderers would drop them.
+        """
         return bool(getattr(self._renderer, "renders_tool_output_images", False))
 
     def _require_image_support(self, messages: Sequence[Message]) -> None:
@@ -219,8 +228,8 @@ class PrimeRenderer:
                 if call.name is not None
             ]
         if any(call.status != "ok" for call in calls):
-            # Prime exposes raw failed attempts, but Message.tool_calls cannot
-            # losslessly represent them. The caller must choose replacement history.
+            # Prime exposes raw failed calls, but Message.tool_calls cannot represent
+            # them without loss. The caller must choose the history to append instead.
             native = None
         return ParsedReply(
             parsed.content, parsed.reasoning_content, calls, parsed.reasoning_complete, native
@@ -272,8 +281,8 @@ def _check_content(content: Any, *, tool: bool = False, tool_output_images: bool
                         and any(is_image_part(item) for item in output)
                     ):
                         raise UnsupportedContextError(
-                            "images inside a tool part's output are not rendered; "
-                            "put them directly in the tool message's content list"
+                            "images inside a tool part's output are not rendered. "
+                            "Put them directly in the tool message's content list."
                         )
                     _check_content(output, tool=tool, tool_output_images=tool_output_images)
                     continue
@@ -302,7 +311,7 @@ def check_tools(tools: Sequence[Tool]) -> list[dict]:
 
 
 def _call(method, *args, **kwargs):
-    """Run a Prime renderer call; its failures become RenderingErrors without payloads."""
+    """Run a Prime renderer call, turning its failures into RenderingErrors without payloads."""
     try:
         return method(*args, **kwargs)
     except RenderingError:
@@ -322,7 +331,7 @@ def _call(method, *args, **kwargs):
 def _is_kimi(prime_renderer: Any) -> bool:
     try:
         from renderers.kimi_k25 import KimiK25Renderer
-    except ImportError:  # pragma: no cover - renderer set is pinned
+    except ImportError:  # pragma: no cover - The renderer set is pinned.
         return False
     return isinstance(prime_renderer, KimiK25Renderer)
 
@@ -335,12 +344,13 @@ def _placeholders(rendered: Any) -> list[tuple[int, int]]:
 
 
 def _rendered_image_parts(rendered: Any, messages: Sequence[Message]) -> list[Message]:
-    """Image parts in placeholder order.
+    """Return the image parts in placeholder order.
 
-    A renderer that reorders messages (the GLM extension sorts tool results into call
-    order, as the HF template does) reports the parts it rendered in ``mm_items``; when
-    it does, that order wins. Prime's own renderers put PIL images there and render
-    messages in the order given, so history order is used for them.
+    A renderer that reorders messages reports the parts it rendered in ``mm_items``.
+    For example, the GLM extension sorts tool results into call order, as the Hugging
+    Face template does. When a renderer reports its parts, that order wins. Prime's
+    own renderers put PIL images there and render messages in the order given, so
+    history order is used for them.
     """
     fallback = image_parts(messages)
     data = getattr(rendered, "multi_modal_data", None)
@@ -352,7 +362,7 @@ def _rendered_image_parts(rendered: Any, messages: Sequence[Message]) -> list[Me
 
 
 def _slim_multimodal(previous_prompt_input: ModelInput):
-    """What Prime's bridge reads about earlier images: counts and placeholder ranges."""
+    """Return the image counts and placeholder ranges that Prime's bridge reads."""
     from renderers.base import MultiModalData, PlaceholderRange
 
     spans = image_placeholders(previous_prompt_input)

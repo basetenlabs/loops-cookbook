@@ -1,4 +1,4 @@
-"""Runtime construction: the factory, its context, and preflight of what it declares."""
+"""Build the rollout runtime from its factory and context, and check what it declares."""
 
 from __future__ import annotations
 
@@ -23,11 +23,11 @@ from loops_cookbook.runtime.api import (
 
 
 class RuntimeConfigurationError(ValueError):
-    """The runtime or what it declares cannot run under this configuration."""
+    """Raised when the rollout runtime, or what it declares, cannot run under this configuration."""
 
 
 class RuntimeFileResolver:
-    """Resolves exactly the aliases declared in ``[rollout_runtime.files]``."""
+    """Resolve exactly the aliases declared in ``[rollout_runtime.files]``."""
 
     def __init__(self, files: Mapping[str, Path]) -> None:
         self._files = dict(files)
@@ -42,7 +42,7 @@ class RuntimeFileResolver:
 
 
 class EvidenceRecord:
-    """The run's ``RuntimeEvidence``: one ``sha256:`` digest per name."""
+    """Implement the run's ``RuntimeEvidence``, which holds one ``sha256:`` digest per name."""
 
     DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
@@ -64,10 +64,10 @@ class EvidenceRecord:
 
 
 class MetricsSink:
-    """The typed runtime metrics sink: gauges and observations, namespaced.
+    """Collect the rollout runtime's typed metrics, which are namespaced gauges and observations.
 
-    Metrics are reported, never read back by the cookbook; they have no effect on
-    scheduling.
+    The cookbook reports these metrics and never reads them back, so they have no effect
+    on scheduling.
     """
 
     PREFIX = "runtime/"
@@ -103,7 +103,10 @@ class MetricsSink:
 
 
 def import_attribute(path: str, what: str) -> object:
-    """The object ``module:attribute`` names; ``what`` says what it is, in errors."""
+    """Return the object that ``module:attribute`` names.
+
+    ``what`` says what the object is, for error messages.
+    """
     module_name, _, attribute = path.partition(":")
     if not module_name or not attribute:
         raise RuntimeConfigurationError(f"{what} must be 'module:attribute', got {path!r}")
@@ -120,16 +123,16 @@ def import_attribute(path: str, what: str) -> object:
 
 
 def import_factory(path: str) -> RuntimeFactory:
-    factory = import_attribute(path, "runtime factory")
+    factory = import_attribute(path, "rollout runtime factory")
     if not callable(factory):
-        raise RuntimeConfigurationError(f"{path!r} is not a callable runtime factory")
+        raise RuntimeConfigurationError(f"{path!r} is not a callable rollout runtime factory")
     return factory  # pyright: ignore[reportReturnType]
 
 
 def build_runtime(
     factory: RuntimeFactory, config: Mapping[str, JsonValue], context: RuntimeContext
 ) -> RolloutRuntime:
-    """Construct the runtime from a private deep copy of exactly the user's values."""
+    """Build the rollout runtime from a private deep copy of exactly the user's values."""
     private = json_value(deepcopy(dict(config)), where="[rollout_runtime.config]")
     if not isinstance(private, dict):
         raise RuntimeConfigurationError("[rollout_runtime.config] must be a table")
@@ -138,7 +141,8 @@ def build_runtime(
 
 @dataclass(frozen=True, slots=True)
 class Preflight:
-    # [rollout_runtime] model_access as configured; None when the runtime's declaration decides.
+    # [rollout_runtime] model_access as configured. It is None when the rollout runtime's
+    # declaration decides.
     model_access: ModelAccessMode | None
     rollout_timeout_seconds: float | None
 
@@ -146,44 +150,53 @@ class Preflight:
 def model_access_mode(
     configured: ModelAccessMode | None, capabilities: RuntimeCapabilities
 ) -> ModelAccessMode:
-    """The run's model access: the runtime's one mode, or the one configured among several."""
+    """Return the run's model access.
+
+    It is the rollout runtime's one mode, or the configured one when the rollout runtime
+    supports several.
+    """
     modes = sorted(capabilities.model_access_modes, key=lambda mode: mode.value)
     if configured is None:
         if len(modes) != 1:
             raise RuntimeConfigurationError(
-                "[rollout_runtime] model_access is required: the runtime supports "
+                "[rollout_runtime] model_access is required: the rollout runtime supports "
                 f"{[mode.value for mode in modes]}"
             )
         return modes[0]
     if len(modes) == 1:
         raise RuntimeConfigurationError(
-            f"[rollout_runtime] model_access is set, and the runtime already declares "
-            f"{modes[0].value!r}; the runtime states it once, so remove the setting"
+            f"[rollout_runtime] model_access is set, but the rollout runtime already declares "
+            f"{modes[0].value!r}; the rollout runtime states it once, so remove the setting"
         )
     if configured not in modes:
         raise RuntimeConfigurationError(
-            f"[rollout_runtime] model_access = {configured.value!r}, but the runtime supports "
+            f"[rollout_runtime] model_access = {configured.value!r}, but the rollout runtime "
+            "supports "
             f"{[mode.value for mode in modes]}"
         )
     return configured
 
 
 def rollout_clock(configured: float | None, capabilities: RuntimeCapabilities) -> float:
-    """The rollout clock the run keeps: the one configured, else the runtime's own."""
+    """Return the rollout clock the run keeps.
+
+    It is the configured clock, or else the rollout runtime's own.
+    """
     clock = configured if configured is not None else capabilities.rollout_timeout_seconds
     if clock is None:
         raise RuntimeConfigurationError(
-            "[rollout] rollout_timeout_seconds is required: this runtime derives no rollout "
-            "clock of its own"
+            "[rollout] rollout_timeout_seconds is required: this rollout runtime derives no "
+            "rollout clock of its own"
         )
     return clock
 
 
 def check_capabilities(capabilities: object, preflight: Preflight) -> RuntimeCapabilities:
-    """Validate what the runtime declared, before any attempt is admitted."""
+    """Validate what the rollout runtime declared, before any attempt is admitted."""
     if not isinstance(capabilities, RuntimeCapabilities):
         raise RuntimeConfigurationError(
-            f"runtime capabilities must be RuntimeCapabilities, not {type(capabilities).__name__}"
+            f"rollout runtime capabilities must be RuntimeCapabilities, not "
+            f"{type(capabilities).__name__}"
         )
     modes = capabilities.model_access_modes
     phases = capabilities.internally_acquired_phases
@@ -217,18 +230,21 @@ def check_capabilities(capabilities: object, preflight: Preflight) -> RuntimeCap
 
 
 def group_grader(runtime: RolloutRuntime, capabilities: RuntimeCapabilities) -> GroupGrader | None:
-    """The runtime as its own group grader, when it declares ``pending_group_grade``."""
+    """Return the rollout runtime as its group grader, if it declares ``pending_group_grade``."""
     if not capabilities.pending_group_grade:
         return None
     if not callable(getattr(runtime, "grade_group", None)):
         raise RuntimeConfigurationError(
-            "the runtime declares pending_group_grade but defines no grade_group()"
+            "the rollout runtime declares pending_group_grade but defines no grade_group()"
         )
     return runtime  # pyright: ignore[reportReturnType]
 
 
 def check_tasks(tasks: object) -> list[TaskRef]:
-    """The prepared task list: TaskRefs whose repeated IDs agree on their digest."""
+    """Return the prepared task list after checking it.
+
+    It must hold TaskRefs, and repeated task IDs must agree on their digest.
+    """
     if isinstance(tasks, (str, bytes)) or not isinstance(tasks, Sequence):
         raise RuntimeConfigurationError("prepare() must return a sequence of TaskRef")
     entries: Sequence[object] = tasks  # pyright: ignore[reportUnknownVariableType]

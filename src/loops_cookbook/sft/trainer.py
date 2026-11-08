@@ -1,11 +1,12 @@
-"""Loops transport for SFT: one update per batch, validation scored without gradients.
+"""The Loops transport for SFT, which makes one update per batch and scores validation without gradients.
 
-Negative log-likelihood is computed here, from the per-token logprobs Loops returns,
-for training and validation alike: the sum of ``-logprob`` over trained positions,
-divided by their count, whichever ``loss_aggregation`` the optimizer step takes, so
-the curve stays comparable across runs and batch sizes. The SDK's own ``loss``
-field is not used: when it splits a large request it averages per-chunk means by
-datum count, which is a different number.
+This module computes negative log-likelihood (NLL) from the per-token logprobs that
+Loops returns, for training and validation alike. The NLL is the sum of ``-logprob``
+over the trained positions, divided by their count. It is computed the same way
+whichever ``loss_aggregation`` the optimizer step uses, so the curve stays comparable
+across runs and batch sizes. The SDK's own ``loss`` field is not used. When the SDK
+splits a large request, it averages the per-chunk means by datum count, which gives a
+different number.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ from loops_cookbook.trainer import (
 logger = logging.getLogger(__name__)
 
 OPTIMIZER_METRICS = ("grad_norm", "num_tokens", "num_loss_tokens", "tps", "step_seconds")
-"""What Loops reports about an optimizer step that a run's curves are worth having."""
+"""The metrics that Loops reports about an optimizer step and that are worth plotting."""
 
 
 @dataclass(frozen=True)
@@ -56,11 +57,11 @@ class Update:
 
 
 def score(datums: Sequence[Datum], output: ForwardBackwardOutput) -> Score:
-    """The token-mean NLL of ``datums`` from Loops' per-datum logprobs.
+    """Compute the token-mean NLL of ``datums`` from Loops' per-datum logprobs.
 
-    Positions with weight 0 come back as null (no logprob was computed), and
-    ``null * 0`` is not zero in any arithmetic that turns null into NaN, so they are
-    skipped rather than multiplied away.
+    Positions with weight 0 come back as null, because no logprob was computed for
+    them. ``null * 0`` is not zero in any arithmetic that turns null into NaN, so these
+    positions are skipped rather than multiplied away.
     """
     if len(output.loss_fn_outputs) != len(datums):
         raise RuntimeError(
@@ -83,7 +84,7 @@ def score(datums: Sequence[Datum], output: ForwardBackwardOutput) -> Score:
 
 
 class TrainerPort(Protocol):
-    """What a run asks of its trainer; ``Trainer`` below is the Loops one."""
+    """What a run asks of its trainer. ``Trainer`` below is the Loops implementation."""
 
     @property
     def run_id(self) -> str | None: ...
@@ -106,11 +107,14 @@ class TrainerPort(Protocol):
 
 
 class Trainer(LoopsTrainer):
-    """A LoRA trainer with no sampler: SFT trains on fixed data and serves nothing."""
+    """A LoRA trainer with no sampler, because SFT trains on fixed data and serves nothing."""
 
     def __init__(self, config: Config, resume_from: str | None = None) -> None:
-        """``resume_from`` is the remote trainer state a checkpoint manifest names; a
-        fresh run starts from ``[training] init_from``'s weights, if it names any."""
+        """Configure the trainer from ``config``.
+
+        ``resume_from`` is the remote trainer state that a checkpoint manifest names. A
+        fresh run starts from the weights that ``[training] init_from`` names, if any.
+        """
         super().__init__(
             model=config.model,
             compute=config.compute,
@@ -122,8 +126,7 @@ class Trainer(LoopsTrainer):
         self._training = config.training
 
     async def start(self) -> None:
-        """Provision the trainer and restore its state when resuming, or load the
-        weights a fresh run starts from."""
+        """Provision the trainer, then restore a resume's state or load a fresh run's starting weights."""
         await self._provision(with_sampler=False, seed=self._training.seed)
         await self._restore()
 
@@ -143,8 +146,8 @@ class Trainer(LoopsTrainer):
         optimizer = await client.optim_step_async(self._training.adam_params(learning_rate))
         result = await optimizer.result_async()
         reported = result.metrics or {}
-        # Recorded so the way out of a dying run can tell whether the trainer still
-        # holds this update.
+        # The update is recorded so that a failing run, on its way out, can tell whether
+        # the trainer still holds it.
         self._applied(step, await updated_version(client, result))
         return Update(
             step=step,
@@ -161,12 +164,15 @@ class Trainer(LoopsTrainer):
         )
 
     async def evaluate(self, datums: Sequence[Datum]) -> Score:
-        """Score ``datums`` with the current weights; leaves no gradient behind."""
+        """Score ``datums`` with the current weights, leaving no gradient behind."""
         client = self._require_client()
         result = await (await client.forward_async(list(datums), "cross_entropy")).result_async()
         return score(datums, result)
 
     async def checkpoint(self, step: int, *, final: bool = False) -> tuple[str | None, str | None]:
-        """Keep step ``step`` per the cadences; ``(sampler weights name, trainer state path)``."""
+        """Save step ``step`` when the checkpoint cadences or ``final`` call for it.
+
+        Return ``(sampler weights name, trainer state path)``.
+        """
         name, state_path, _ = await self._checkpoint(step, final=final)
         return name, state_path

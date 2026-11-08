@@ -1,12 +1,11 @@
-"""An in-process Harbor agent with openai_http model access: an OpenAI client.
+"""An in-process Harbor agent with openai_http model access, through an OpenAI client.
 
-The runtime calls this class inside the training process, as in the direct pattern,
-but it reaches the model the way an agent built on any OpenAI client would: through
-the attempt's OpenAI-compatible endpoint, served by the run's gateway. The gateway
-records the exact tokens behind every reply. The connection's credential is the
-attempt's, so every sample is attributed to it, and it stops working when the
-rollout is sealed.
-"""
+The rollout runtime calls this class inside the training process, as in the direct
+pattern. But the agent reaches the model the way an agent built on any OpenAI client
+would, through the attempt's OpenAI-compatible endpoint, which the run's gateway serves.
+The gateway records the exact tokens behind every reply. The connection's credential is
+the attempt's, so every sample is attributed to it, and it stops working when the
+rollout is sealed."""
 
 import shlex
 

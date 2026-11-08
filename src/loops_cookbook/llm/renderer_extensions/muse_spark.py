@@ -1,12 +1,13 @@
-"""Muse Spark Open, by its own chat template, with a parser and a bridge for it.
+"""The cookbook's renderer for Muse Spark Open, with its own parser and bridge.
 
-Prime has no renderer for this format, so prompts come from the template itself
-(Prime's ``DefaultRenderer``). An assistant turn is a run of messages, each
-``<|start|>assistant to=<recipient><|message|>...``: ``self`` is reasoning,
-``commentary`` and ``user`` are text, and any other recipient is a tool call written
-as ``<atem:function_calls>``. Messages within a turn end in ``<|eom|>``, the turn in
-``<|eot|>``. The template defaults ``current_date`` to today, so pin it in
-``renderer_chat_template_kwargs`` or the system prompt changes under a run.
+Prime has no renderer for this format, so prompts come from the model's chat template
+itself, through Prime's ``DefaultRenderer``. An assistant turn is a run of messages,
+each written as ``<|start|>assistant to=<recipient><|message|>...``. The recipient
+``self`` marks reasoning, and ``commentary`` and ``user`` mark text. Any other
+recipient marks a tool call, written as ``<atem:function_calls>``. Messages within a
+turn end in ``<|eom|>``, and the turn ends in ``<|eot|>``. The template defaults
+``current_date`` to today. So pin it in ``renderer_chat_template_kwargs``, or the
+system prompt changes during a run.
 """
 
 import html
@@ -30,8 +31,8 @@ _HEADER = re.compile(r" to=([^<]*)<\|message\|>")
 _OPEN, _CLOSE = "<atem:function_calls>", "</atem:function_calls>"
 _CALLS = re.compile(r"\s*<atem:function_calls>(.*?)</atem:function_calls>\s*", re.DOTALL)
 _INVOKE = re.compile(r'\s*<atem:invoke name="([^"]*)">(.*?)</atem:invoke>\s*', re.DOTALL)
-# The template writes a value as it is, so a value ends only at a closing tag that the
-# next parameter or the invocation's end follows, as the template writes them.
+# The template writes a value as it is. So a value ends only at a closing tag that is
+# followed by the next parameter or by the invocation's end, as the template writes them.
 _PARAMETER = re.compile(
     r'\s*<atem:parameter name="([^"]*)">(.*?)</atem:parameter>'
     r'(?=\s*(?:<atem:parameter name="|</atem:invoke>|\Z))',
@@ -40,13 +41,13 @@ _PARAMETER = re.compile(
 
 
 def renderer(tokenizer, chat_template_kwargs):
-    """Renderer factory for Muse Spark Open, which the cookbook selects for it."""
+    """Build the renderer for Muse Spark Open, which the cookbook selects for it."""
     built = MuseSparkRenderer(tokenizer, dict(chat_template_kwargs))
     return PrimeRenderer(built, prepare_extension=built.prepare_extension)
 
 
 class MuseSparkRenderer(DefaultRenderer):
-    """Muse Spark Open's template, parsed and bridged by hand."""
+    """Renders with Muse Spark Open's template, and parses and bridges its format by hand."""
 
     def __init__(self, tokenizer, kwargs):
         super().__init__(tokenizer, DefaultRendererConfig(**kwargs))
@@ -60,12 +61,13 @@ class MuseSparkRenderer(DefaultRenderer):
         return list(self._stops)
 
     def parse_response(self, token_ids, *, tools=None, prompt_ids=None):
-        """The turn's messages after the prompt's ``<|start|>assistant``.
+        """Parse the turn's messages after the prompt's ``<|start|>assistant``.
 
-        Reasoning is every ``self`` message, content every ``commentary`` and ``user``
-        message, and each other message one tool call, its arguments typed by the tool's
-        schema as Prime types them: a string parameter verbatim, any other as JSON, and
-        a value that is not the JSON its schema asks for makes the call ``INVALID_JSON``.
+        Reasoning is every ``self`` message, and content is every ``commentary`` and
+        ``user`` message. Each other message is one tool call. Its arguments are typed by
+        the tool's schema, as Prime types them. A string parameter is kept verbatim, and
+        any other is read as JSON. A value that is not the JSON its schema asks for makes
+        the call ``INVALID_JSON``.
         """
         text = self._tokenizer.decode(token_ids, skip_special_tokens=False)
         reasoning = []
@@ -97,9 +99,9 @@ class MuseSparkRenderer(DefaultRenderer):
     def prepare_extension(self, previous_messages, new_messages, tools):
         """Name each nameless tool result by its ``tool_call_id``, as the template does.
 
-        The previous assistant turn supplies the IDs' tool names. A result whose ID
-        matches none of its calls (a turn whose calls did not parse has none) is left
-        for the bridge to name.
+        The previous assistant turn supplies the tool name for each ID. A result whose
+        ID matches none of that turn's calls is left for the bridge to name. That
+        happens when the turn's calls did not parse, because such a turn has no calls.
         """
         calls = (previous_messages[-1].get("tool_calls") if previous_messages else None) or []
         names = {
@@ -118,17 +120,18 @@ class MuseSparkRenderer(DefaultRenderer):
     def bridge_to_next_turn(
         self, previous_prompt_ids, previous_completion_ids, new_messages, *, tools=None
     ):
-        """The sampled turn as it was, then the new messages as the template writes them.
+        """Return the sampled turn as it was, then the new messages as the template writes them.
 
-        A turn cut off at the token limit gets the ``<|eot|>`` the template ends a turn
-        with, as Prime's renderers close one (``trim_to_turn_close``): its call did not
-        parse, so the gateway only continues from its sampled tokens. Declines (the caller
-        re-renders) unless every new message is a tool result or a user, system or
-        developer message. A result still without a ``name`` after
-        ``prepare_extension`` belongs to a turn whose calls did not parse: it takes
-        the name of the sampled call in the same position, and if that call has no
-        name either, the result's call ID, as the template does, so the error feedback
-        is kept without inventing a tool.
+        A turn cut off at the token limit gets the ``<|eot|>`` that the template ends a
+        turn with, as Prime's renderers close one in ``trim_to_turn_close``. Its call
+        did not parse, so the gateway only continues from its sampled tokens. The bridge
+        declines, and the caller renders in full, unless every new message is a tool
+        result or a user, system or developer message.
+
+        A result still without a ``name`` after ``prepare_extension`` belongs to a turn
+        whose calls did not parse. It takes the name of the sampled call in the same
+        position. If that call has no name either, it takes the result's call ID, as
+        the template does. So the error feedback is kept without inventing a tool.
         """
         if not previous_completion_ids:
             return None
@@ -177,7 +180,7 @@ def _tool_call(recipient, body, tools):
     calls = _CALLS.fullmatch(body)
     if calls is None:
         # The template writes a call's message as one block and nothing else. A second
-        # block fails the invocation's checks below; markup inside a value is kept.
+        # block fails the invocation's checks below, while markup inside a value is kept.
         unclosed = body.lstrip().startswith(_OPEN) and _CLOSE not in body
         status = (
             ToolCallParseStatus.UNCLOSED_BLOCK
@@ -188,7 +191,7 @@ def _tool_call(recipient, body, tools):
     invoke = _INVOKE.fullmatch(calls.group(1))
     parameters = None if invoke is None else _parameters_of(invoke.group(2))
     if invoke is None or parameters is None:
-        # Not exactly one invocation of complete, uniquely named parameters.
+        # The body is not exactly one invocation of complete, uniquely named parameters.
         return ParsedToolCall(
             raw=body, name=recipient, status=ToolCallParseStatus.MALFORMED_STRUCTURE
         )
@@ -199,7 +202,7 @@ def _tool_call(recipient, body, tools):
     head, dot, tail = name.partition(".")
     if dot and head == tail and names and head in names and name not in names:
         # The template's examples name calls "tool.function", so for a tool without
-        # a namespace "bash.bash" can only mean bash. Nothing else is renamed:
+        # a namespace "bash.bash" can only mean bash. Nothing else is renamed, so
         # "bash.command" stays unknown.
         name = head
     if names is not None and name not in names:
@@ -217,8 +220,11 @@ def _tool_call(recipient, body, tools):
 
 
 def _parameters_of(text):
-    """An invocation's parameters as ``(name, value)`` pairs, or ``None`` unless the
-    text is nothing but complete parameters with distinct names."""
+    """Return an invocation's parameters as ``(name, value)`` pairs.
+
+    It returns ``None`` unless the text is nothing but complete parameters with
+    distinct names.
+    """
     found = []
     at = 0
     while (parameter := _PARAMETER.match(text, at)) is not None:
@@ -230,7 +236,7 @@ def _parameters_of(text):
 
 
 def _text(content):
-    """Message content as the template writes it, or ``None`` for a part it cannot."""
+    """Return message content as the template writes it, or ``None`` for a part it can't write."""
     if content is None:
         return ""
     if isinstance(content, str):
@@ -246,7 +252,7 @@ def _text(content):
 
 
 def _escape(text):
-    """The template's ``esc``: no control sequence or media placeholder survives."""
+    """Apply the template's ``esc``, so no control sequence or media placeholder survives."""
     for raw, safe in (
         ("<|", "< |"),
         ("<image>", "< image>"),

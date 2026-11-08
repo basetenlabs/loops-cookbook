@@ -1,8 +1,8 @@
-"""Supervised fine-tuning configuration: one TOML file, one nested model per section.
+"""The supervised fine-tuning (SFT) configuration, with one nested model per TOML section.
 
-The model, compute and output sections are the RL recipe's, spelled the same; data,
-training and evaluation are SFT's own. Secrets never appear here: the Loops SDK reads
-its key from the environment, loaded from ``.env``.
+The model, compute and output sections are the RL recipe's, spelled the same. The data,
+training and eval sections are SFT's own. Secrets never appear here. The Loops SDK
+reads its key from the environment, which can be loaded from ``.env``.
 """
 
 from __future__ import annotations
@@ -33,40 +33,43 @@ class SftModelSettings(ModelSettings):
 class DataSettings(Section):
     format: Format = Field(
         default="chat",
-        description="The contract every row meets. chat: OpenAI chat fine-tuning JSONL, "
-        "rendered with the model's template, which decides the targets. tokens: "
-        "input_ids and 0/1 weights per row, trained as given, with no checks that the "
-        "targets are the model's own tokens.",
+        description="The contract that every row meets. chat rows are OpenAI chat "
+        "fine-tuning JSONL. The cookbook renders them with the model's template, which "
+        "decides the targets. tokens rows give input_ids and 0/1 weights, and they train "
+        "as given. Nothing checks that their targets are the model's own tokens.",
     )
     train: str = Field(
-        description="Training rows as JSONL in [data] format, one per line. Relative to "
-        "this config file, or to the shell when passed as a command-line flag."
+        description="The training rows, as JSONL with one row per line in the format "
+        "that [data] format names. The path is relative to this config file, or to the "
+        "shell's directory when it is passed as a command-line flag."
     )
     validation: str | None = Field(
         default=None,
-        description="Held-out rows in the same format, scored for validation "
-        "NLL. Resolved like train. Set this or validation_fraction, or neither for no "
-        "validation.",
+        description="Held-out rows in the same format, which the run scores for "
+        "validation negative log-likelihood (NLL). The path resolves like train. Set "
+        "this or validation_fraction. Set neither for no validation.",
     )
     validation_fraction: float | None = Field(
         default=None,
         gt=0,
         lt=1,
-        description="Hold out this fraction of the training rows, chosen by shuffle_seed, "
-        "for validation instead of a separate file.",
+        description="Hold out this fraction of the training rows for validation, "
+        "instead of reading a separate file. shuffle_seed chooses the rows.",
     )
     shuffle_seed: int = Field(
         default=0,
-        description="Seed for the held-out rows and for each epoch's order; epoch e "
-        "shuffles with shuffle_seed + e, so a resumed run sees the same order.",
+        description="The seed that chooses the held-out rows and each epoch's order. "
+        "Epoch e shuffles with shuffle_seed + e, so a resumed run sees the same order.",
     )
     render_workers: int | None = Field(
         default=None,
         ge=1,
-        description="Worker processes that render a split still rendering after a few "
-        "seconds; 1 renders in this process. Unset: the cores this process may use less "
-        "one, at most 4. Each holds a copy of the renderer and its tokenizer. Changes how "
-        "fast and how much memory check and the start of run take, never what trains.",
+        description="The number of worker processes that take over a split which is "
+        "still rendering after a few seconds. 1 renders in this process. When it is "
+        "unset, the cookbook uses one fewer than the cores this process may use, and at "
+        "most 4. Each worker holds a copy of the renderer and its tokenizer. This "
+        "setting changes how fast check and the start of a run are, and how much memory "
+        "they use. It never changes what trains.",
     )
 
     @model_validator(mode="after")
@@ -78,33 +81,37 @@ class DataSettings(Section):
 
 class TrainingSettings(_TrainingSettings):
     lr_schedule: Literal["constant", "linear", "cosine"] = Field(
-        description="Learning rate after warmup: constant, or decayed towards zero by "
-        "the last update, linearly or along a half cosine.",
+        description="The learning rate after warmup. constant keeps it at its peak. "
+        "linear and cosine decay it towards zero by the last update, along a straight "
+        "line or a half cosine.",
     )
     warmup_steps: int = Field(
         ge=0,
-        description="Updates over which the learning rate rises linearly to its peak; "
-        "0 starts at the peak.",
+        description="The number of updates over which the learning rate rises "
+        "linearly to its peak. 0 starts at the peak.",
     )
     batch_size: int = Field(
         ge=1,
-        description="Training sequences per optimizer update. A conversation is one "
-        "sequence, or one per trained turn when its template renders history "
-        "differently from how each turn was generated.",
+        description="The number of training sequences in each optimizer update. A "
+        "conversation is usually one sequence. It becomes one sequence per trained turn "
+        "when its template renders history differently from how each turn was "
+        "generated.",
     )
-    epochs: int = Field(ge=1, description="Passes over the training sequences.")
+    epochs: int = Field(ge=1, description="The number of passes over the training sequences.")
     loss_aggregation: Literal["sum", "token_mean"] = Field(
         default="sum",
-        description="Reduction over each update's trained tokens. sum is Loops' default: "
-        "no division; token_mean divides by the update's trained-token count.",
+        description="How the loss combines each update's trained tokens. sum is Loops' "
+        "default, and it does not divide. token_mean divides by the number of trained "
+        "tokens in the update.",
     )
 
 
 class EvalSettings(Section):
     every_steps: int = Field(
         ge=0,
-        description="Score validation NLL every N updates; 0 scores only before the "
-        "first update and after the last.",
+        description="Score validation NLL every N updates. Validation is always scored "
+        "after the last update, and before the first update of a run that is not a "
+        "resume. 0 scores only at those two points.",
     )
 
 

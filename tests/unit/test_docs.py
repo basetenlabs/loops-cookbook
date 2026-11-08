@@ -87,7 +87,7 @@ def test_the_built_in_runtime_and_provider_tables_are_listed_once_each():
 def _names_a_setting(table: str, key: str) -> bool:
     """Whether ``[table].key`` is a setting ``Config`` validates there. A table that is
     a mapping (``[providers.*]``, ``[rollout_runtime.config]``) holds keys the user or the
-    runtime owns, so any key in it is taken as named."""
+    rollout runtime owns, so any key in it is taken as named."""
     from types import NoneType, UnionType
     from typing import Union, get_args, get_origin
 

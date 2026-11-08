@@ -1,7 +1,8 @@
-"""Supervised fine-tuning on fixed data: conversations in, a LoRA trained on Loops out.
+"""Supervised fine-tuning (SFT) on fixed data, which trains a LoRA adapter on Loops.
 
-The core: contracts, the target rule, the run. ``sft.cli`` and ``sft.recipe`` are the
-composition roots that wire it to Loops and telemetry, imported from there.
+This package holds the core, which is the data contracts, the rule that picks the
+targets, and the run. ``sft.cli`` and ``sft.recipe`` are the composition roots that
+wire the core to Loops and telemetry. Import them from there.
 """
 
 from loops_cookbook.sft.config import Config

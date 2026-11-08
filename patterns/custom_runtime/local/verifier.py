@@ -1,16 +1,15 @@
-"""The example's verifier: a pure function of the episode's result, run as a process.
+"""The example's verifier, a pure function of the episode's result that runs as a process.
 
-It scores the answer the agent left either in its result file
-(``VERIFY_AGAINST=files``, reading ``result.json`` in the working directory the
-agent and the verifier share) or in its sandbox (``VERIFY_AGAINST=sandbox``,
-reading ``answer.txt`` through ``sandbox_io``), against ``EXPECTED_ANSWER``. It
-prints ``{"reward": <float>, "answered": <bool>}``: ``answered`` is false when the
-agent left no answer.
+It scores the answer the agent left against ``EXPECTED_ANSWER``. With
+``VERIFY_AGAINST=files``, it reads ``result.json`` in the working directory the agent
+and the verifier share. With ``VERIFY_AGAINST=sandbox``, it reads ``answer.txt``
+through ``sandbox_io``. It prints ``{"reward": <float>, "answered": <bool>}``, where
+``answered`` is false when the agent left no answer.
 
-An agent that left no answer, because it failed or never got that far, scores 0;
-how the agent program exited does not enter into it. A result it cannot parse is
-not a measurement: it exits with ``INVALID_MEASUREMENT``, which the runtime reports
-as a permanent grading failure. Any other failure is worth retrying.
+An agent that left no answer, because it failed or never got that far, scores 0. How
+the agent program exited doesn't matter. A result the verifier cannot parse is not a
+measurement. The verifier then exits with ``INVALID_MEASUREMENT``, which the rollout
+runtime reports as a permanent grading failure. Any other failure is worth retrying.
 """
 
 import json
@@ -30,8 +29,8 @@ class Unparseable(ValueError):
 def answer() -> str | None:
     """The agent's answer, or ``None`` when it left none.
 
-    Only parsing ``result.json`` can make it ``Unparseable``: a failed sandbox read
-    raises as it is, so the runtime retries it.
+    Only parsing ``result.json`` can raise ``Unparseable``. A failed sandbox read raises
+    as it is, so the rollout runtime retries it.
     """
     try:
         if os.environ["VERIFY_AGAINST"] == "sandbox":
@@ -41,7 +40,7 @@ def answer() -> str | None:
         return None
     try:
         result = json.loads(data.decode())
-    except ValueError as error:  # UnicodeDecodeError is one
+    except ValueError as error:  # UnicodeDecodeError is a ValueError.
         raise Unparseable(f"result.json is not JSON text: {error}") from None
     if not isinstance(result, dict) or not isinstance(result.get("answer"), str):
         raise Unparseable("result.json has no answer")
@@ -51,7 +50,7 @@ def answer() -> str | None:
 def main() -> int:
     try:
         given = answer()
-    except Unparseable as error:  # not a measurement
+    except Unparseable as error:  # This result is not a measurement.
         print(f"nothing to score: {error}", file=sys.stderr)
         return INVALID_MEASUREMENT
     correct = given is not None and given.strip() == os.environ["EXPECTED_ANSWER"]

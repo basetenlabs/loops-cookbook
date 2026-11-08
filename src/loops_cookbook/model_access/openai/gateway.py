@@ -1,12 +1,12 @@
-"""The run's one Chat Completions listener: authentication, routing, and delivery.
+"""The run's one Chat Completions listener, which authenticates, routes and delivers.
 
 Every endpoint requires an attempt credential, which selects the attempt's
-``HttpModelAccess``; nothing in a request body or header can change the attempt or
-the producer a credential names. Beside the OpenAI endpoints, ``POST
-/v1/loops/discard`` takes back a completion the agent declined, so it does not
-train. Requests rejected before sampling create no evidence. A response is settled
-as delivered only after the server has written all of it, a stream's termination
-included.
+``HttpModelAccess``. Nothing in a request body or header can change the attempt or
+the producer that a credential names. Beside the OpenAI endpoints,
+``POST /v1/loops/discard`` takes back a completion the agent declined, so that it does
+not train. Requests rejected before sampling create no evidence. A response is settled
+as delivered only after the server has written all of it, including a stream's
+termination.
 """
 
 from __future__ import annotations
@@ -48,14 +48,17 @@ logger = logging.getLogger(__name__)
 CONVERSATION_HEADER = "X-Loops-Conversation-Id"
 IDEMPOTENCY_HEADER = "Idempotency-Key"
 DISCARD_PATH = "/v1/loops/discard"
-# Base64 images make requests large; this bounds one request, not a conversation.
+# Base64 images make requests large. This limit bounds one request, not a conversation.
 MAX_REQUEST_BYTES = 64 * 1024 * 1024
 _MAX_HEADER_VALUE = 256
 
 
 @dataclass(frozen=True, slots=True)
 class GatewaySettings:
-    """``[rollout_runtime.openai]``: where the gateway listens, and what it advertises."""
+    """The ``[rollout_runtime.openai]`` settings.
+
+    They say where the gateway listens, and what base URL and model it advertises.
+    """
 
     bind: str
     advertised_base_url: str | None
@@ -64,7 +67,10 @@ class GatewaySettings:
     shutdown_seconds: float
 
     def host_port(self) -> tuple[str, int]:
-        """``bind`` split; ``[rollout_runtime.openai]`` has already checked it is host:port."""
+        """Split ``bind`` into host and port.
+
+        Validating ``[rollout_runtime.openai]`` has already checked that it is host:port.
+        """
         host, _, port = self.bind.rpartition(":")
         return host.strip("[]"), int(port)
 
@@ -86,7 +92,7 @@ def _invalid(message: str, *, code: str | None = None, param: str | None = None)
 
 
 class Gateway:
-    """The listener attempts register credentials on; started at its first connection."""
+    """The listener that attempts register credentials on. It starts at its first connection."""
 
     def __init__(self, settings: GatewaySettings) -> None:
         self._settings = settings
@@ -101,7 +107,7 @@ class Gateway:
         return self._settings.model
 
     async def base_url(self) -> str:
-        """The advertised origin plus ``/v1``, binding the listener on first use."""
+        """Return the advertised origin plus ``/v1``, binding the listener on first use."""
         async with self._starting:
             if self._closed:
                 raise RuntimeError("the gateway is closed")
@@ -179,7 +185,8 @@ class Gateway:
             return _HttpError(
                 401, str(error), kind="invalid_request_error", code="invalid_api_key"
             ).response()
-        except Exception:  # a server fault still gets a canonical body
+        # A server fault still gets a canonical body.
+        except Exception:
             logger.exception("the Chat Completions gateway failed a request")
             return _server_error().response()
 
@@ -206,7 +213,8 @@ class Gateway:
     ) -> web.StreamResponse:
         handler = asyncio.current_task()
         if handler is not None:
-            access.own(handler)  # sealing waits for, or cancels, what the attempt started
+            # Sealing waits for, or cancels, what the attempt started.
+            access.own(handler)
         conversation = _header(request, CONVERSATION_HEADER)
         key = _header(request, IDEMPOTENCY_HEADER)
         body = await _json(request)
@@ -257,7 +265,11 @@ class Gateway:
     async def _discard(
         self, request: web.Request, access: HttpModelAccess, producer: str
     ) -> web.Response:
-        """``{"id": <completion id>}``: that completion no longer trains."""
+        """Take back the completion that the body names, so that it no longer trains.
+
+        The body is ``{"id": <completion id>}``.
+        """
+
         body = await _json(request)
         completion_id = body.get("id") if isinstance(body, dict) else None
         if not isinstance(completion_id, str) or not completion_id:
@@ -299,9 +311,9 @@ class Gateway:
         stream: bool,
         include_usage: bool,
     ) -> web.StreamResponse:
-        """Write ``done`` whole, then settle it delivered; a 422 is a delivery too."""
+        """Write ``done`` whole, then settle it as delivered. A 422 response is a delivery too."""
         if isinstance(done, InvalidOutput):
-            # An error is never a stream, as OpenAI's are not; the agent still got the
+            # An error is never a stream, matching OpenAI. The agent still gets the
             # model's output, in ``error.reply``.
             status, stream, chunks = 422, False, [done.body()]
         else:
@@ -346,7 +358,8 @@ async def _json(request: web.Request) -> object:
 
 
 def _path(location: tuple[int | str, ...]) -> str | None:
-    """A validation location written as the policy writes params: ``messages[0].content``."""
+    """Write a validation location as the policy writes params, such as ``messages[0].content``."""
+
     text = ""
     for part in location:
         text += f"[{part}]" if isinstance(part, int) else (f".{part}" if text else str(part))
@@ -354,7 +367,7 @@ def _path(location: tuple[int | str, ...]) -> str | None:
 
 
 def _failure(error: Exception) -> _HttpError:
-    """How a request that was admitted, but not served, is reported."""
+    """Return the error that reports a request that was admitted but not served."""
     if isinstance(error, ContextWindowExceeded):
         return _invalid(str(error), code="context_length_exceeded", param="messages")
     if isinstance(error, UnsupportedParameterError):
@@ -372,15 +385,16 @@ def _failure(error: Exception) -> _HttpError:
     if isinstance(error, (StaleRolloutError, InternalPolicyDeltaError)):
         return _HttpError(409, str(error), kind="invalid_request_error", code="rollout_stale")
     if isinstance(error, RenderingError):
-        # Refused before sampling, so the attempt goes on; a 5xx would have stock
-        # clients retry a request that renders the same way every time.
+        # The request was refused before sampling, so the attempt goes on. A 5xx would
+        # make stock clients retry a request that renders the same way every time.
         return _invalid(str(error), code="rendering_failed", param="messages")
     logger.error("a generation failed: %s: %s", type(error).__name__, error, exc_info=error)
     return _server_error()
 
 
 def _server_error() -> _HttpError:
-    """A fault the agent cannot act on; its detail is in the run's log, not the body."""
+    """Return a fault the agent cannot act on. Its detail is in the run's log, not the body."""
+
     return _HttpError(
         500, "the gateway failed to serve this request", kind="server_error", code=None
     )

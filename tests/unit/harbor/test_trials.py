@@ -625,7 +625,7 @@ async def test_a_gate_on_an_early_stop_is_bounded_by_the_grading_deadline(tmp_pa
         task,
         config={
             "reward_gate": f"harbor_test_gates:{gate}",
-            "limits": {"grading_timeout_seconds": 2.0},  # the runtime's, as a run sets both
+            "limits": {"grading_timeout_seconds": 2.0},  # the rollout runtime's, as a run sets both
         },
         grading_timeout_seconds=2.0,
         cleanup_timeout_seconds=20.0,

@@ -1,4 +1,4 @@
-"""A minimal user-owned terminal agent; Harbor owns environments and grading."""
+"""A minimal terminal agent that the user owns. Harbor owns environments and grading."""
 
 import asyncio
 import json
@@ -97,8 +97,8 @@ class TerminalAgent(LoopsAgent):
 
         async def execute(call) -> ToolMessage:
             def error(message) -> ToolMessage:
-                # Capped like any other tool output: an exception's text is not
-                # ours to bound, and a gateway that answers with an HTML error page
+                # The error is capped like any other tool output. An exception's text is
+                # not ours to bound, and a gateway that answers with an HTML error page
                 # would otherwise spend the model's context explaining itself.
                 return {
                     "role": "tool",
@@ -125,12 +125,12 @@ class TerminalAgent(LoopsAgent):
                 )
             except Exception as exc:  # noqa: BLE001 - any sandbox failure is the
                 # model's problem to react to, not the rollout's to die from.
-                # Handled, so no stack: the model is told the command failed and
-                # decides what to do next. The traceback is the same frames into the
-                # sandbox client every time, and emitting it at ERROR buries the
-                # run's real failures whenever the platform is flaky.
-                # The type, not just the message: a bare ConnectError or timeout
-                # from the sandbox client stringifies to nothing at all.
+                # The error is handled, so no stack is logged. The model is told the
+                # command failed and decides what to do next. The traceback is the same
+                # frames into the sandbox client every time, and emitting it at ERROR
+                # buries the run's real failures whenever the platform is flaky.
+                # Report the type, not just the message, because a bare ConnectError or
+                # timeout from the sandbox client stringifies to nothing at all.
                 detail = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
                 self.logger.warning("Bash tool execution failed: %s", detail)
                 return error(f"Tool execution failed: {detail}")
@@ -163,13 +163,15 @@ class TerminalAgent(LoopsAgent):
             if response is None:
                 status = "truncated"
                 break
-            # Cut by the trajectory budget: kept, so it trains, and the episode is over.
+            # The trajectory budget cut this reply. It is kept, so it trains, and the
+            # episode is over.
             if response.truncated:
                 status = "context_overflow"
                 break
             if response.native_message is None:
-                # No assistant turn to append: the completion did not parse, or a
-                # tool call did not and the message cannot represent the attempt.
+                # There is no assistant turn to append. Either the completion did not
+                # parse, or a tool call did not and the message cannot represent the
+                # attempt.
                 # Re-sampling might land a clean one, and telling the model what
                 # `tool_calls[i].status` found would be more informative still, but
                 # both need replacement history. This example stops instead.

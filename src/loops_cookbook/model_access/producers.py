@@ -9,7 +9,7 @@ from types import MappingProxyType
 from loops_cookbook.model_access.api import UndeclaredProducer
 
 DEFAULT_PRODUCER = "main"
-"""The producer a call that names none uses."""
+"""The producer that a call uses when it names none."""
 
 
 def _only_main() -> Mapping[str, bool]:
@@ -18,7 +18,7 @@ def _only_main() -> Mapping[str, bool]:
 
 @dataclass(frozen=True, slots=True)
 class ProducerSettings:
-    """Every producer a run declares, by name, and whether its generations train."""
+    """Holds every producer a run declares, by name, and whether its generations train."""
 
     declared: Mapping[str, bool] = field(default_factory=_only_main)
 
@@ -30,12 +30,12 @@ class ProducerSettings:
         object.__setattr__(self, "declared", MappingProxyType(dict(self.declared)))
 
     def resolve(self, producer: str | None) -> str:
-        """The declared producer a call names, or the default when it names none."""
+        """Return the declared producer a call names, or the default when it names none."""
         name = DEFAULT_PRODUCER if producer is None else producer
         if type(name) is not str or name not in self.declared:
             raise UndeclaredProducer(
-                f"producer {name!r} is not declared in [rollout.producers]; "
-                f"declared: {sorted(self.declared)}"
+                f"producer {name!r} is not declared in [rollout.producers]. "
+                f"Declared producers: {sorted(self.declared)}"
             )
         return name
 

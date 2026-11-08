@@ -54,7 +54,7 @@ the work between the engine and the user.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/ownership-dark.svg">
-  <img alt="Three columns. The engine owns mechanics and evidence: scheduling, every clock and retry, token capture, sealing the rollout, training, every billed sandbox, and the run record. The user must provide, or check refuses: tasks with a typed model, an agent, a grader, the agent's deadline, how it reaches the model, and credentials in the environment. The user decides meaning: what a reward means, what a failure scores, raise or return, which generations train, batch shape and freshness, and hyperparameters. Below: the boundary is the runtime contract, and across it the engine reads only a reward, an exception, Permanent*Failure, and the generations the agent actually received." src="assets/ownership.svg">
+  <img alt="Three columns. The engine owns mechanics and evidence: scheduling, every clock and retry, token capture, sealing the rollout, training, every billed sandbox, and the run record. The user must provide, or check refuses: tasks with a typed model, an agent, a grader, the agent's deadline, how it reaches the model, and credentials in the environment. The user decides meaning: what a reward means, what a failure scores, raise or return, which generations train, batch shape and freshness, and hyperparameters. Below: the boundary is the rollout runtime contract, and across it the engine reads only a reward, an exception, Permanent*Failure, and the generations the agent actually received." src="assets/ownership.svg">
 </picture>
 
 **The engine owns the mechanics and the evidence:**

@@ -1,7 +1,7 @@
-"""The Harbor runtime: your Harbor job and agent become the rollout runtime.
+"""The Harbor rollout runtime, which runs your Harbor job and agent as an RL run's rollouts.
 
-Select it with ``[rollout_runtime].factory = "loops_cookbook.harbor:create_runtime"`` and
-name the Harbor job as the ``job`` alias under ``[rollout_runtime.files]``.
+Select it with ``[rollout_runtime].factory = "loops_cookbook.harbor:create_runtime"``.
+Then name the Harbor job as the ``job`` alias under ``[rollout_runtime.files]``.
 """
 
 try:
@@ -10,7 +10,8 @@ except ModuleNotFoundError as error:
     if error.name != "harbor":
         raise
     raise ModuleNotFoundError(
-        "the Harbor runtime needs Harbor; install the extra: baseten-loops-cookbook[harbor]",
+        "the Harbor rollout runtime needs Harbor. Install the extra "
+        "baseten-loops-cookbook[harbor].",
         name="harbor",
     ) from error
 

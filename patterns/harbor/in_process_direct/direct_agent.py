@@ -1,9 +1,8 @@
-"""An in-process Harbor agent with direct model access: one ``llm()`` call.
+"""An in-process Harbor agent with direct model access, which makes one ``llm()`` call.
 
-The runtime calls this class inside the training process. It asks the model through
-the cookbook's model client, which records the exact tokens it samples, then writes
-its answer into the trial's sandbox for the task's verifier.
-"""
+The rollout runtime calls this class inside the training process. It asks the model
+through the cookbook's model client, which records the exact tokens it samples, then
+writes its answer into the trial's sandbox for the task's verifier."""
 
 import shlex
 
@@ -18,8 +17,8 @@ from loops_cookbook.model_access import ModelAccessMode
 class DirectOptions(AgentOptions):
     """Settings supplied through ``agents[].kwargs`` in the Harbor job."""
 
-    # Nothing yet: temperature and generation length are the run's decisions and
-    # arrive from `[sampling]` in the training config.
+    # There are no settings yet. Temperature and generation length are the run's
+    # decisions, and they arrive from `[sampling]` in the training config.
 
 
 class DirectAgent(LoopsAgent):

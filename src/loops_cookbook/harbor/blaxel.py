@@ -1,23 +1,26 @@
-"""The cookbook's Harbor-facing Blaxel environment: Harbor starts it, the registry owns it.
+"""The cookbook's Blaxel environment for Harbor jobs.
 
+Harbor starts the environment, and the cookbook's resource registry owns its sandbox.
 Select it in a Harbor job with
-``environment: {import_path: loops_cookbook.harbor.blaxel:BlaxelEnvironment}`` and
+``environment: {import_path: loops_cookbook.harbor.blaxel:BlaxelEnvironment}``, and
 configure ``[providers.blaxel]``. Harbor still decides when environments start and
-stop, and still runs commands, verification, and artifacts. Every sandbox it starts
-is provisioned through the attempt's ``EpisodeResources``, and every stop is a
-cookbook release: there is no Harbor-owned create or delete.
+stop, and it still runs commands, verification and artifacts. Every sandbox the
+environment starts is provisioned through the attempt's ``EpisodeResources``. Every
+stop is a cookbook release, so Harbor never creates or deletes a sandbox itself.
 
 The Harbor adapter writes the attempt's ID into ``environment.kwargs`` as
-``loops_attempt_id``; the constructor only looks that attempt up, so an environment
-Harbor constructs and never starts, like the agent environment inside a
-``RegradeTrial``, provisions nothing. ``start()`` provisions a sandbox keyed by
-Harbor's ``session_id``, under Harbor's own name, attaches to it through Blaxel's
-usage code with the attempt's usage environment and the run's attach deadline, and
-repeats Harbor's post-create startup unchanged. It never holds the provider's
-adapter, so it cannot create or delete behind the registry. Blaxel's own rules live under
-``providers/blaxel``; this module holds only the Harbor hooks, and it reaches
-Harbor's private members, so it is pinned to Harbor 0.23: revisit it on any upgrade.
-Only Harbor's direct mode is supported; compose needs its own evidence first.
+``loops_attempt_id``. The constructor only looks that attempt up. So an environment
+that Harbor constructs and never starts provisions nothing, such as the agent
+environment inside a ``RegradeTrial``. ``start()`` provisions a sandbox keyed by
+Harbor's ``session_id``, under Harbor's own name. It attaches to the sandbox through
+Blaxel's usage code, with the attempt's usage environment and the run's attach
+deadline. Then it repeats Harbor's post-create startup unchanged. The environment
+never holds the provider's adapter, so it cannot create or delete behind the registry.
+
+Blaxel's own rules live under ``providers/blaxel``, and this module holds only the
+Harbor hooks. It reaches Harbor's private members, so it is pinned to Harbor 0.23.
+Check it again on any Harbor upgrade. Only Harbor's direct mode is supported. Compose
+mode needs its own evidence first.
 """
 
 from __future__ import annotations
@@ -57,18 +60,23 @@ from loops_cookbook.resources.api import ResourceHandle, ResourceRequest
 
 
 class SandboxLost(RuntimeError):
-    """The sandbox went away under a command: deleted, reaped, or past its TTL."""
+    """Raised when the sandbox went away under a command.
+
+    The sandbox may have been deleted, reaped, or kept past its time to live (TTL).
+    """
 
 
 def content_image_name(
     environment_id: str, build: Mapping[str, JsonValue], modes: Sequence[tuple[str, int]]
 ) -> str:
-    """An image name derived from what is built, so tasks with identical environments
-    share one image and one build; Harbor's name includes the task.
+    """Return an image name derived from what is built.
 
-    ``modes`` is each entry's path and permission bits: Harbor's content hash reads paths
-    and bytes only, and COPY keeps modes. Builder memory and source paths are left out:
-    neither changes the image.
+    Tasks with identical environments then share one image and one build. Harbor's own
+    image name includes the task, so it can't be shared.
+
+    ``modes`` holds each entry's path and permission bits. Harbor's content hash reads
+    only paths and bytes, but COPY keeps modes. The name leaves out builder memory and
+    source paths, because neither changes the image.
     """
     files = build["local_files"]
     assert isinstance(files, list)
@@ -84,18 +92,18 @@ def content_image_name(
 
 
 class BlaxelEnvironment(NativeBlaxelEnvironment):
-    """Harbor's Blaxel environment, with the sandbox provisioned by the attempt."""
+    """Harbor's Blaxel environment, with the sandbox provisioned through the attempt."""
 
     def __init__(self, *args: Any, loops_attempt_id: str, **kwargs: Any) -> None:
         attempt = attempt_for(loops_attempt_id)
         deadlines = attempt.provider_deadlines.get("blaxel")
         if deadlines is None:
-            raise RuntimeError("the cookbook's Blaxel environment needs [providers.blaxel]")
+            raise RuntimeError("the cookbook's Blaxel environment needs [providers.blaxel].")
         super().__init__(*args, **kwargs)
         if self._compose_mode:
             raise ValueError(
-                "Harbor's Blaxel compose mode is not supported by the cookbook; use a "
-                "Dockerfile or docker_image task"
+                "the cookbook does not support Harbor's Blaxel compose mode. Use a "
+                "Dockerfile or docker_image task."
             )
         if self._imported_image() is None and self._content_hash_covers_build():
             self._image_name = content_image_name(
@@ -133,12 +141,12 @@ class BlaxelEnvironment(NativeBlaxelEnvironment):
         try:
             result = await replay(call, state=self._replay, logger=self.logger)
         except Exception as error:
-            # Replay gave up: the sandbox took no command for its whole budget, or
-            # Blaxel says it is dead. Later commands would each wait the budget again.
+            # Replay gave up, because the sandbox took no command for its whole budget
+            # or Blaxel says it is dead. Later commands would each wait the budget again.
             if workload_failed(error) or never_dispatched(error):
                 self._lost = (
                     f"the sandbox took no command for {REPLAY_BUDGET_SECONDS:.0f}s "
-                    f"({type(error).__name__}): it is gone"
+                    f"({type(error).__name__}), so it is gone"
                 )
                 raise SandboxLost(self._lost) from error
             raise
@@ -147,16 +155,19 @@ class BlaxelEnvironment(NativeBlaxelEnvironment):
         return result
 
     async def oom_kills(self) -> int | None:
-        """The sandbox kernel's OOM-kill count (a micro-VM's own), or None; see ``harbor.oom``."""
+        """Return the sandbox kernel's OOM-kill count, or None. See ``harbor.oom``.
+
+        A Blaxel sandbox is a micro-VM, so its kernel is its own.
+        """
         return await oom_kills(self, "kernel")
 
     def _notice_lost_processes(self) -> None:
         """Record a command whose process vanished with its sandbox.
 
         Blaxel's ``process.wait`` stops polling when the process record can no longer
-        be read and returns the last reading, still ``running``; a real timeout raises
-        instead. Harbor then reports exit code 0 with no output, so without this a
-        deleted sandbox looks like a command that succeeded.
+        be read. It then returns the last reading, which still says ``running``. A real
+        timeout raises instead. Harbor then reports exit code 0 with no output. Without
+        this record, a deleted sandbox would look like a command that succeeded.
         """
         assert self._sandbox is not None
         process = self._sandbox.process
@@ -165,27 +176,30 @@ class BlaxelEnvironment(NativeBlaxelEnvironment):
         async def waited(*args: Any, **kwargs: Any) -> Any:
             result = await wait(*args, **kwargs)
             if str(getattr(result, "status", "")).lower() == "running":
-                self._lost = "a command's process vanished while it ran: the sandbox is gone"
+                self._lost = "a command's process vanished while it ran, so the sandbox is gone"
             return result
 
         process.wait = waited
 
     def usage_environment(self) -> Mapping[str, str | SecretStr]:
-        """What a separate process needs to reach this environment's sandbox."""
+        """Return what a separate process needs to reach this environment's sandbox."""
         if self._handle is None:
-            raise RuntimeError("the environment has no sandbox; start it first")
+            raise RuntimeError("the environment has no sandbox. Start it first.")
         return self._resources.usage_environment(self._handle.intent.resource_id)
 
     def _imported_image(self) -> str | None:
-        """The Blaxel image a ``docker_image`` of ``blaxel://<image>`` names, started from
-        as it is: nothing is built."""
+        """Return the Blaxel image that a ``docker_image`` of ``blaxel://<image>`` names.
+
+        The sandbox starts from that image as it is, and nothing is built.
+        """
         return blaxel_image(self.task_env_config.docker_image)
 
     def _content_hash_covers_build(self) -> bool:
-        # The build uploads the whole directory, and Harbor's content hash reads only regular
-        # files, by path and bytes, less the names it ignores. A symlink, an ignored name, or
-        # anything else the hash cannot see (an empty directory, which COPY still creates; a
-        # FIFO) means the hash does not say what is built.
+        # The build uploads the whole directory. Harbor's content hash reads only regular
+        # files, by path and bytes, and skips the names it ignores. So the hash does not
+        # say what is built when the directory holds a symlink, an ignored name, or
+        # anything else the hash cannot see. Examples are an empty directory, which COPY
+        # still creates, and a FIFO.
         return not any(
             path.is_symlink()
             or path.name in _CONTENT_HASH_IGNORE_NAMES
@@ -195,15 +209,15 @@ class BlaxelEnvironment(NativeBlaxelEnvironment):
         )
 
     def _context_modes(self) -> list[tuple[str, int]]:
-        """Each entry of the build context, by path, with its permission bits."""
+        """Return each entry of the build context, by path, with its permission bits."""
         return [
             (path.relative_to(self.environment_dir).as_posix(), stat.S_IMODE(path.lstat().st_mode))
             for path in self.environment_dir.rglob("*")
         ]
 
     def _build_specification(self) -> dict[str, JsonValue]:
-        # A pure description of the task's image: the no-slim file Harbor adds to the
-        # build context is written by the provider's build, not by a trial.
+        # This is a pure description of the task's image. The provider's build writes
+        # the no-slim file that Harbor adds to the build context, not a trial.
         docker_image = self.task_env_config.docker_image
         built = (
             self._build_image_from_docker_image(docker_image)
@@ -217,7 +231,8 @@ class BlaxelEnvironment(NativeBlaxelEnvironment):
     def _request(self, force_build: bool) -> ResourceRequest:
         imported = self._imported_image()
         if imported is not None:
-            # Built elsewhere and imported: started as it is, with no build to wait on or force.
+            # The image was built elsewhere and imported. The sandbox starts from it as it
+            # is, with no build to wait on or force.
             return ResourceRequest(
                 provider="blaxel",
                 kind="sandbox",
@@ -245,8 +260,8 @@ class BlaxelEnvironment(NativeBlaxelEnvironment):
             timeout_seconds=self._attach_seconds,
         )
         self._notice_lost_processes()
-        # Harbor's post-create startup, unchanged: the attach contract test pins the
-        # upstream digest and compares the two paths' recorded actions.
+        # This is Harbor's post-create startup, unchanged. The attach contract test pins
+        # the upstream digest and compares the two paths' recorded actions.
         await self._wait_until_ready()
         dirs = " ".join(
             shlex.quote(str(path))
@@ -268,7 +283,9 @@ class BlaxelEnvironment(NativeBlaxelEnvironment):
         await self._upload_environment_dir_after_start()
 
     async def _stop_direct(self, delete: bool) -> None:
-        """Release the sandbox when Harbor deletes; a kept one goes with the episode.
+        """Release the sandbox when Harbor deletes it.
+
+        A sandbox that Harbor keeps is released with the episode.
 
         A release that does not prove the sandbox gone raises ``SandboxNotReleased``.
         """

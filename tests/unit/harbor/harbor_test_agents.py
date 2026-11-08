@@ -1,4 +1,4 @@
-"""Harbor agents for the Harbor runtime tests, imported by Harbor through import_path."""
+"""Harbor agents for the Harbor rollout runtime tests, imported by Harbor through import_path."""
 
 import asyncio
 import contextlib

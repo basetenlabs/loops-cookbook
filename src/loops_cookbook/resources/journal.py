@@ -1,21 +1,21 @@
-"""The run's durable resource journal: append, fsync, and replay, nothing else.
+"""Keep the run's durable resource journal, which only appends, fsyncs and replays.
 
-Each record is one line of canonical JSON carrying the schema version, a sequence
-number, the event, the resource it concerns, its typed payload, and the digest of
-the record before it; the record's own digest covers all of that. Replay checks
-order and the digest chain. A record is durable once ``append()`` returns: the
-line is fsynced, and so is the directory when the file is new.
+Each record is one line of canonical JSON. It carries the schema version, a sequence
+number, the event, the resource it concerns, its typed payload and the digest of the
+record before it. The record's own digest covers all of that. Replay checks the order
+and the digest chain. A record is durable once ``append()`` returns, because the line
+is fsynced, and so is the directory when the file is new.
 
-A corrupt or torn record is never repaired and never replaced by a fresh journal.
-The journal opens in cleanup-only mode instead: every identity replayed before the
-damage is kept and nothing more can be appended. What followed the damage is
-unknown, so no cleanup of a damaged journal is ever complete, and the file stays
-until a person sets it aside. A journal of another schema version does not open.
+A corrupt or torn record is never repaired, and never replaced by a fresh journal.
+The journal opens in cleanup-only mode instead. Every identity replayed before the
+damage is kept, and nothing more can be appended. What followed the damage is
+unknown, so no cleanup of a damaged journal is ever complete, and the file stays until
+a person sets it aside. A journal of another schema version does not open.
 
-One writer at a time: the journal holds an exclusive advisory lock for its whole
-lifetime, and opening fails while another process holds it. The lock and fsync
-ordering are trustworthy only on local filesystems, so the state directory is
-checked first.
+Only one process writes at a time. The journal holds an exclusive advisory lock for
+its whole lifetime, and opening fails while another process holds it. The lock and
+the fsync ordering are trustworthy only on local filesystems, so the state directory
+is checked first.
 """
 
 from __future__ import annotations
@@ -40,19 +40,19 @@ _REJECTED = ("nfs", "nfs4", "cifs", "smb", "smbfs", "smb2", "smb3", "afpfs", "we
 
 
 class JournalError(RuntimeError):
-    """The journal cannot be opened or written as the single, durable writer."""
+    """Raised when the journal cannot be opened or written as the single, durable writer."""
 
 
 class UnsupportedJournal(JournalError):
-    """The journal was written by another schema version; this one cannot read it."""
+    """Raised when the journal was written by another schema version, which this one cannot read."""
 
 
 class JournalLocked(JournalError):
-    """Another process holds the journal: a live run, or a cleanup already running."""
+    """Raised when another process, such as a live run or a running cleanup, holds the journal."""
 
 
 class UnsupportedStateDirectory(JournalError):
-    """The state directory is on a filesystem whose locks or fsync cannot be trusted."""
+    """Raised when the state directory is on a filesystem whose locks or fsync cannot be trusted."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,11 +61,11 @@ class Record:
     event: str
     resource_id: str
     payload: Mapping[str, JsonValue]
-    recorded_at_ns: int  # wall clock when the record was made durable
+    recorded_at_ns: int  # The wall-clock time when the record was made durable.
 
 
 def canonical(value: JsonValue) -> bytes:
-    """The canonical JSON bytes the journal and specification digests are taken over."""
+    """Return the canonical JSON bytes that the journal and specification digests cover."""
     return json.dumps(
         value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
     ).encode()
@@ -76,14 +76,17 @@ def digest(value: JsonValue) -> str:
 
 
 def filesystem_type(path: Path) -> str:
-    """The type of the filesystem backing ``path``, as the kernel names it."""
+    """Return the type of the filesystem backing ``path``, as the kernel names it."""
     if platform.system() == "Darwin":
         return _darwin_filesystem_type(path)
     return _linux_filesystem_type(path, Path("/proc/self/mountinfo").read_text())
 
 
 def _linux_filesystem_type(path: Path, mountinfo: str) -> str:
-    """From ``/proc/self/mountinfo``: the longest mount point containing ``path``."""
+    """Return the filesystem type of the longest mount point that contains ``path``.
+
+    The mount points come from ``/proc/self/mountinfo``.
+    """
     target = str(path.resolve())
     best, kind = "", "unknown"
     for line in mountinfo.splitlines():
@@ -132,7 +135,7 @@ def _darwin_filesystem_type(path: Path) -> str:
 
 
 def check_state_directory(path: Path, *, kind: Callable[[Path], str] = filesystem_type) -> None:
-    """Refuse a network or user-space filesystem; accept local ones, overlays included."""
+    """Refuse a network or user-space filesystem, and accept local ones, including overlays."""
     path.mkdir(parents=True, exist_ok=True)
     name = kind(path).lower()
     if name.startswith("fuse") or any(
@@ -145,7 +148,7 @@ def check_state_directory(path: Path, *, kind: Callable[[Path], str] = filesyste
 
 
 class Journal:
-    """One run's resource journal, held open and locked by this process."""
+    """Hold one run's resource journal open and locked by this process."""
 
     def __init__(self, path: Path, lock: int, records: list[Record], damage: str | None):
         self.path = path
@@ -157,7 +160,10 @@ class Journal:
 
     @classmethod
     def open(cls, state_dir: Path, *, kind: Callable[[Path], str] = filesystem_type) -> Journal:
-        """Lock the run's journal and replay it; fails at once if another process holds it."""
+        """Lock the run's journal and replay it.
+
+        Opening fails at once if another process holds the journal.
+        """
         check_state_directory(state_dir, kind=kind)
         path = state_dir / JOURNAL
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -183,7 +189,7 @@ class Journal:
 
     @property
     def damage(self) -> str | None:
-        """Why the journal is cleanup-only, or ``None`` when it replayed intact."""
+        """Return why the journal is cleanup-only, or ``None`` when it replayed intact."""
         return self._damage
 
     def _replay(self) -> None:
@@ -237,7 +243,7 @@ class Journal:
         self._sequence, self._last = sequence, str(claimed)
 
     def append(self, event: str, resource_id: str, payload: Mapping[str, JsonValue]) -> Record:
-        """Durably record ``event``; the record exists once this returns."""
+        """Durably record ``event``. The record exists once this method returns."""
         if self._damage is not None:
             raise JournalError(f"the resource journal is cleanup-only: {self._damage}")
         if self._lock < 0:
@@ -262,8 +268,8 @@ class Journal:
             if new:
                 _fsync_directory(self.path.parent)
         except BaseException as error:
-            # The file may now end in a partial record, or hold one whose durability
-            # is unknown; nothing may be appended after it, or replay would lose it.
+            # The file may now end in a partial record, or hold one whose durability is
+            # unknown. Nothing may be appended after it, or replay would lose the record.
             self._damage = f"an append to {self.path} failed: {type(error).__name__}: {error}"
             raise
         record = Record(self._sequence + 1, event, resource_id, dict(payload), recorded_at)

@@ -1,7 +1,7 @@
-"""Chat Completions messages to renderer input, and the parsed reply back to the wire.
+"""Translate Chat Completions messages to renderer input, and the parsed reply back to the wire.
 
-Translation never decides attribution and never changes evidence: it only says what
-the renderer should render and how the captured completion reads as a Chat
+Translation never decides attribution and never changes evidence. It says only what
+the renderer should render, and how the captured completion reads as a Chat
 Completions response.
 """
 
@@ -50,7 +50,7 @@ COMPLETION_ID_PREFIX = "chatcmpl-"
 
 
 class AssistantMessage(ChatCompletionResponseMessage):
-    """The response message, with reasoning kept apart from the answer (vLLM's field)."""
+    """The response message, with reasoning kept apart from the answer in vLLM's field."""
 
     reasoning_content: str | None = None
 
@@ -65,7 +65,8 @@ class AssistantDelta(ChatCompletionStreamResponseDelta):
 class _Call:
     id: str
     name: str
-    arguments: str  # canonical JSON
+    # The arguments as canonical JSON.
+    arguments: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,11 +79,11 @@ class _Returned:
 
 @dataclass(slots=True)
 class Returned:
-    """The assistant messages this conversation returned, to recognise their echoes.
+    """Holds the assistant messages this conversation returned, to recognise their echoes.
 
-    An agent sends back what it was given, as the Chat Completions contract
-    expects; the renderer's own native message is substituted for that echo so
-    the conversation bridges exactly as a direct one does.
+    An agent sends back what it was given, as the Chat Completions contract expects.
+    Translation substitutes the renderer's own native message for that echo, so the
+    conversation bridges exactly as a direct one does.
     """
 
     messages: list[_Returned] = field(default_factory=list[_Returned])
@@ -93,11 +94,11 @@ class Returned:
         self.messages.append(entry)
 
     def recall(self, message: ChatCompletionRequestAssistantMessage) -> Mapping[str, object] | None:
-        """The native message ``message`` echoes, compared after canonicalization.
+        """Return the native message that ``message`` echoes, compared after canonicalization.
 
-        ``content: null`` equals an empty string, an omitted ``reasoning_content``
-        is taken to be the one returned, and tool calls compare by ID, name, and
-        canonical JSON arguments.
+        ``content: null`` equals an empty string. An omitted ``reasoning_content`` is
+        taken to be the one returned. Tool calls compare by ID, name and canonical JSON
+        arguments.
         """
         content = "".join(part.text for part in text_parts(message.content or "", "content"))
         calls = tuple(_call(call) for call in message.tool_calls or ())
@@ -121,7 +122,7 @@ def _call(call: BaseModel) -> _Call:
 def renderer_input(
     request: ChatRequest, returned: Returned
 ) -> tuple[list[RendererMessage], list[RendererMessage]]:
-    """The request's messages and tools in the run renderer's input shape."""
+    """Return the request's messages and tools in the run renderer's input shape."""
     names = _tool_names(request.messages)
     messages = [
         _message(message, index, returned, names) for index, message in enumerate(request.messages)
@@ -180,7 +181,7 @@ def _message(
 
 
 def _assistant(message: ChatCompletionRequestAssistantMessage, where: str) -> RendererMessage:
-    """History the gateway did not return itself, in the renderer's assistant shape."""
+    """Convert history the gateway did not return itself into the renderer's assistant shape."""
     content = "".join(part.text for part in text_parts(message.content or "", f"{where}.content"))
     result: RendererMessage = {"role": "assistant", "content": content}
     reasoning = (message.model_extra or {}).get("reasoning_content")
@@ -241,10 +242,10 @@ def _user_content(content: object, param: str) -> str | list[RendererMessage]:
 
 
 def image_bytes(url: str, param: str) -> bytes:
-    """A base64 PNG or JPEG data URI's bytes, unchanged; nothing else is ever read.
+    """Return the bytes of a base64 PNG or JPEG data URI, unchanged.
 
-    The gateway never fetches a URL or reads a host file, so every other form of
-    image reference, and video, is refused before sampling.
+    The gateway reads nothing else. It never fetches a URL or reads a host file, so
+    every other form of image reference, and video, is refused before sampling.
     """
     where = f"{param}.image_url.url"
     header, comma, payload = url.partition(",")
@@ -281,7 +282,7 @@ class Completion:
         return self.response.model_dump_json(exclude_none=True, serialize_as_any=True).encode()
 
     def events(self, *, include_usage: bool) -> list[bytes]:
-        """The response as server-sent events, ending with ``[DONE]``."""
+        """Return the response as server-sent events, ending with ``[DONE]``."""
         common = {
             "id": self.response.id,
             "created": self.response.created,
@@ -338,22 +339,27 @@ class Completion:
 def error_body(
     message: str, *, kind: str, code: str | None, param: str | None = None, **extra: object
 ) -> dict[str, object]:
-    """The OpenAI error envelope every refusal and failure is written in."""
+    """Return the OpenAI error envelope that every refusal and failure is written in."""
     return {"error": {"message": message, "type": kind, "param": param, "code": code, **extra}}
 
 
 @dataclass(frozen=True, slots=True)
 class InvalidOutput:
-    """A generation with a tool call the renderer could not parse: the model's output.
+    """A generation with a tool call the renderer could not parse, still the model's output.
 
-    The agent receives it as ``422 model_output_invalid``, whose ``error.reply`` holds
-    what the model wrote: its text, its reasoning, and each call as an assistant tool
-    call (``id``, ``type``, ``function``: the name and the arguments as written) with
-    its ``raw`` text and parse ``status``; and the generation's ``usage``, as a
-    completion's, so an agent counting its context counts this call too. It is delivered like any response, so it
-    trains; what to do next is the agent's. To answer the calls, the agent echoes
-    ``message`` (the reply without ``id``, ``raw`` and ``status``) and its tool
-    results: the gateway recognises the echo and continues from the sampled tokens.
+
+    The agent receives it as ``422 model_output_invalid``. Its ``error.reply`` holds
+    what the model wrote, which is its text, its reasoning and each tool call. Each
+    call appears as an assistant tool call with ``id``, ``type`` and ``function``, the
+    last holding the name and the arguments as written. Each call also carries its
+    ``raw`` text and parse ``status``. ``error.reply`` also holds the generation's
+    ``usage``, as a completion does, so an agent counting its context counts this call
+    too.
+
+    The response is delivered like any other, so it trains. The agent decides what to
+    do next. To answer the calls, the agent echoes ``message``, which is the reply
+    without ``id``, ``raw`` and ``status``, and sends its tool results. The gateway
+    recognises the echo and continues from the sampled tokens.
     """
 
     sample_id: str
@@ -384,13 +390,14 @@ def _sequence(value: object) -> Sequence[object]:
 def completion(
     reply: LLMResponse, *, model: str, created: int, tools_offered: bool
 ) -> Completion | InvalidOutput:
-    """The Chat Completions view of a captured generation.
+    """Return the Chat Completions view of a captured generation.
 
-    A reply with a tool call the renderer could not parse is ``InvalidOutput``: the
-    call is the model's, and is never silently dropped. A completion whose request
-    offered no tools, as with ``tool_choice: "none"``, is still a response: a call the
-    model wrote anyway is not returned. A tool call without an ID gets one derived
-    from the sample and its position, so tool results and bridging can refer to it.
+    A reply with a tool call the renderer could not parse becomes ``InvalidOutput``,
+    because the call is the model's and must never be silently dropped. A completion
+    whose request offered no tools, as with ``tool_choice: "none"``, is still a
+    response, but a call the model wrote anyway is not returned. A tool call without
+    an ID gets one derived from the sample and its position, so tool results and
+    bridging can refer to it.
     """
     sample_id = reply.sample.sample_id
     written = reply.history_message
@@ -465,7 +472,8 @@ def completion(
 
 
 def _usage(reply: LLMResponse) -> CompletionUsage:
-    """The generation's tokens, with its reasoning's when the renderer counted them."""
+    """Return the generation's token counts, with reasoning tokens if the renderer counted them."""
+
     details = (
         CompletionTokensDetails(reasoning_tokens=reply.reasoning_tokens)
         if reply.reasoning_tokens is not None

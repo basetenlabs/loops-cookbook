@@ -1,8 +1,9 @@
 """A multi-turn agent with tools, in the attempt's Blaxel sandbox, as an ``Episode``.
 
-``setup()`` writes the task's files into ``/work``; ``run(sample)`` offers the policy a shell
-and a file writer until it answers or the agent deadline cuts it; ``grade()`` runs the
-task's check, which the agent never sees, on what ``run()`` left: 1 when it passes, else 0.
+``setup()`` writes the task's files into ``/work``. ``run(sample)`` offers the policy a
+shell and a file writer until it answers or the agent deadline cuts it off. ``grade()``
+runs the task's check, which the agent never sees, on what ``run()`` left. The reward is
+1 when the check passes and 0 otherwise.
 """
 
 from __future__ import annotations
@@ -29,8 +30,10 @@ SYSTEM_PROMPT = (
 )
 # The path and content arrive as environment variables, so the shell never parses them.
 WRITE = 'mkdir -p "$(dirname -- "$FILE")" && printf %s "$CONTENT" > "$FILE"'
-WAIT_INTERVAL_MS = 200  # how often a wait asks Blaxel whether a command has ended
-WAIT_MARGIN_SECONDS = 10  # how long past its timeout a wait allows for Blaxel's kill
+# How often a wait asks Blaxel whether a command has ended.
+WAIT_INTERVAL_MS = 200
+# How long past a command's timeout a wait allows for Blaxel to kill it.
+WAIT_MARGIN_SECONDS = 10
 
 
 class Strict(BaseModel):
@@ -39,14 +42,18 @@ class Strict(BaseModel):
 
 class ToolTask(Strict):
     instruction: str = Field(min_length=1)
-    files: dict[str, str]  # path relative to /work -> content
-    check: str = Field(min_length=1)  # a shell command in /work; exit 0 when solved
+    # Maps each path, relative to /work, to its content.
+    files: dict[str, str]
+    # A shell command run in /work. It exits 0 when the task is solved.
+    check: str = Field(min_length=1)
 
 
 class ToolOptions(Strict):
     max_turns: int = Field(ge=1)
-    command_timeout_seconds: int = Field(gt=0)  # Blaxel refuses a float here
-    max_output_chars: int = Field(gt=0)  # the model reads the last this many of each stream
+    # Blaxel refuses a float here.
+    command_timeout_seconds: int = Field(gt=0)
+    # The model reads the last this many characters of each output stream.
+    max_output_chars: int = Field(gt=0)
 
 
 class Shell(Strict):
@@ -69,13 +76,14 @@ TOOLS: list[ToolSchema] = [
 
 
 def ended(reason: str, turns: int, tool_calls: int) -> dict[str, JsonValue]:
-    """The episode's metadata: why ``run()`` stopped, after how many turns and tool calls."""
+    """Return metadata saying why ``run()`` stopped, and after how many turns and tool calls."""
     return {"termination_reason": reason, "turns": turns, "tool_calls": tool_calls}
 
 
 class ToolEpisode(Episode[ToolTask, ToolOptions]):
     execution_kind = Blaxel
-    grading_retries = 2  # the check leaves /work as it found it, so it can run again
+    # The check leaves /work as it found it, so it can run again.
+    grading_retries = 2
 
     async def setup(self, setup: Setup) -> None:
         sandbox = setup.require_sandbox(Blaxel)
@@ -95,17 +103,21 @@ class ToolEpisode(Episode[ToolTask, ToolOptions]):
         for turn in range(1, self.options.max_turns + 1):
             try:
                 reply = await conversation.generate(messages=messages, tools=TOOLS)
-            except ContextWindowExceeded:  # the conversation outgrew the trajectory budget
+            except ContextWindowExceeded:
+                # The conversation outgrew the trajectory budget.
                 return ended("context_overflow", turn - 1, calls)
             # A cut reply trains with the episode's reward. To drop one the trajectory
             # budget cut (`reply.sample.clamped_from is not None`), call
             # `conversation.discard(reply)` before ending.
-            if reply.truncated or reply.native_message is None:  # cut, or won't parse
+            # The reply was cut off, or it won't parse.
+            if reply.truncated or reply.native_message is None:
                 return ended("truncated" if reply.truncated else "unusable_reply", turn, calls)
             messages.append(reply.native_message)
             if not reply.tool_calls:
                 return ended("completed", turn, calls)
-            for call in reply.tool_calls:  # in order: a later call may read an earlier one's file
+            # Run the calls in order, because a later call may read an earlier one's
+            # file.
+            for call in reply.tool_calls:
                 result = json.dumps(await self.call(sandbox, call))
                 messages.append(
                     {
@@ -133,15 +145,18 @@ class ToolEpisode(Episode[ToolTask, ToolOptions]):
     async def sh(
         self, sandbox: Blaxel, command: str, env: Mapping[str, str] | None = None
     ) -> dict[str, JsonValue]:
-        """``command`` in /work, started, then waited for: Blaxel kills it at its timeout and
-        the wait returns it ``killed``, where an exec that waited itself would raise."""
+        """Start ``command`` in /work, then wait for it.
+
+        Blaxel kills the command at its timeout, and the wait returns it as ``killed``.
+        An exec that waited by itself would raise instead."""
         box = await sandbox.client()
         timeout, limit = self.options.command_timeout_seconds, self.options.max_output_chars
         request = {"command": command, "working_dir": WORKDIR, "env": dict(env or {})}
         started = await box.process.exec({**request, "keep_alive": True, "timeout": timeout})
         wait_ms = (timeout + WAIT_MARGIN_SECONDS) * 1000
         done = await box.process.wait(started.pid, max_wait=wait_ms, interval=WAIT_INTERVAL_MS)
-        # Blaxel's record keeps only the last 64 KB; the provider's wait refills it from the logs.
+        # Blaxel's record keeps only the last 64 KB. The provider's wait refills it from
+        # the logs.
         stdout, stderr = done.stdout or "", done.stderr or ""
         return {
             "status": str(done.status),
@@ -153,15 +168,18 @@ class ToolEpisode(Episode[ToolTask, ToolOptions]):
     async def grade(self, grading: Grading) -> float:
         sandbox = grading.require_execution_sandbox(Blaxel)
         box = await sandbox.client()
-        # A command the agent deadline cut may still be running: stop what the sandbox
-        # lists as running before the check. A job the agent detached is not stopped.
+        # A command the agent deadline cut off may still be running. Stop what the
+        # sandbox lists as running before the check. A job the agent detached is not
+        # stopped.
         for process in await box.process.list():
             if process.status == "running":
                 await box.process.kill(process.pid)
-        # Only a check that ran to the end passes: Blaxel's wait hands back a record
-        # still ``running`` (exit code 0) when the sandbox stops answering mid-check.
+        # Only a check that ran to the end passes. When the sandbox stops answering
+        # mid-check, Blaxel's wait hands back a record still ``running``, with exit code
+        # 0.
         checked = await self.sh(sandbox, self.task.value.check)
         if checked["status"] == "completed" and checked["exit_code"] == 0:
             return 1.0
-        await sandbox.ensure_alive()  # a failed check measures only a live sandbox
+        # A failed check is a measurement only if the sandbox is still alive.
+        await sandbox.ensure_alive()
         return 0.0

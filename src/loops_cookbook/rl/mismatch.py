@@ -1,14 +1,14 @@
 """How far the trainer's logprobs are from the sampler's, on the tokens that train.
 
-The trainer scores every datum it trains on; at an action position its logprob and
-the sampler's should agree up to numerics, routing and, when the action is older
-than the trainer's weights, policy drift. ``MismatchTotals`` splits that gap so
-each cause can be read on its own:
+The trainer scores every datum it trains on. At an action position, its logprob and
+the sampler's should agree up to numerics and routing. When the action is older than
+the trainer's weights, policy drift adds to the gap. ``MismatchTotals`` splits the gap
+two ways, so that each cause can be read on its own:
 
-- by turn, the action's place in its chain: router replay should keep late turns
-  as close as early ones;
-- by lag, how many updates the trainer's weights are past the action's policy: at
-  lag 0 the gap is numerics and routing alone.
+- By turn, which is the action's place in its chain. Router replay should keep late
+  turns as close as early ones.
+- By lag, which is how many updates the trainer's weights are past the action's
+  policy. At lag 0, the gap comes from numerics and routing alone.
 """
 
 from __future__ import annotations
@@ -33,13 +33,16 @@ def _lag_bucket(lag: int) -> str:
 
 
 class UnfitScores(RuntimeError):
-    """The trainer's logprobs do not fit the rows sent: a datum missing, or a wrong length."""
+    """The trainer's logprobs don't fit the rows sent.
+
+    A datum is missing, or one has the wrong length.
+    """
 
 
 def action_scores(rows: Sequence[TrainingRow], scored: Sequence[Any]) -> list[list[Any]]:
-    """Each row's trainer logprobs on its actions, one slice per action.
+    """Return each row's trainer logprobs on its actions, one slice per action.
 
-    Takes Python lists or tensors alike, and keeps only the action positions, so a
+    It takes Python lists and tensors alike. It keeps only the action positions, so a
     caller never copies a whole datum's logprobs to build the gauges.
     """
     if len(scored) != len(rows):
@@ -57,7 +60,7 @@ def action_scores(rows: Sequence[TrainingRow], scored: Sequence[Any]) -> list[li
 
 @dataclass
 class MismatchTotals:
-    """Token sums of |trainer - sampler| logprob over one optimizer step."""
+    """Sums of |trainer - sampler| logprob over the tokens of one optimizer step."""
 
     sums: dict[str, float] = field(default_factory=dict)
     tokens: dict[str, int] = field(default_factory=dict)
@@ -70,9 +73,11 @@ class MismatchTotals:
         scores: Sequence[Sequence[Sequence[float | None]]],
         version: int,
     ) -> None:
-        """Add one call's rows; ``scores`` is ``action_scores`` of the trainer's
-        logprobs, under weights at policy ``version``. A nonfinite or null trainer
-        logprob is counted, not averaged."""
+        """Add one call's rows.
+
+        ``scores`` is ``action_scores`` of the trainer's logprobs, under weights at
+        policy ``version``. A nonfinite or null trainer logprob is counted, not averaged.
+        """
         whole(self.add_in_slices(rows, scores, version))
 
     def add_in_slices(
@@ -81,13 +86,14 @@ class MismatchTotals:
         scores: Sequence[Sequence[Sequence[float | None]]],
         version: int,
     ) -> Sliced[None]:
-        """``add``, pausing after each action, for ``in_slices``."""
+        """Run ``add``, pausing after each action, for ``in_slices``."""
         for row, actions in zip(rows, scores, strict=True):
             sampler = row.datum.loss_fn_inputs["logprobs"].data
             for turn, ((start, _), policy, trainer) in enumerate(
                 zip(row.actions, row.policies, actions, strict=True), start=1
             ):
-                # The trainer may leave a position unscored (null), as SFT scoring sees.
+                # The trainer may leave a position unscored, as null, which SFT scoring
+                # also sees.
                 gaps = [
                     abs(float(value) - float(sampler[start + i]))
                     for i, value in enumerate(trainer)

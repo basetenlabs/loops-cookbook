@@ -1,11 +1,11 @@
-"""The hill-climb agent with a critic: one policy in two roles, both trained.
+"""The hill-climb agent with a critic, which is one policy in two roles, both trained.
 
 ``main`` proposes a label. ``critic`` sees the proposal and gives the final answer,
-keeping it or changing it. A producer is a label on a generation, not a model: both
-roles sample the same Loops model and LoRA, at the same policy version. The verifier
-scores only the final answer, and both producers are declared trainable in
-``[rollout.producers]``, so both generations train the same weights on that one
-reward: to propose the target, and to keep or fix a proposal.
+keeping it or changing it. A producer is a label on a generation, not a model. Both
+roles sample the same Loops model and LoRA adapter, at the same policy version. The
+verifier scores only the final answer. Both producers are declared trainable in
+``[rollout.producers]``, so both generations train the same weights on that one reward.
+``main`` learns to propose the target, and ``critic`` learns to keep or fix a proposal.
 """
 
 import shlex

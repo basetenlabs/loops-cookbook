@@ -1,21 +1,22 @@
-"""Daytona sandboxes as registry-owned resources.
+"""Provide Daytona sandboxes as resources that the registry owns.
 
 One kind of request reaches this adapter, ``sandbox``. Its specification is
-``{"sandbox": {...}}``, taking any of ``SANDBOX_KEYS``, each optional.
+``{"sandbox": {...}}``, which takes any of ``SANDBOX_KEYS``, each optional.
 
-``image`` is ``{"dockerfile": <text>, "context": [<file>...]}`` for a declarative
-build, which Daytona builds once and caches by content, or ``{"base": <image ref>}``;
-with neither ``image`` nor ``snapshot``, Daytona's default snapshot. ``resources`` is
-``{"cpu", "memory", "disk"}`` in vCPUs and GiB, each filled from ``[providers.daytona]``
-when left out, so an image sandbox always names its size. The lifecycle is too: a
-sandbox always stops after idling or dies at a TTL, and is deleted once stopped, so
-one the run loses is not kept forever.
+``image`` is either ``{"dockerfile": <text>, "context": [<file>...]}`` or
+``{"base": <image ref>}``. The first is a declarative build, which Daytona builds once
+and caches by content. With neither ``image`` nor ``snapshot``, the sandbox uses
+Daytona's default snapshot. ``resources`` is ``{"cpu", "memory", "disk"}``, in vCPUs
+and GiB. The adapter fills each one left out from ``[providers.daytona]``, so an image
+sandbox always names its size. It fills in the lifecycle the same way. A sandbox
+always stops after idling or dies at a time to live (TTL), and it is deleted once
+stopped, so a sandbox the run loses is not kept forever.
 
 Every create carries the cookbook's ownership labels and a name unique to the
-resource; Daytona names are unique in the organization, so a create is idempotent by
-name and reconciliation looks it up by name, never sending a second create. Release
-deletes by Daytona's immutable id, and absence counts only on a ``404`` for that id
-or a ``destroyed`` state.
+resource. Daytona names are unique in the organization, so a create is idempotent by
+name. Reconciliation therefore looks the sandbox up by name, and never sends a second
+create. Release deletes by Daytona's immutable id. Absence counts only on a ``404`` for
+that id or a ``destroyed`` state.
 """
 
 from __future__ import annotations
@@ -56,7 +57,7 @@ from loops_cookbook.resources.api import (
     SandboxResources,
 )
 
-# The ownership label naming the registry resource a sandbox was created for.
+# The ownership label that names the registry resource a sandbox was created for.
 RESOURCE_ID_LABEL = "loops.resource_id"
 SANDBOX_KEYS = frozenset(
     {
@@ -81,9 +82,10 @@ SANDBOX_KEYS = frozenset(
     }
 )
 RESOURCE_KEYS = frozenset({"cpu", "memory", "disk"})
-# Keys whose value is an object, checked as one before the intent is journaled.
+# Keys whose value must be an object. The adapter checks them before the intent is
+# journaled.
 OBJECT_KEYS = frozenset({"image", "resources", "labels"})
-# Lifecycle intervals in minutes; Daytona takes none below 0.
+# Lifecycle intervals, in minutes. Daytona takes none below 0.
 LIFECYCLE_KEYS = (
     "auto_stop_interval",
     "auto_delete_interval",
@@ -103,14 +105,14 @@ class Api(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class Credentials:
-    """``DAYTONA_API_KEY`` and, when set, ``DAYTONA_API_URL``, from the environment."""
+    """Hold ``DAYTONA_API_KEY`` and, when set, ``DAYTONA_API_URL``, from the environment."""
 
     api_key: SecretStr
     api_url: str | None = None
 
 
 class DaytonaContractError(ValueError):
-    """A request this adapter cannot turn into a Daytona sandbox."""
+    """Raised for a request that this adapter cannot turn into a Daytona sandbox."""
 
 
 def _mapping(value: JsonValue | None, where: str) -> dict[str, JsonValue]:
@@ -129,7 +131,7 @@ def _create_failure(intent: ResourceIntent, error: BaseException) -> Provisionin
 
 
 class DaytonaAdapter:
-    """The ``ResourceAdapter`` for Daytona sandboxes, and their ``SandboxProvider``."""
+    """Implement ``ResourceAdapter`` and ``SandboxProvider`` for Daytona sandboxes."""
 
     sandbox_kind: ClassVar[type[Daytona]] = Daytona
 
@@ -157,7 +159,7 @@ class DaytonaAdapter:
 
     @property
     def capacity(self) -> SandboxCapacity:
-        """What a sandbox that names no size gets, and the most one may have."""
+        """Return the size a sandbox gets when it names none, and the most one may have."""
         settings = self._settings
         return SandboxCapacity(
             defaults=SandboxResources(
@@ -171,9 +173,11 @@ class DaytonaAdapter:
         )
 
     def _checked(self, request: ResourceRequest) -> dict[str, JsonValue]:
-        """The request's sandbox configuration with the table's lifecycle filled in,
-        refused before any journal entry or Daytona call when it is not one this adapter
-        can create."""
+        """Return the request's sandbox configuration with the table's lifecycle filled in.
+
+        A configuration that this adapter cannot create is refused before any journal
+        entry or Daytona call.
+        """
         if request.kind != SANDBOX:
             raise DaytonaContractError(f"Daytona provides no {request.kind!r} resource")
         config = dict(_mapping(request.specification.get(SANDBOX), SANDBOX))
@@ -192,7 +196,7 @@ class DaytonaAdapter:
             raise DaytonaContractError("a Daytona sandbox is created from an image or a snapshot")
         if "image" not in config and "resources" in config:
             raise DaytonaContractError(
-                "only a sandbox built from an image is sized; a snapshot fixes its own resources"
+                "only a sandbox built from an image takes resources; a snapshot fixes its own"
             )
         unsized = set(objects.get("resources", {})) - RESOURCE_KEYS
         if unsized:
@@ -219,10 +223,10 @@ class DaytonaAdapter:
     # ------------------------------------------------------------- identity
 
     def desired_name(self, request: ResourceRequest, resource_id: str) -> str:
-        """The caller's name for the sandbox, or one unique to the resource.
+        """Return the caller's name for the sandbox, or a name unique to the resource.
 
-        Harbor's Daytona environment names none, so each trial's sandbox is
-        ``loops-<resource id>``, and no two collide.
+        Harbor's Daytona environment names no sandbox, so each trial's sandbox is
+        ``loops-<resource id>``, and no two names collide.
         """
         name = self._checked(request).get("name")
         if name is None:
@@ -247,7 +251,8 @@ class DaytonaAdapter:
     # ---------------------------------------------------------------- create
 
     async def prerequisites(self, request: ResourceRequest) -> Sequence[ResourceRequest]:
-        return []  # Daytona builds and caches a declarative image inside the create
+        # Daytona builds and caches a declarative image inside the create.
+        return []
 
     async def create(self, intent: ResourceIntent) -> ProviderResource:
         self._check_open()
@@ -263,12 +268,12 @@ class DaytonaAdapter:
         return await self._wait_started(self._resource(observed))
 
     async def _landed(self, intent: ResourceIntent, error: BaseException) -> Observed:
-        """The sandbox a failed create left behind, or the create's failure.
+        """Return the sandbox that a failed create left behind, or raise the create's failure.
 
-        A ``404`` for the name leaves the failure what it says: a refusal (``429``, a
-        connection never made) is sent again, a rejection (``400``, ``401``, ``403``)
-        is not, and anything else is still ambiguous. A lookup that fails too proves
-        nothing, so the create is ambiguous.
+        After a ``404`` for the name, the failure means what it says. A refusal, which is
+        a ``429`` or a connection never made, is sent again. A rejection, which is a
+        ``400``, ``401`` or ``403``, is not. Anything else is still ambiguous. A lookup
+        that also fails proves nothing, so the create is ambiguous.
         """
         try:
             observed = await self._api.get(intent.desired_name)
@@ -282,7 +287,8 @@ class DaytonaAdapter:
                 CreationDisposition.AMBIGUOUS,
             ) from lookup
         if not await self.validate_ownership(intent, self._resource(observed)):
-            # Not the one this create made: the registry's reconcile refuses to adopt it.
+            # This is not the sandbox this create made, so the registry's reconcile
+            # refuses to adopt it.
             raise ProvisioningFailure(
                 f"Daytona sandbox {intent.desired_name} exists without this run's ownership",
                 CreationDisposition.AMBIGUOUS,
@@ -290,8 +296,11 @@ class DaytonaAdapter:
         return observed
 
     def sandbox_config(self, intent: ResourceIntent) -> dict[str, Any]:
-        """The create configuration: the request's, with the table's defaults filled in,
-        the ownership labels added, and a lifecycle that ends a lost sandbox."""
+        """Return the create configuration.
+
+        It is the request's configuration, with the table's defaults filled in, the
+        ownership labels added and a lifecycle that ends a lost sandbox.
+        """
         config: dict[str, Any] = self._checked(intent.request)
         settings = self._settings
         config["name"] = intent.desired_name
@@ -310,10 +319,10 @@ class DaytonaAdapter:
         return config
 
     async def _wait_started(self, resource: ProviderResource) -> ProviderResource:
-        """Poll a created sandbox until it is ``started``; a dead one is a failure.
+        """Poll a created sandbox until it is ``started``, and fail if it dies.
 
-        The caller's deadline bounds the wait. A sandbox that dies is known to exist,
-        so the failure carries it and the registry owns and releases it.
+        The caller's deadline bounds the wait. A sandbox that dies is known to exist, so
+        the failure carries it, and the registry owns and releases it.
         """
         while True:
             state = resource.metadata.get("state")
@@ -341,14 +350,14 @@ class DaytonaAdapter:
     async def reconcile_create(
         self, intent: ResourceIntent, *, settled: bool = False
     ) -> ReconcileResult:
-        """Read the uniquely named sandbox back; never issue a second create.
+        """Read the uniquely named sandbox back, and never issue a second create.
 
-        ``404``, ``429``, ``5xx``, and transport errors are retried until the
-        registry's reconcile deadline; a ``404`` for the name proves absence only once
-        the create is ``settled``. A sandbox is found as soon as its name resolves, so
-        the registry owns it and its release deletes it: one still building or starting
-        is waited for by ``attach``, and one that is dead is found but unusable, so its
-        provision fails.
+        A ``404``, a ``429``, a ``5xx`` and transport errors are retried until the
+        registry's reconcile deadline. A ``404`` for the name proves absence only once
+        the create is ``settled``. A sandbox counts as found as soon as its name
+        resolves, so the registry owns it and its release deletes it. ``attach`` waits
+        for a sandbox that is still building or starting. A dead sandbox is found but
+        unusable, so its provision fails.
         """
         while True:
             try:
@@ -381,7 +390,7 @@ class DaytonaAdapter:
                 raise
 
     async def confirm_absent(self, resource: ProviderResource) -> ReconcileResult:
-        """Absent once Daytona answers ``404`` for its id, or reports it ``destroyed``.
+        """Wait until Daytona answers ``404`` for the sandbox's id, or reports it ``destroyed``.
 
         Ids are never reused, so neither answer can be about another sandbox. The
         registry's deadline bounds the wait.
@@ -409,7 +418,7 @@ class DaytonaAdapter:
     async def list_owned(
         self, labels: Mapping[str, str]
     ) -> AsyncGenerator[Sequence[ProviderResource], None]:
-        # Daytona filters by labels itself; each page is checked again, exactly.
+        # Daytona filters by labels itself, and each page is checked again exactly.
         pages = self._api.list(labels)
         try:
             async for page in pages:
@@ -425,7 +434,10 @@ class DaytonaAdapter:
     # ---------------------------------------------------------------- usage
 
     def usage_environment(self, resource: ProviderResource) -> Mapping[str, str | SecretStr]:
-        """What a separate process needs to reach this sandbox. The key is organization-wide."""
+        """Return what a separate process needs to reach this sandbox.
+
+        The API key is organization-wide.
+        """
         environment: dict[str, str | SecretStr] = {
             "DAYTONA_API_KEY": self._credentials.api_key,
             usage.SANDBOX_ID: resource.provider_id,
@@ -437,7 +449,7 @@ class DaytonaAdapter:
         return environment
 
     async def client(self, resource: ProviderResource) -> Any:
-        """The SDK's ``AsyncSandbox`` for the sandbox, once it is ``started``."""
+        """Return the SDK's ``AsyncSandbox`` for the sandbox, once it is ``started``."""
         return await usage.attach(
             resource,
             self._api.client(),
@@ -446,10 +458,16 @@ class DaytonaAdapter:
         )
 
     async def close_client(self, client: Any) -> None:
-        """An ``AsyncSandbox`` shares the provider's client and holds nothing of its own."""
+        """Do nothing, because an ``AsyncSandbox`` holds nothing of its own.
+
+        It shares the provider's client.
+        """
 
     async def alive(self, resource: ProviderResource) -> bool:
-        """Whether the sandbox is still ours and ``started``; a ``404`` for its id is not."""
+        """Return whether the sandbox is still ours and ``started``.
+
+        A ``404`` for its id means it is not.
+        """
         try:
             observed = await self._api.get(resource.provider_id)
         except Exception as error:

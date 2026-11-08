@@ -1,6 +1,6 @@
 """Group-centered advantages and token-exact Loops training rows.
 
-The advantage is ``reward - mean(group rewards)``, not divided by the group's
+The advantage is ``reward - mean(group rewards)``. It isn't divided by the group's
 standard deviation.
 """
 
@@ -21,20 +21,20 @@ IGNORE_INDEX = -100
 """The target at an image position, which has no token to predict."""
 
 
-# Weak-referenceable: a run checks that a step's rows are freed once they are sent.
+# Rows are weak-referenceable so that a run can check a step's rows are freed once sent.
 @dataclass(frozen=True, slots=True, weakref_slot=True)
 class TrainingRow:
     """A Loops datum and the positions it trains.
 
-    The datum's targets are the next token at every text position, prompt and
-    environment tokens included: token provenance checks each target against the
-    sampler's record, so none can be masked out by its id. Which positions are the
-    agent's own -- the ones a recipe trains -- is ``actions``, and nothing else.
+    The datum's targets are the next token at every text position, including prompt
+    and environment tokens. Token provenance checks each target against the sampler's
+    record, so no target can be masked out by its ID. Only ``actions`` says which
+    positions are the agent's own, which are the ones a recipe trains.
     """
 
     datum: Datum
     actions: tuple[tuple[int, int], ...]
-    """Half-open target ranges, ascending and disjoint: one per trainable generation."""
+    """Half-open target ranges, ascending and disjoint, one per trainable generation."""
     policies: tuple[int, ...]
     """The policy version that sampled each of ``actions``, in the same order."""
 
@@ -67,8 +67,11 @@ def build_rows(
     advantage: float,
     chains: Sequence[Sequence[Sample]] | None = None,
 ) -> list[TrainingRow]:
-    """One row per chain with a trainable generation; ``chains`` are the trajectory's
-    own ``chains``, when the caller has already computed them."""
+    """Build one row for each chain that has a trainable generation.
+
+    ``chains`` are the trajectory's own ``chains``, when the caller has already
+    computed them.
+    """
     return whole(build_rows_in_slices(trajectory, advantage, chains))
 
 
@@ -77,8 +80,11 @@ def build_rows_in_slices(
     advantage: float,
     chains: Sequence[Sequence[Sample]] | None = None,
 ) -> Sliced[list[TrainingRow]]:
-    """``build_rows``, pausing after each chain: a forked rollout's rows are each a
-    pass over a full-length sequence, so many long chains are not one unit."""
+    """Run ``build_rows``, pausing after each chain.
+
+    Each row of a forked rollout is a pass over a full-length sequence, so many long
+    chains are too much for one unit.
+    """
     if not isfinite(advantage):
         raise TrajectoryError("advantage must be finite")
     parts = trajectory.chains if chains is None else chains
@@ -100,12 +106,13 @@ def _row(chain: Sequence[Sample], advantage: float) -> TrainingRow:
     # The final sampled token is a target, never an input. Images live only in the
     # prompt, so trimming a completion token never cuts a chunk.
     length = len(last.prompt_ids) + len(last.completion_ids) - 1
-    # Built from the compact evidence for this row alone: its own lists and chunks.
+    # The row is built from the compact evidence for this row alone, which is its own
+    # lists and chunks.
     prompt = last.prompt_input
     model_input = prompt
     if len(last.completion_ids) > 1:
         model_input = model_input.append(EncodedTextChunk(tokens=list(last.completion_ids[:-1])))
-    # The next token at every position; an image position has none.
+    # This is the next token at every position. An image position has none.
     sequence = [
         token
         for chunk in prompt.chunks
@@ -119,8 +126,8 @@ def _row(chain: Sequence[Sample], advantage: float) -> TrainingRow:
     logprobs = [0.0] * length
     actions = []
     policies = []
-    # Each generation's positions, written a slice at a time rather than a token at a
-    # time: a chain's generations are prefixes of its last, so they fit.
+    # Write each generation's positions a slice at a time, not a token at a time. A
+    # chain's generations are prefixes of its last, so they fit.
     for sample in chain:
         if not sample.trainable:
             continue
@@ -152,14 +159,15 @@ type Spans = list[PromptProvenanceSpan | SampledProvenanceSpan]
 
 
 def chain_provenance(chain: Sequence[Sample]) -> tuple[Spans, Spans] | None:
-    """Where each of a chain row's inputs and targets was sampled; ``None`` when a
-    generation in it was not recorded.
+    """Return where each of a chain row's inputs and targets was sampled.
+
+    It returns ``None`` when a generation in the chain was not recorded.
 
     Every position names the earliest record that holds it as the sampler saw it. A
-    generation's own tokens are its sampled tokens, except its last, which the sampler
-    never ran forward: as an input, that one comes from the next generation's prompt,
-    as do the environment's tokens between the two. Targets are the same sequence one
-    position on, so a generation's sampled tokens are all its own.
+    generation's own tokens are its sampled tokens, except its last token, which the
+    sampler never ran forward. As an input, that token comes from the next generation's
+    prompt, and so do the environment's tokens between the two. Targets are the same
+    sequence shifted one position on, so a generation's sampled tokens are all its own.
     """
     if any(sample.sequence_id is None for sample in chain):
         return None
@@ -196,8 +204,10 @@ def without_provenance(row: TrainingRow) -> TrainingRow:
 def normalize_batch_provenance(
     rows: list[TrainingRow], *, enabled: bool = True
 ) -> list[TrainingRow]:
-    """Replay the complete optimizer batch, or train it entirely without replay: the
-    trainer refuses a request that mixes the two."""
+    """Replay the complete optimizer batch, or train all of it without replay.
+
+    The trainer refuses a request that mixes the two.
+    """
     if enabled and all(row.routed for row in rows):
         return rows
     return [without_provenance(row) for row in rows]

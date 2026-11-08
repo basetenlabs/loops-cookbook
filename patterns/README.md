@@ -61,7 +61,7 @@ does. See
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="../docs/assets/core-loop-detailed-dark.svg">
-  <img alt="The core loop in detail, grouped by who provides each part. The cookbook: the run schedules episodes on the runtime and gets rewards back; the runtime runs your agent and sets up and grades its environment; the agent's model calls go through the model client, which sends prompt tokens to the sampler, records the sampled tokens and logprobs, and passes the captured samples to the run. Baseten Loops: the run sends training batches of exact sampled tokens to the LoRA trainer, which publishes each new policy to the sampler. You bring the agent and its environment." src="../docs/assets/core-loop-detailed.svg">
+  <img alt="The core loop in detail, grouped by who provides each part. The cookbook: the run schedules episodes on the rollout runtime and gets rewards back; the rollout runtime runs your agent and sets up and grades its environment; the agent's model calls go through the model client, which sends prompt tokens to the sampler, records the sampled tokens and logprobs, and passes the captured samples to the run. Baseten Loops: the run sends training batches of exact sampled tokens to the LoRA trainer, which publishes each new policy to the sampler. You bring the agent and its environment." src="../docs/assets/core-loop-detailed.svg">
 </picture>
 
 The diagrams below reuse its line colours.
@@ -97,7 +97,7 @@ are not (a gym-style environment, your own infrastructure).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="../docs/assets/agents-in-process-dark.svg">
-  <img alt="In-process agents: the runtime calls your agent code inside the training process; it reaches the model through the model client directly or through the gateway, and runs commands in the episode's sandbox." src="../docs/assets/agents-in-process.svg">
+  <img alt="In-process agents: the rollout runtime calls your agent code inside the training process; it reaches the model through the model client directly or through the gateway, and runs commands in the episode's sandbox." src="../docs/assets/agents-in-process.svg">
 </picture>
 
 Your agent is Python that the rollout runtime calls inside the training process. It reaches
@@ -117,7 +117,7 @@ in-process.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="../docs/assets/agents-local-dark.svg">
-  <img alt="Local agents: the runtime launches your agent program on the training machine; it talks to the gateway over loopback and runs commands in the episode's sandbox through the provider's API." src="../docs/assets/agents-local.svg">
+  <img alt="Local agents: the rollout runtime launches your agent program on the training machine; it talks to the gateway over loopback and runs commands in the episode's sandbox through the provider's API." src="../docs/assets/agents-local.svg">
 </picture>
 
 Your agent is its own program. The rollout runtime launches it on the training machine for

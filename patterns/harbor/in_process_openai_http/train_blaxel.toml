@@ -1,4 +1,5 @@
-# Harbor, in-process, openai_http, on Blaxel sandboxes: uv sync --extra harbor-blaxel
+# Harbor, in-process, openai_http, on Blaxel sandboxes.
+# uv sync --extra harbor-blaxel
 # uv run loops check patterns/harbor/in_process_openai_http/train_blaxel.toml
 
 recipe = "rl"
@@ -11,10 +12,10 @@ job = "job_blaxel.yaml"
 
 [providers.blaxel]
 # Credentials stay in .env as BL_WORKSPACE and BL_API_KEY. Every sandbox is created in
-# this region; the job does not name one. Every deadline has a default: Harbor's start
-# bound, reconcile + image build + create + attach (60 + 420 + 120 + 30 = 630s), fits
-# the task's build timeout (600s, times the job's environment_build_timeout_multiplier
-# of 1.1).
+# this region, because the job doesn't name one. Every deadline has a default.
+# Harbor's start bound adds reconcile, image build, create and attach, which is
+# 60 + 420 + 120 + 30 = 630 s. That fits within the task's build timeout, 600 s times
+# the job's environment_build_timeout_multiplier of 1.1.
 region = "us-was-1"
 
 [model]
@@ -30,7 +31,8 @@ max_generation_tokens = 128
 [training]
 mode = "sync"
 group_size = 16
-max_group_losses = 1   # a cloud sandbox can fail; its group still trains
+# A cloud sandbox can fail, so a group that loses one rollout still trains.
+max_group_losses = 1
 groups_per_step = 1
 max_steps = 5
 max_consecutive_unusable_groups = 20
@@ -40,12 +42,15 @@ loss_fn = "cispo"
 [rollout]
 max_concurrent_rollouts = 4
 max_concurrent_verifiers = 4
-max_rollout_retries = 2   # a failed sandbox or trial gets a fresh attempt
+# A rollout whose sandbox or trial fails is retried up to this many times.
+max_rollout_retries = 2
 rollout_timeout_seconds = 600
 setup_timeout_seconds = 600
 
 [rollout.grading]
-timeout_seconds = 900  # > Harbor's own bound: build 660s + verifier 30s
+# The grading deadline must exceed Harbor's own bound, which is a 660 s build plus
+# a 30 s verifier.
+timeout_seconds = 900
 
 [compute]
 scope = "serverless"

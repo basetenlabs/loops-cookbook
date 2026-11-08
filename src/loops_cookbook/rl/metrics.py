@@ -1,4 +1,4 @@
-"""Per-update summaries of an RL batch: stage durations, trajectories, agent metadata."""
+"""Per-update summaries of an RL batch: stage durations, trajectories and agent metadata."""
 
 import logging
 from collections import Counter, defaultdict
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class DurationSummary:
-    """Bounded-memory cumulative wall-clock duration statistics."""
+    """Cumulative wall-clock duration statistics, kept in bounded memory."""
 
     count: int = 0
     total: float = 0.0
@@ -35,7 +35,7 @@ class DurationSummary:
 
 
 def trajectory_metrics(rollouts: Sequence[Rollout]) -> dict[str, float]:
-    """Metrics for the selected batch; token entropy is a sampled estimate."""
+    """Return metrics for the selected batch. Token entropy is a sampled estimate."""
     if not rollouts:
         return {}
     samples = [sample for rollout in rollouts for sample in rollout.samples]
@@ -65,11 +65,12 @@ def trajectory_metrics(rollouts: Sequence[Rollout]) -> dict[str, float]:
         out["sampling/entropy_estimate"] = (
             -sum(sum(sample.logprobs) for sample in trainable) / token_count
         )
-    # These describe model generation stops, not the agent's own termination.
+    # These count why model generations stopped, not why the agent ended.
     stops = Counter(sample.stop_reason or "unknown" for sample in samples)
     out.update({f"sampling/stop/{reason}": float(count) for reason, count in stops.items()})
-    # Cut by the trajectory budget, not by the max_tokens they asked for: lowered to the
-    # room the prompt left, and stopped on reaching it.
+    # These generations were cut by the trajectory budget, not by the max_tokens they
+    # asked for. Their limit was lowered to the room the prompt left, and they stopped
+    # on reaching it.
     out["sampling/cut_at_budget"] = float(
         sum(
             sample.clamped_from is not None and sample.stop_reason == "length" for sample in samples
@@ -79,8 +80,11 @@ def trajectory_metrics(rollouts: Sequence[Rollout]) -> dict[str, float]:
 
 
 def metadata_means(metadata: Sequence[Mapping[str, JsonValue]]) -> dict[str, float]:
-    """Each numeric metadata key's mean over the entries that report it, as
-    ``rollout_metrics`` averages them: booleans count as 0 and 1, labels are left out."""
+    """Return each numeric metadata key's mean over the entries that report it.
+
+    It averages the way ``rollout_metrics`` does. Booleans count as 0 and 1, and labels
+    are left out.
+    """
     numbers: dict[str, list[float]] = defaultdict(list)
     for entry in metadata:
         for key, value in entry.items():
@@ -92,17 +96,17 @@ def metadata_means(metadata: Sequence[Mapping[str, JsonValue]]) -> dict[str, flo
 def rollout_metrics(rollouts: Sequence[Rollout], *, limit: int = 32) -> dict[str, float]:
     """Summarize what the agents reported about their own episodes.
 
-    Numbers are averaged over the batch and labels are counted, so an agent gets
-    its own view of a step -- how many turns it took, how often it ran out of them
-    -- next to the reward, without the recipe knowing what any of it means. Booleans
+    Numbers are averaged over the batch, and labels are counted. That gives an agent
+    its own view of a step next to the reward, such as how many turns it took or how
+    often it ran out of them. The recipe never needs to know what any of it means. Booleans
     average into a rate, which is what a flag is worth across a batch.
 
-    Keys are the agent's, so a key whose value differs per rollout -- an id, a
-    timestamp -- would emit one metric name per rollout and bury everything else.
-    Those are dropped, and past ``limit`` names what survives is what the most
-    rollouts reported, so a stray identifier cannot displace the numbers the run is
-    actually watching. Each rule warns on its own; ``rollout/dropped_keys`` counts
-    everything either left out.
+    The keys are the agent's. A label whose value differs per rollout, such as an ID
+    or a timestamp, would make one metric name per rollout and bury everything else,
+    so such labels are dropped. Past ``limit`` names, the metrics kept are the ones
+    the most rollouts reported, so a stray identifier can't displace the numbers the
+    run is watching. Each rule logs its own warning, and ``rollout/dropped_keys``
+    counts everything either rule left out.
     """
     if not rollouts:
         return {}
@@ -114,18 +118,18 @@ def rollout_metrics(rollouts: Sequence[Rollout], *, limit: int = 32) -> dict[str
                 numbers[key].append(float(value))
             elif isinstance(value, str):
                 labels[key][value] += 1
-    # Label counts are absolute and the batch size varies, since a group may be
-    # selected with as few as `min_group_size` members, so "completed: 40" needs a
-    # denominator to compare across steps. `train/rollouts` already carries it on the
-    # same axis, from the same members; a second name for it would only be a synonym.
+    # Label counts are absolute, and the batch size varies, because a group may be
+    # selected with as few as `min_group_size` members. To compare across steps, a
+    # count such as "completed: 40" needs a denominator. `train/rollouts` already carries
+    # it on the same axis, from the same members, so a second name would be a synonym.
     out = {f"rollout/{key}": sum(values) / len(values) for key, values in numbers.items()}
     coverage = {f"rollout/{key}": len(values) for key, values in numbers.items()}
     identifiers = []
-    # A label that never repeats a value is identifying each rollout rather than
-    # describing it, and its counts are then all 1 -- so it carries nothing that
-    # summarizing could reveal, and dropping it loses nothing. Deciding it this way
-    # needs no threshold: a batch of any size answers for itself, and a key with one
-    # rare outcome among many common ones still repeats, so it stays.
+    # A label that never repeats a value identifies each rollout instead of describing
+    # it. Its counts are then all 1, so summarizing it reveals nothing, and dropping it
+    # loses nothing. This test needs no threshold, because a batch of any size answers
+    # for itself. A key with one rare outcome among many common ones still repeats, so
+    # it stays.
     for key, counts in labels.items():
         if max(counts.values()) == 1:
             identifiers.append(key)
@@ -138,8 +142,8 @@ def rollout_metrics(rollouts: Sequence[Rollout], *, limit: int = 32) -> dict[str
         kept = sorted(out, key=lambda name: (-coverage[name], name))[:limit]
         over_limit = sorted(set(out) - set(kept))
         out = {name: out[name] for name in kept}
-    # Each rule gets its own warning: the remedy differs, and a limit drop described
-    # as an identifier sends the reader to fix keys that were never wrong.
+    # Each rule gets its own warning because the remedy differs. A limit drop described
+    # as an identifier would send the reader to fix keys that were never wrong.
     if identifiers:
         logger.warning(
             "Dropped %d agent metadata key(s) from step metrics as identifiers: %s. A "

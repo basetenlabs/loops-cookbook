@@ -2,9 +2,9 @@
 
 A smoke test for a checkpoint, not an eval framework. Validation NLL says the adapter
 fits the data's tokens; this says whether its replies moved towards the data's. It
-scores agreement with the reference turn (written by other models), on first turns
-only, with no tool ever run and one greedy sample each -- so it cannot say whether an
-agent finishes a task. For each validation conversation, the first assistant turn's prompt is
+scores agreement with the reference turn (written by other models), on first turns only,
+with no tool ever run and one greedy sample each -- so it cannot say whether an agent
+finishes a task. For each validation conversation, the first assistant turn's prompt is
 rendered with the config's renderer and sampled greedily from two standalone Loops
 samplers -- the base model, and the adapter -- and each reply is parsed and scored
 against the turn the data has:
@@ -102,8 +102,9 @@ def rates(records: list[dict]) -> dict[str, dict[str, float]]:
 
 
 def deactivate(sampler) -> None:
-    """Shut a standalone sampler down; say so loudly when that did not happen."""
-    sampler_id = getattr(sampler, "_sampler_id", None)  # the SDK keeps it private
+    """Shut a standalone sampler down, and say so loudly when that fails."""
+    # The SDK keeps the sampler ID private.
+    sampler_id = getattr(sampler, "_sampler_id", None)
     try:
         response = httpx.post(
             f"https://api.baseten.co/v1/loops/samplers/{sampler_id}/deactivate",
@@ -149,8 +150,8 @@ async def main() -> None:
     parser.add_argument("--limit", type=int, default=200, help="Validation conversations to score.")
     parser.add_argument("--max-tokens", type=int, default=1024)
     args = parser.parse_args()
-    # The SDK logs each sampler's id as it provisions it; that line is the way back to one
-    # this script lost the handle to.
+    # The SDK logs each sampler's ID as it provisions it. That log line is the only way
+    # back to a sampler this script lost the handle to.
     configure_logging(verbose=False, style="plain")
     load_environment(config_directory(args.config))
     config = load_config(args.config)

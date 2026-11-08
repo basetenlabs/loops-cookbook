@@ -1,4 +1,4 @@
-# Harbor, in-process, direct, on Docker: direct_agent.py asks the model with llm().
+# Harbor, in-process, direct, on Docker. direct_agent.py asks the model with llm().
 # uv run loops check patterns/harbor/in_process_direct/train.toml
 
 recipe = "rl"
@@ -36,7 +36,9 @@ rollout_timeout_seconds = 600
 setup_timeout_seconds = 600
 
 [rollout.grading]
-timeout_seconds = 900  # > Harbor's own bound: build 600s + verifier 30s
+# The grading deadline must exceed Harbor's own bound, which is a 600 s build plus
+# a 30 s verifier.
+timeout_seconds = 900
 
 [compute]
 scope = "serverless"

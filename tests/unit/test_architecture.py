@@ -60,8 +60,8 @@ MODULES = _modules()
 
 
 RECIPES = ("rl", "sft")
-# A recipe's composition roots: the modules that wire its core to the providers and
-# runtimes a run uses. Everything else in a recipe's package is core.
+# A recipe's composition roots are the modules that wire its core to the providers and
+# rollout runtimes a run uses. Everything else in a recipe's package is core.
 COMPOSITION_ROOTS = ("cli", "recipe")
 
 

@@ -1,10 +1,11 @@
-"""Opt-in Qwen3.5 parsing compatibility; rendering and sampled tokens stay upstream.
+"""An opt-in Qwen3.5 renderer that parses tool calls the way vLLM does.
 
-The official template emits ``<parameter=NAME>``. The vLLM Qwen3 parser also
-accepts whitespace after ``=``; this is compatibility, not a claim that Qwen's
-published format requires that tolerance. Prime a3bc9d6 instead includes that
-whitespace in the key. Only complete, unambiguous function/parameter blocks are
-interpreted here. Source text and token spans are always retained.
+Rendering and the sampled tokens stay as Prime's Qwen3.5 renderer makes them. The
+official template emits ``<parameter=NAME>``. The vLLM Qwen3 parser also accepts
+whitespace after ``=``. This renderer matches that for compatibility, not because
+Qwen's published format requires the tolerance. Prime a3bc9d6 instead includes that
+whitespace in the key. This module interprets only complete, unambiguous function and
+parameter blocks. It always keeps the source text and token spans.
 """
 
 import re
@@ -44,18 +45,18 @@ def _parse_call(call, param_index):
             or "<function=" in text
             or "</function>" in text
         ):
-            # Duplicate keys and unconsumed/nested markup cannot be faithfully
-            # represented by the native argument dict. Never silently drop them.
+            # The native argument dict can't faithfully represent duplicate keys, or
+            # markup left over or nested in a value. Never drop them silently.
             return malformed
         schema = params.get(name)
         # _PARAMETER removes only the newline the template writes on each side
-        # of a value. Other whitespace belongs to a string value and is kept;
+        # of a value. Other whitespace belongs to a string value and is kept.
         # json.loads ignores surrounding whitespace for non-string values.
         value, fallback = _coerce_arg_value(text, schema)
         if schema is None:
             # An undeclared key is a tool-validation error, not invalid JSON.
-            # Keep Prime's decoded value (including a raw string fallback) and
-            # the exact key. The tool can reject it; never guess a replacement.
+            # Keep Prime's decoded value, including a raw string fallback, and the
+            # exact key. The tool can reject it, so never guess a replacement.
             fallback = False
         arguments[name] = value
         invalid_json |= fallback
@@ -70,7 +71,10 @@ def _parse_call(call, param_index):
 
 
 class Qwen35CompatibilityRenderer(Qwen35Renderer):
-    """Inherit the pinned template, reasoning parser, stop tokens and exact bridge."""
+    """Prime's Qwen3.5 renderer with vLLM-compatible tool-call parsing.
+
+    It inherits the pinned template, reasoning parser, stop tokens and exact bridge.
+    """
 
     def parse_response(self, token_ids, *, tools=None, prompt_ids=None):
         parsed = super().parse_response(token_ids, tools=tools, prompt_ids=prompt_ids)
@@ -79,7 +83,11 @@ class Qwen35CompatibilityRenderer(Qwen35Renderer):
 
 
 def renderer(tokenizer, chat_template_kwargs):
-    """Explicit factory; does not change auto-detection or any other model family."""
+    """Build the Qwen3.5 compatibility renderer.
+
+    Select it explicitly with ``[model] renderer``. It changes neither auto-detection
+    nor any other model family.
+    """
     return PrimeRenderer(
         Qwen35CompatibilityRenderer(tokenizer, Qwen35RendererConfig(**dict(chat_template_kwargs)))
     )

@@ -1,4 +1,6 @@
-"""ECHO (arXiv:2605.24517): the agent also learns to predict what its commands print.
+"""The ECHO loss, which also teaches the agent to predict what its commands print.
+
+The loss comes from arXiv:2605.24517.
 
     L = L_IS(actions) + observation_weight * L_CE(observations)
 
@@ -7,12 +9,13 @@
 next-token loss on the tokens the environment sent back, every scored position after
 the agent's first action that is not an action, averaged within each datum, then over
 datums. The task's prompt, before the first action, is not an observation. It takes no
-advantage: a failed rollout's terminal output is as true as a successful one's.
+advantage, because a failed rollout's terminal output is as true as a successful one's.
 
-Where it differs from the paper: its policy term clips the ratio (PPO), and its
-advantage divides by the group's spread, where this one is the recipe's; and its
-observations leave out the chat template around each tool result and a harness
-warning prefix, which here are observations like any other token.
+This loss differs from the paper in three ways. The paper's policy term clips the ratio,
+as proximal policy optimization (PPO) does. The paper's advantage divides by the group's
+spread, where this one uses the recipe's advantage. And the paper's observations leave
+out the chat template around each tool result and a harness warning prefix, which here
+are observations like any other token.
 """
 
 from collections.abc import Mapping
@@ -22,7 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class EchoOptions(BaseModel):
-    """``[training.custom_loss.config]``."""
+    """The ``[training.custom_loss.config]`` table."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

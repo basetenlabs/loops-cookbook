@@ -1,4 +1,8 @@
-"""Agent-owned conversation state over immutable token-level sampling evidence."""
+"""The model client that an in-process agent calls.
+
+The agent owns its conversation history. The client renders that history, samples
+through the attempt's capture channel, and keeps the exact sampled tokens as evidence.
+"""
 
 from __future__ import annotations
 
@@ -30,10 +34,11 @@ from loops_cookbook.llm.transcript import TranscriptRecorder
 
 
 def _same_render_input(left: Any, right: Any) -> bool:
-    """Conservative structural equality, retaining mapping order and native types.
+    """Compare two render inputs structurally, keeping mapping order and native types.
 
-    This only authorizes an incremental optimization, never training-token reuse.
-    Ordinary dict equality would miss reordered tool arguments or declarations.
+    A match only permits an optimization, the incremental render. It never permits
+    reusing tokens for training. Ordinary dict equality would treat reordered tool
+    arguments or declarations as equal, so this comparison also checks order.
     """
     if type(left) is not type(right):
         return False
@@ -54,13 +59,13 @@ def _same_render_input(left: Any, right: Any) -> bool:
 
 
 class _HistoryImages:
-    """A conversation's history images, as ``{"type": "image", "image": <bytes>}`` parts.
+    """Normalize a conversation's history images to ``{"type": "image", "image": <bytes>}`` parts.
 
-    Every ``generate`` normalizes the caller's full history. A payload given as bytes
-    or a data URI is the same image whichever turn resends it, so it is decoded once
-    and reused while the history holds it. PIL objects, paths and URLs can change
-    between calls, so they are loaded again each call; agents that care should pass
-    bytes. Other keys on a part are kept.
+    Every ``generate`` normalizes the caller's full history. An image given as bytes
+    or a data URI is the same image whichever turn resends it. So the client decodes it
+    once and reuses it while the history holds it. PIL objects, paths and URLs can
+    change between calls, so the client loads them again on each call. An agent that
+    cares about that cost should pass bytes. The client keeps any other keys on a part.
     """
 
     def __init__(self) -> None:
@@ -98,13 +103,13 @@ class _HistoryImages:
 
 
 def _reasoning_tokens(renderer: Renderer, sample: Sample, parsed: ParsedReply) -> int | None:
-    """The renderer's count of the reply's reasoning tokens, when it has one."""
+    """Return the renderer's count of the reply's reasoning tokens, or ``None`` without one."""
     count = getattr(renderer, "reasoning_tokens", None)
     return count(sample.completion_ids, parsed) if count is not None else None
 
 
 def _as_rendered(value: Any) -> RenderedPrompt:
-    """Accept a ``RenderedPrompt`` or, from text-only renderers, plain token IDs."""
+    """Return a ``RenderedPrompt``, accepting plain token IDs from text-only renderers."""
     if isinstance(value, RenderedPrompt):
         return value
     return RenderedPrompt.text(value)
@@ -122,21 +127,22 @@ class TokenUsage:
 
 @dataclass(frozen=True, slots=True)
 class LLMResponse:
-    """One generation's reply: its exact sample, and what the renderer read from it.
+    """One generation's reply, holding its exact sample and what the renderer read from it.
 
-    A tool call the renderer could not parse is the model's output, not an error:
-    ``tool_calls`` carries every call the model wrote, each with its ``status``;
-    ``native_message`` is ``None`` and ``parse_error`` says why. The generation was
-    delivered by returning, so it trains; what to do about the call is the agent's.
-    To answer it, append ``history_message``: the conversation continues from the
-    reply's sampled tokens, exactly as the model wrote them.
+    A tool call that the renderer could not parse is the model's output, not an error.
+    ``tool_calls`` carries every call the model wrote, each with its ``status``. In
+    that case ``native_message`` is ``None`` and ``parse_error`` says why. The
+    generation was delivered when ``generate`` returned, so it trains. The agent
+    decides what to do about the call. To answer it, append ``history_message``. The
+    conversation then continues from the reply's sampled tokens, exactly as the model
+    wrote them.
     """
 
     sample: Sample
     parsed: ParsedReply | None
     parse_error: Exception | None = None
-    # The completion's tokens before its reasoning closed, from a renderer that can find
-    # them (``reasoning_tokens``); ``None`` from one that cannot.
+    # The number of completion tokens before the reasoning closed. It is ``None`` when
+    # the renderer has no ``reasoning_tokens`` method to count them.
     reasoning_tokens: int | None = None
 
     @property
@@ -165,24 +171,28 @@ class LLMResponse:
 
     @property
     def native_message(self) -> Mapping[str, object] | None:
-        """Provider-native assistant history, separate from immutable sampling evidence."""
+        """Return a copy of the provider-native assistant message, kept apart from the evidence."""
         return deepcopy(self.parsed.native_message) if self.parsed is not None else None
 
     @property
     def history_message(self) -> Mapping[str, object] | None:
-        """The assistant turn to append to history before answering this reply.
+        """Return the assistant turn to append to history before answering this reply.
 
-        ``native_message`` when the renderer built one. For a reply with a tool call the
-        renderer could not parse there is none, since no message renders back to what
-        the model wrote; this is that turn as written instead: its content, its
-        reasoning, and every call by its id (``call_<sample id>_<n>`` when the model gave
-        none), its name (``""`` when it wrote none) and its arguments as text (the raw
-        call when none could be read). The conversation never renders it: the next turn
-        bridges from the reply's sampled tokens, and a conversation that cannot bridge
-        refuses to continue rather than put words in the model's mouth. Append it as it
-        is: a copy stored differently is still this turn, but one with other content or
+        It is ``native_message`` when the renderer built one. A reply with a tool call
+        that the renderer could not parse has no native message, because no message
+        renders back to what the model wrote. For that reply, this property returns the
+        turn as the model wrote it. The turn holds the content, the reasoning and every
+        call. Each call carries its ID, its name and its arguments as text. A call
+        without an ID gets ``call_<sample id>_<n>``. A call without a name gets ``""``.
+        A call whose arguments could not be read carries the raw call text.
+
+        The conversation never renders this message. The next turn bridges from the
+        reply's sampled tokens. A conversation that cannot bridge refuses to continue
+        rather than put words in the model's mouth. Append the message as it is. A copy
+        stored differently still counts as this turn, but a copy with other content or
         call IDs is history the agent wrote.
-        ``None`` for a completion with nothing parsed.
+
+        It is ``None`` for a completion with nothing parsed.
         """
         native = self.native_message
         if native is not None or self.parsed is None:
@@ -210,40 +220,40 @@ class LLMResponse:
 
     @property
     def truncated(self) -> bool:
-        """The generation stopped before the model finished its turn.
+        """Return whether the generation stopped before the model finished its turn.
 
-        Three signals say the generation is structurally incomplete: the sampler
-        reached its limit, reasoning never closed, or a tool-call block never closed
-        (the renderer reports that as an opening delimiter reaching a stop). ``content`` and
-        ``tool_calls`` separate none of them from a finished turn -- a generation
-        severed inside reasoning leaves an empty message and no tool calls, which is
-        byte for byte what a model that chose to say nothing looks like -- so an
-        agent asks once here rather than rediscovering all three. A cut turn
-        recorded as an answer is graded as an answer.
+        Three signals say a generation is structurally incomplete. The sampler reached
+        its token limit, the reasoning never closed, or a tool-call block never closed.
+        The renderer reports an unclosed tool-call block as an opening delimiter that
+        reached a stop. ``content`` and ``tool_calls`` can't tell any of these apart
+        from a finished turn. For example, a generation cut inside its reasoning leaves
+        an empty message and no tool calls, which is exactly what a model that chose to
+        say nothing produces. So an agent asks here once instead of checking all three
+        itself. A cut turn recorded as an answer is graded as an answer.
 
-        Whether every tool call parsed is a separate question, answered by
-        ``native_message``: it is ``None`` when the renderer withheld the message
-        because a tool call did not parse. Either way the reply is the model's turn,
-        and ``history_message`` is what to append: the native message, or the turn as
-        written, which continues only from its sampled tokens. (A completion the
-        renderer cannot read at all never becomes a reply: ``generate`` raises
-        ``RendererFailure``.) A cut generation can parse and a parsed one can be cut,
-        so the two are worth asking separately.
+        Whether every tool call parsed is a separate question, and ``native_message``
+        answers it. It is ``None`` when the renderer withheld the message because a
+        tool call did not parse. Either way the reply is the model's turn, and
+        ``history_message`` is what to append. That is the native message, or the turn
+        as written, which continues only from its sampled tokens. A completion that the
+        renderer cannot read at all never becomes a reply, because ``generate`` raises
+        ``RendererFailure``. A cut generation can parse, and a parsed one can be cut, so
+        ask both questions.
 
-        What to do about either is the caller's. ``tool_calls[i].status`` says what
-        the renderer made of each attempt, which is information the model itself
-        does not have.
+        The caller decides what to do about either. ``tool_calls[i].status`` says what
+        the renderer made of each call, which is information the model itself does not
+        have.
         """
         return (
             self.stop_reason == "length"
-            # False, not None: None means the renderer reports no reasoning state.
+            # Compare with False, because None means the renderer reports no reasoning state.
             or self.reasoning_complete is False
             or any(call.status == ToolCallParseStatus.UNCLOSED_BLOCK for call in self.tool_calls)
         )
 
 
 def _arguments_text(call: ParsedToolCall) -> str:
-    """A call's arguments as the model wrote them: JSON when they were read, else raw."""
+    """Return a call's arguments as text, as JSON when they were read and raw otherwise."""
     if isinstance(call.arguments, str):
         return call.arguments
     if call.arguments is not None:
@@ -252,7 +262,11 @@ def _arguments_text(call: ParsedToolCall) -> str:
 
 
 def canonical_arguments(arguments: object) -> str:
-    """Tool-call arguments as one string however they were serialized: JSON is normalized."""
+    """Return tool-call arguments as one canonical string, however they were serialized.
+
+    JSON arguments are normalized with sorted keys and no spaces. Text that is not JSON
+    is returned unchanged.
+    """
     if isinstance(arguments, str):
         try:
             arguments = json.loads(arguments)
@@ -263,10 +277,10 @@ def canonical_arguments(arguments: object) -> str:
 
 @dataclass(frozen=True, slots=True)
 class _Turn:
-    """An assistant turn as the gateway recognises an echo: content, calls, reasoning.
+    """An assistant turn's content, calls and reasoning, compared the way an echo is recognised.
 
-    ``content: null`` equals an empty string, and each call compares by ID, name and
-    canonical arguments, so a copy stored or serialized differently is the same turn.
+    ``content: null`` equals an empty string. Each call compares by ID, name and
+    canonical arguments. So a copy stored or serialized differently is the same turn.
     """
 
     content: object
@@ -292,7 +306,10 @@ class _Turn:
         return cls(message.get("content") or "", tuple(calls), message.get("reasoning_content"))
 
     def echoed_by(self, message: Mapping[str, Any]) -> bool:
-        """An omitted ``reasoning_content`` is taken to be this turn's."""
+        """Return whether ``message`` repeats this turn.
+
+        A message that omits ``reasoning_content`` is taken to carry this turn's reasoning.
+        """
         echo = _Turn.of(message)
         return (
             echo.content == self.content
@@ -303,11 +320,11 @@ class _Turn:
 
 @dataclass(frozen=True, slots=True)
 class SamplingPolicy:
-    """What the run decided the policy may produce, for agents that do not care.
+    """The run's sampling defaults, which an agent gets without configuring them.
 
-    These are run-level choices, not agent implementation details, so an agent gets
-    them without being configured with them -- and an agent with a real reason to
-    differ (a cooler summarising sub-call, say) still passes its own.
+    These are run-level choices, not details of the agent's implementation. An agent
+    with a real reason to differ, such as a cooler summarising sub-call, still passes
+    its own values.
     """
 
     temperature: float | None = None
@@ -318,8 +335,8 @@ class SamplingPolicy:
 class CaptureChannel(Protocol):
     """One producer's path into an attempt's capture ledger.
 
-    The channel owns request identity, capture, and the attempt binding; the
-    client only renders, samples through it, and parses.
+    The channel owns request identity, capture and the attempt binding. The client
+    only renders, samples through the channel and parses.
     """
 
     @property
@@ -333,7 +350,7 @@ class CaptureChannel(Protocol):
 
     @property
     def transcript(self) -> TranscriptRecorder | None:
-        """Where ``generate`` records its turns; ``None`` when nothing is recorded here.
+        """Return where ``generate`` records its turns, or ``None`` when nothing is recorded here.
 
         A transport that translates requests records the agent's own view itself.
         """
@@ -348,28 +365,37 @@ class CaptureChannel(Protocol):
         clamped_from: int | None = None,
         on_failed_reply: Callable[[Sample, Exception], None] | None = None,
     ) -> Sample:
-        """Sample ``prompt``; ``clamped_from`` is the ``max_tokens`` the caller asked for
-        when the trajectory budget lowered it to ``sampling_params.max_tokens``, and
-        ``on_failed_reply`` is told of a sample found stale once sampled."""
+        """Sample ``prompt`` and capture the result.
+
+        ``clamped_from`` is the ``max_tokens`` the caller asked for, when the trajectory
+        budget lowered it to ``sampling_params.max_tokens``. ``on_failed_reply`` is
+        called with a sample that turns out to be stale once sampled.
+        """
         ...
 
     def discard(self, sample_id: str) -> None: ...
 
     def reply_failed(self, sample_id: str, failure: RendererFailure) -> None:
-        """The renderer could not read ``sample_id``'s completion: the attempt has failed."""
+        """Record that the renderer could not read ``sample_id``'s completion.
+
+        That fails the attempt.
+        """
         ...
 
 
 class ContextWindowExceeded(ValueError):
-    """The rendered prompt alone fills the trajectory budget: no room is left to generate."""
+    """Raised when the rendered prompt leaves no room to generate within the trajectory budget."""
 
 
 class ConversationBusy(RuntimeError):
-    """A conversation serves one generation at a time, and one is still running."""
+    """Raised when a conversation is used while one of its generations is still running.
+
+    A conversation serves one generation at a time.
+    """
 
 
 class UnsupportedParameterError(ValueError):
-    """A well-formed request asked for something this run does not support."""
+    """Raised when a well-formed request asks for something this run does not support."""
 
     def __init__(self, param: str, message: str) -> None:
         super().__init__(message)
@@ -378,12 +404,12 @@ class UnsupportedParameterError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class Renderers:
-    """The run's renderer, and one more per declared ``reasoning_effort`` value.
+    """The run's renderer, plus one more for each declared ``reasoning_effort`` value.
 
-    Each is built once, at startup, through the run's renderer factory; a request
-    selects one and never changes its template options. With a ``pool``, a
+    The run's renderer factory builds each one once, at startup. A request selects a
+    renderer and never changes its template options. When ``pool`` is set, a
     conversation renders a thread-safe renderer's prompts on the pool's threads
-    instead of the event loop.
+    instead of on the event loop.
     """
 
     base: Renderer
@@ -391,7 +417,7 @@ class Renderers:
     pool: RenderPool | None = None
 
     async def call[T](self, renderer: Renderer, call: Callable[[], T]) -> T:
-        """``call()``, a call on ``renderer``: through the pool when there is one, else here."""
+        """Run ``call``, a call on ``renderer``, through the pool when there is one."""
         if self.pool is None:
             return call()
         return await self.pool.run(renderer, call)
@@ -411,7 +437,10 @@ class Renderers:
 
 
 class LoopsLLM:
-    """A producer-locked model client: every conversation samples as ``producer``."""
+    """A model client locked to one producer.
+
+    Every conversation it creates samples as ``producer``.
+    """
 
     def __init__(self, channel: CaptureChannel, renderers: Renderers):
         self._channel = channel
@@ -423,7 +452,7 @@ class LoopsLLM:
 
     @property
     def renderer(self) -> Renderer:
-        """The run's renderer, used when a generation names no ``reasoning_effort``."""
+        """Return the run's renderer, used when a generation names no ``reasoning_effort``."""
         return self._renderers.base
 
     @property
@@ -432,26 +461,33 @@ class LoopsLLM:
 
     @property
     def samples(self) -> tuple[Sample, ...]:
-        """The attempt's captured evidence so far; raises once capture is broken."""
+        """Return the attempt's captured samples so far.
+
+        Reading this raises once capture is broken.
+        """
         return self._channel.samples
 
     def conversation(self, *, conversation_id: str | None = None) -> Conversation:
-        """Create a generation session; the caller supplies history on every call."""
+        """Create a conversation, which caches sampling state between generations.
+
+        The caller passes the full history on every call.
+        """
         return Conversation(self, conversation_id)
 
 
 @dataclass(frozen=True, slots=True)
 class _BridgeCache:
-    """The sampled prefix a following turn can extend, plus the inputs it rendered from,
-    and the turns kept unrendered.
+    """The state that the next turn bridges from, held as one value.
 
-    The prefix is the last ``Sample`` itself: its prompt is a span of the attempt's
-    token buffer and its chunks are the ones captured, so the bridge holds no copy
-    of either.
+    It holds the sampled prefix the next turn can extend, the inputs that prefix was
+    rendered from, and the turns kept unrendered. The prefix is the last ``Sample``
+    itself. Its prompt is a span of the attempt's token buffer and its chunks are the
+    captured ones, so the cache holds no copy of either.
 
-    Held as one value so a rejected generation can be wound back in a single step;
-    restoring these piecemeal is how a conversation ends up bridging onto a sample
-    that no longer exists, or rendering a turn a discarded reply had released.
+    The state is one value so that a rejected generation can be wound back in a single
+    step. Restoring the parts one by one can leave a conversation bridging onto a
+    sample that no longer exists, or rendering a turn that a discarded reply had
+    released.
     """
 
     history: list[Mapping[str, Any]] | None
@@ -463,13 +499,21 @@ class _BridgeCache:
 
 
 class _NotGiven(Enum):
-    """Omission inherits run defaults; explicit None remains a sampling option."""
+    """Marks a sampling option the caller left out.
+
+    A left-out option takes the run's default. An explicit ``None`` still goes to the
+    sampler as a value.
+    """
 
     VALUE = 0
 
 
 class Conversation:
-    """Per-conversation sampling cache, not an agent history manager."""
+    """One conversation's sampling cache, which lets each turn extend the last sample.
+
+    It is not a history manager. The agent keeps its own history and passes all of it
+    to every ``generate`` call.
+    """
 
     def __init__(self, llm: LoopsLLM, conversation_id: str | None):
         self._llm = llm
@@ -479,11 +523,12 @@ class Conversation:
         self._last_sample: Sample | None = None
         self._last_renderer: Renderer | None = None
         self._undo: _BridgeCache | None = None
-        # Each reply whose tool call did not parse, by sample: history that only ever
-        # continues from its sampled tokens, never re-rendered. Kept as the gateway
-        # recognises an echo, so a copy the agent stored differently is still that turn.
+        # The replies whose tool call did not parse, by sample ID. Each continues only
+        # from its sampled tokens and is never rendered again. They are kept in the form
+        # used to recognise an echo, so a copy the agent stored differently is that turn.
         self._unrendered: dict[str, _Turn] = {}
-        # Those of them discarded: the turn did not happen, so nothing continues from it.
+        # The kept replies that were discarded. Those turns did not happen, so nothing
+        # continues from them.
         self._discarded: set[str] = set()
         self._images = _HistoryImages()
         self._busy = False
@@ -510,17 +555,18 @@ class Conversation:
     def discard(self, response: LLMResponse) -> None:
         """Reject the generation just sampled, as if the turn had not happened.
 
-        An agent that samples a turn and then declines it -- a cut generation, a
-        losing candidate in best-of-n, a speculative probe -- must say so, or the
-        rejected completion is still trained with the rollout's advantage. Removing
-        it also restores the sampled prefix the next turn bridges from, so re-asking
-        the same question renders one clean chain instead of forking.
+        An agent that samples a turn and then declines it must call this. Examples are
+        a cut generation, a losing candidate in best-of-n, or a speculative probe.
+        Otherwise the rejected completion still trains with the rollout's advantage.
+        Discarding also restores the sampled prefix that the next turn bridges from. So
+        asking the same question again renders one clean chain instead of a fork.
 
-        A discarded reply whose tool call did not parse cannot be sent back in history:
-        its ``history_message`` only continues from tokens that are no longer there.
+        A discarded reply whose tool call did not parse can't be sent back in history.
+        Its ``history_message`` continues only from tokens that are no longer there.
 
-        Only the most recent generation can be rejected: earlier ones are already
-        built on. The sampling record is unaffected; this decides what trains.
+        Only the most recent generation can be discarded, because later turns already
+        build on the earlier ones. The sampling record does not change. Discarding
+        decides only what trains.
         """
         if self._busy:
             raise ConversationBusy("conversation is generating; wait before discarding")
@@ -535,7 +581,8 @@ class Conversation:
         kept = self._unrendered.get(response.response_id)
         self._restore(self._undo)
         self._undo = None
-        if kept is not None:  # still recognised, so sending it back is refused
+        # Keep recognising the reply, so that sending it back is refused.
+        if kept is not None:
             self._unrendered[response.response_id] = kept
             self._discarded.add(response.response_id)
 
@@ -563,18 +610,20 @@ class Conversation:
         max_trajectory_tokens: int | None = None,
         reasoning_effort: str | None = None,
     ) -> LLMResponse:
-        """Render the current observation; capture exact evidence before parsing it.
+        """Render ``messages``, sample one reply, and capture its exact tokens before parsing.
 
-        ``temperature``, ``max_tokens`` and ``max_trajectory_tokens`` fall back to the
-        run's sampling policy when the caller leaves them out, so an agent only states
-        what it needs to differ on. Passing ``SamplingParams`` opts out of the first
-        two entirely -- an explicit object is taken as given. ``reasoning_effort``
-        selects one of the run's declared reasoning renderers for this generation.
+        When you leave out ``temperature``, ``max_tokens`` or ``max_trajectory_tokens``,
+        the client uses the run's sampling policy. So an agent states only what it needs
+        to change. Passing ``SamplingParams`` opts out of the policy's ``temperature``
+        and ``max_tokens``, because the client takes an explicit object as given.
+        ``reasoning_effort`` selects one of the run's declared reasoning renderers for
+        this generation.
 
-        A generation never runs past the trajectory budget: ``max_tokens`` is lowered
-        to the room the prompt leaves (and is that room when none was asked for), and a
-        generation that reaches it stops with ``stop_reason`` ``"length"``. Only a
-        prompt that leaves no room at all raises ``ContextWindowExceeded``.
+        A generation never runs past the trajectory budget. The client lowers
+        ``max_tokens`` to the room the prompt leaves. When no ``max_tokens`` was asked
+        for, that room becomes the limit. A generation that reaches the limit stops with
+        ``stop_reason`` ``"length"``. Only a prompt that leaves no room at all raises
+        ``ContextWindowExceeded``.
         """
         options = {
             "temperature": temperature,
@@ -607,11 +656,13 @@ class Conversation:
         begin_turn: Callable[[], Callable[[Sample, Exception], None]] | None,
         **kwargs,
     ) -> LLMResponse:
-        """``generate``, for a transport that records its own turns with ``begin_turn``.
+        """Run ``generate`` for a transport that records its own turns through ``begin_turn``.
 
-        It is called where a direct turn begins, once the request is rendered and fits,
-        so a request refused before then leaves no turn; it returns what to tell of a
-        sample whose reply then raised. Otherwise the channel's transcript records.
+        The client calls ``begin_turn`` where a direct turn begins, once the request is
+        rendered and fits the budget. So a request refused before that point leaves no
+        turn. ``begin_turn`` returns the callback to tell about a sample whose reply then
+        raised. When the channel has a transcript, the transcript records the turn
+        instead and ``begin_turn`` is not called.
         """
         if self._busy:
             raise ConversationBusy("conversation is generating; wait before sampling again")
@@ -650,9 +701,9 @@ class Conversation:
                 and all(message.get("role") != "assistant" for message in history[len(previous) :])
             )
             last = self._last_sample
-            # Rendering is the only CPU-heavy step here, and reads nothing the loop
-            # changes meanwhile: this conversation's state is only written after
-            # sampling, and every input is this call's own copy or immutable.
+            # Rendering is the only CPU-heavy step here, so it may run on the pool. It
+            # reads nothing the event loop changes meanwhile. This conversation's state
+            # is written only after sampling, and every input is a copy or immutable.
             renders = self._llm.renderers
             if can_bridge and last is not None and bridge is not None and previous is not None:
                 rendered = await renders.call(
@@ -668,20 +719,22 @@ class Conversation:
             if max_trajectory_tokens is not None:
                 if max_trajectory_tokens < 1:
                     raise ValueError("max_trajectory_tokens must be positive")
-                # The budget keeps every chain within what the trainer can take, so a
-                # generation gets the room the prompt leaves, as a model API clamps
-                # max_tokens to its context. One token is the least a generation is.
+                # The budget keeps every chain within what the trainer can take. A
+                # generation gets the room the prompt leaves, the way a model API clamps
+                # max_tokens to its context. A generation needs at least one token.
                 room = max_trajectory_tokens - len(prompt)
                 if room < 1:
                     raise ContextWindowExceeded(
-                        f"Prompt ({len(prompt)}) leaves no room to generate within the "
-                        f"trajectory budget ({max_trajectory_tokens})"
+                        f"the prompt of {len(prompt)} tokens leaves no room to generate "
+                        f"within the trajectory budget of {max_trajectory_tokens} tokens"
                     )
                 if params.max_tokens is None:
-                    params.max_tokens = room  # no limit asked for: the room is the limit
+                    # No limit was asked for, so the room is the limit.
+                    params.max_tokens = room
                 elif params.max_tokens > room:
                     clamped_from, params.max_tokens = params.max_tokens, room
-            # As the agent sent them, with images as ``history`` normalized them.
+            # The transcript records the messages as the agent sent them, and the
+            # rendered history with its images normalized.
             recorder = channel.transcript
             if recorder is not None:
                 pending = recorder.begin(
@@ -705,8 +758,8 @@ class Conversation:
             )
             if sample.prompt_ids != prompt:
                 raise TrajectoryError("generation backend returned a different prompt")
-            # Captured before the first assignment below, so `discard` can put the
-            # bridge back exactly as this call found it.
+            # Capture the cache before the assignments below, so that `discard` can put
+            # the bridge back exactly as this call found it.
             self._undo = self._cache
             self._last_sample = sample
             self._last_renderer = renderer
@@ -715,8 +768,8 @@ class Conversation:
             try:
                 response = self._parsed(renderer, sample, history, declarations)
             except RendererFailure as failure:
-                # Told to the lease, not only raised: the attempt fails whether or not
-                # the caller lets this propagate. The turn records what the agent got.
+                # Tell the lease as well as raising, so the attempt fails whether or not
+                # the caller lets this error propagate. The turn records what the agent got.
                 channel.reply_failed(sample.sample_id, failure)
                 if on_failed_reply is not None:
                     on_failed_reply(sample, failure)
@@ -734,20 +787,22 @@ class Conversation:
         history: list[dict[str, Any]],
         declarations: list[Mapping[str, object]],
     ) -> LLMResponse:
-        """The reply to ``sample``, and the history the next turn bridges from.
+        """Return the reply to ``sample``, and set the history the next turn bridges from.
 
-        A reply with a native message bridges from it. A reply without one is the
-        model's output when the renderer reports a tool call it could not parse: it is
-        returned with each call's status, and bridges from its ``history_message``,
-        which is never rendered. Anything else the renderer cannot read -- no native
-        message with every call parsed, or one with a call that did not parse -- is its
-        own failure, never evidence about the model: ``RendererFailure``.
+        A reply with a native message bridges from that message. A reply without one is
+        the model's output when the renderer reports a tool call it could not parse. The
+        client returns that reply with each call's status, and the next turn bridges
+        from its ``history_message``, which is never rendered. Anything else the
+        renderer cannot read is the renderer's own failure, never evidence about the
+        model, and raises ``RendererFailure``. That covers a missing native message when
+        every call parsed, and a native message with a call that did not parse.
         """
         try:
             parsed = renderer.parse(
                 sample.prompt_ids, sample.completion_ids, deepcopy(declarations)
             )
-        except Exception as error:  # whatever a renderer raises is its own fault
+        except Exception as error:
+            # Whatever a renderer raises is the renderer's own fault.
             raise RendererFailure(
                 f"the renderer could not parse the completion: {type(error).__name__}: {error}"
             ) from error
@@ -769,8 +824,8 @@ class Conversation:
                 parse_error=RenderingError("a tool call did not parse; see tool_calls[i].status"),
                 reasoning_tokens=reasoning_tokens,
             )
-            # The next turn bridges from this reply's tokens, when the agent appends
-            # ``history_message``; nothing ever renders it.
+            # When the agent appends ``history_message``, the next turn bridges from
+            # this reply's tokens. Nothing ever renders that message.
             standin = response.history_message
             if standin is not None:
                 self._unrendered[sample.sample_id] = _Turn.of(standin)
@@ -781,10 +836,11 @@ class Conversation:
                 "the renderer returned a native assistant message for a tool call it could "
                 "not parse; no message renders back to what the model wrote"
             )
-        # The model has now written, and parsed, a turn equal to one kept unrendered: a
-        # model that names its calls can retry word for word. Rendering it puts no
-        # words in the model's mouth, whichever of the two the agent appends -- unless
-        # the history already holds the kept one, written before the model wrote it whole.
+        # The model may now have written a parsed turn equal to one kept unrendered,
+        # because a model that names its calls can retry word for word. Rendering that
+        # turn puts no words in the model's mouth, whichever copy the agent appends. The
+        # exception is a history that already holds the kept copy, written before the
+        # model wrote the turn whole.
         written = _Turn.of(parsed.native_message)
         released = [
             key
@@ -806,7 +862,11 @@ class Conversation:
         )
 
     def _refuse_unrendered(self, history: Sequence[Mapping[str, Any]]) -> None:
-        """A full render must not render a turn the model did not write as written."""
+        """Refuse a full render that would render a turn kept unrendered.
+
+        The kept turn's message is not exactly what the model wrote, so rendering it
+        would put words in the model's mouth.
+        """
         if not self._unrendered:
             return
         for message in history:
@@ -817,25 +877,26 @@ class Conversation:
                     continue
                 if sample_id in self._discarded:
                     raise RenderingError(
-                        "the history holds a reply whose tool call did not parse and that "
-                        "was discarded; the turn did not happen, so there are no sampled "
-                        "tokens to continue from"
+                        "the history holds a discarded reply whose tool call did not parse. "
+                        "That turn did not happen, so there are no sampled tokens to "
+                        "continue from."
                     )
                 raise RenderingError(
-                    "the history holds a reply whose tool call did not parse; it continues "
-                    "only from that reply's sampled tokens, which this request does not "
-                    "extend (the history before it, the tools or the renderer changed, or the "
-                    "renderer cannot bridge)"
+                    "the history holds a reply whose tool call did not parse. That reply "
+                    "continues only from its sampled tokens, and this request does not "
+                    "extend them. The history before it, the tools or the renderer "
+                    "changed, or the renderer cannot bridge."
                 )
 
 
 def probe_image_tokens(renderer) -> int | None:
-    """Render a 32x32 PNG through ``renderer``; ``None`` for text-only renderers.
+    """Count the image tokens in a 32x32 PNG rendered through ``renderer``.
 
-    Image-capable renderers need their model's image processor to count tokens, and
-    that dependency (the ``vision`` extra) is only exercised when an image arrives.
-    Rendering a probe up front turns a missing processor into an error before any
-    Loops resources are provisioned, instead of a rollout failure after.
+    It returns ``None`` for a text-only renderer. An image-capable renderer needs its
+    model's image processor to count tokens. That dependency, the ``vision`` extra, is
+    otherwise used only when an image arrives. Rendering a probe up front turns a
+    missing processor into an error before any Loops resources are provisioned,
+    instead of a rollout failure later.
     """
     if not getattr(renderer, "supports_images", False):
         return None
@@ -865,7 +926,7 @@ def _rendered(
     history: Sequence[Mapping[str, Any]],
     declarations: Sequence[Mapping[str, object]],
 ) -> RenderedPrompt:
-    """``history`` rendered in full, from copies the renderer may keep or change."""
+    """Render ``history`` in full, from copies the renderer may keep or change."""
     return _as_rendered(renderer.render(deepcopy(history), deepcopy(declarations)))
 
 
@@ -876,11 +937,11 @@ def _bridged(
     history: Sequence[Mapping[str, Any]],
     declarations: Sequence[Mapping[str, object]],
 ) -> RenderedPrompt | None:
-    """The renderer's bridge from ``last`` to ``history``, or ``None`` if it declines.
+    """Return the renderer's bridge from ``last`` to ``history``, or ``None`` if it declines.
 
-    ``previous_prompt_input`` is built from the compact evidence for this call alone:
-    a bridged prompt's prefix chunks are made from it, and a declined bridge drops it
-    here, before the history is rendered in full and sampled.
+    ``previous_prompt_input`` is built from the compact evidence for this call alone. A
+    bridged prompt's prefix chunks are made from it. A declined bridge drops it here,
+    before the history is rendered in full and sampled.
     """
     options: dict[str, Any] = {"previous_messages": previous}
     if "previous_prompt_input" in inspect.signature(bridge).parameters:
@@ -895,20 +956,20 @@ def _bridged(
     if bridged is None:
         return None
     rendered = _as_rendered(bridged)
-    # Part by part, as buffers: never a tuple of the whole prefix.
+    # Compare part by part, as buffers, never as a tuple of the whole prefix.
     if not rendered.ids.startswith(last.prompt_ids, last.completion_ids):
-        raise RenderingError("Renderer bridge changed the sampled prefix")
+        raise RenderingError("the renderer's bridge changed the sampled prefix")
     return rendered
 
 
 def _effective_stop(
     caller: str | list[str] | list[int] | None, renderer: tuple[int, ...] | tuple[str, ...]
 ) -> str | list[str] | list[int] | None:
-    """The caller's stops, with the renderer's end-of-turn stops where they can join.
+    """Return the caller's stops, plus the renderer's end-of-turn stops where they can join.
 
-    One request carries token ids or strings, not both, so a caller's stops of the
-    other kind go as given. The sampler still ends the turn at the model's own
-    end-of-sequence tokens either way.
+    One request carries token IDs or strings, not both. So when the caller's stops are
+    of the other kind, they go as given. Either way, the sampler still ends the turn at
+    the model's own end-of-sequence tokens.
     """
     own: list[int | str] = [caller] if isinstance(caller, str) else [*(caller or ())]
     stops = [*own, *renderer]

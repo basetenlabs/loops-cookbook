@@ -1,6 +1,6 @@
-"""``EpisodeRuntime``: a ``RolloutRuntime`` built from an ``Episode`` class.
+"""``EpisodeRuntime`` is a ``RolloutRuntime`` built from an ``Episode`` class.
 
-It holds the attempt's phases itself, as the Harbor runtime does::
+It runs the attempt's phases itself, as the Harbor rollout runtime does::
 
     admit()                       backpressure and the pre-start places apply here
       provision the sandbox       a resource operation: off both clocks, no sampling slot
@@ -12,12 +12,13 @@ It holds the attempt's phases itself, as the Harbor runtime does::
 
 ``grade()`` delegates to the attempt's ``Episode``, under the driver's staleness
 check, verification slot, deadline and retries. ``finish()`` and ``abort()`` call
-its ``close()`` once, under the cleanup deadline; the driver then releases the
-sandbox with the rest of the attempt's resources.
+the episode's ``close()`` once, under the cleanup deadline. The driver then releases
+the sandbox with the rest of the attempt's resources.
 
-An episode class that defines ``grade_group()`` makes the runtime a group grader:
-it declares ``pending_group_grade``, and ``grade_group()`` receives each member's
-evidence as plain data once the pipeline has a complete group to score.
+An episode class that defines ``grade_group()`` makes the rollout runtime a group
+grader. The rollout runtime then declares ``pending_group_grade``. Once the pipeline
+has a complete group to score, ``grade_group()`` receives each member's evidence as
+plain data.
 """
 
 from __future__ import annotations
@@ -79,12 +80,16 @@ from loops_cookbook.runtime.context import RuntimeConfigurationError, import_att
 from loops_cookbook.runtime.processes import GROUP_EXIT_SECONDS
 from loops_cookbook.threads import in_thread
 
-# Observed once per run(): 1 when the agent deadline cut it, else 0.
+# Observed once per run() call. The value is 1 when the agent's deadline cut run(),
+# and 0 otherwise.
 TIMED_OUT = "episodes/agent_timed_out"
 
 
 class InvalidEpisodeMetadata(PermanentRolloutFailure):
-    """``run()`` returned something other than a mapping or ``None``; it would every time."""
+    """Raised when ``run()`` returns something other than a mapping or ``None``.
+
+    It would do the same on every retry, so the failure is permanent.
+    """
 
 
 class _Settings(BaseModel):
@@ -92,16 +97,24 @@ class _Settings(BaseModel):
 
 
 class SandboxSettings(BaseModel):
-    """``[rollout_runtime.config.sandbox]``: its provider, and the keys its kind's spec types."""
+    """A sandbox table, which names a provider and holds the keys for its spec.
 
-    # The keys beside provider are the provided kind's spec's to validate.
+    The sandbox kind that the provider gives validates the other keys with its spec.
+    """
+
+    # The provided sandbox kind's spec validates the keys beside provider, so this
+    # model lets them through.
     model_config = ConfigDict(extra="allow", frozen=True)
 
-    provider: str = Field(min_length=1, description="The [providers] entry that provides it.")
+    provider: str = Field(
+        min_length=1, description="The [providers] entry that provides this sandbox."
+    )
 
     def spec(self, kind: type[SandboxKind[Any]], *, table: str = "sandbox") -> SandboxSpec:
-        """The keys beside provider, validated with ``kind``'s spec; one it does not
-        declare is refused."""
+        """Validate the keys beside provider with ``kind``'s spec.
+
+        A key that the spec does not declare is refused.
+        """
         try:
             return kind.spec.model_validate(self.model_extra or {})
         except ValidationError as error:
@@ -111,7 +124,8 @@ class SandboxSettings(BaseModel):
             ) from None
 
     def request(self, spec: SandboxSpec, *, logical_key: str = "sandbox") -> ResourceRequest:
-        """Each attempt's sandbox, as ``spec`` asks its provider for it."""
+        """Return the request that asks the provider for each attempt's sandbox."""
+
         return ResourceRequest(
             provider=self.provider,
             kind=spec.resource_kind,
@@ -121,29 +135,41 @@ class SandboxSettings(BaseModel):
 
 
 class EpisodeSettings(_Settings):
-    """``[rollout_runtime.config]`` for ``loops_cookbook.episodes:create_runtime``."""
+    """The ``[rollout_runtime.config]`` table for ``loops_cookbook.episodes:create_runtime``."""
 
-    episode: str = Field(min_length=1, description="The Episode subclass, as module:Class.")
+    episode: str = Field(
+        min_length=1, description="The Episode subclass to run, written as module:Class."
+    )
     agent_timeout_seconds: float = Field(
-        gt=0, description="How long run() may take before it is cut and graded."
+        gt=0,
+        description=(
+            "How long run() may take, in seconds. The cookbook then cuts run() and grades "
+            "the episode."
+        ),
     )
     sandbox: SandboxSettings | None = Field(
-        default=None, description="One sandbox per attempt, provisioned before setup()."
+        default=None,
+        description=("The sandbox each attempt gets. The cookbook provisions it before setup()."),
     )
     grading_sandbox: SandboxSettings | None = Field(
         default=None,
-        description="Optional separate sandbox, provisioned on first grading admission.",
+        description=(
+            "An optional separate sandbox for grading. The cookbook provisions it when an "
+            "attempt is first admitted to grading. It requires the episode to define grade()."
+        ),
     )
-    # Written to config.json with the rest of the config, so never a secret.
     options: dict[str, JsonValue] | None = Field(
         default=None,
-        description="The episode's own non-secret settings, validated with its options model.",
+        description=(
+            "The episode's own settings, validated with its options model. They are written "
+            "to config.json with the rest of the config, so they must not hold secrets."
+        ),
     )
 
 
 @dataclass(frozen=True, slots=True)
 class SandboxPlan:
-    """What each attempt's sandbox is provisioned from, and the kind the episode gets."""
+    """Holds the request each attempt's sandbox comes from, and the kind the episode gets."""
 
     request: ResourceRequest
     kind: type[SandboxKind[Any]]
@@ -183,9 +209,9 @@ class EpisodeRuntime:
         self._work_dir = work_dir
         self._trajectory_tokens = trajectory_tokens
         self._grades = defines(episode, "grade")
-        # Each attempt's Episode, from its construction until its close().
+        # Holds each attempt's Episode from its construction until its close().
         self._live: dict[str, _EpisodeState] = {}
-        # Each attempt's sandbox client, from its sandbox's provision until after close().
+        # Holds each attempt's sandbox client from its sandbox's provision until after close().
         self._attachments: dict[str, SandboxAttachment] = {}
         self._grading_attachments: dict[str, SandboxAttachment] = {}
         self._grading_ready: set[str] = set()
@@ -194,8 +220,8 @@ class EpisodeRuntime:
     def capabilities(self) -> RuntimeCapabilities:
         return RuntimeCapabilities(
             model_access_modes=frozenset({self._episode.model_access}),
-            # Without grade(), grading is a no-op that takes no verification slot:
-            # the runtime acquires verification itself, and never needs to.
+            # Without grade(), grading is a no-op that needs no verification slot. The
+            # rollout runtime declares that it acquires verification itself, and never does.
             internally_acquired_phases=frozenset(
                 {Phase.SAMPLING} if self._grades else {Phase.SAMPLING, Phase.VERIFICATION}
             ),
@@ -255,7 +281,8 @@ class EpisodeRuntime:
         return EpisodeResult(metadata=metadata or {})
 
     async def grade(self, attempt: AttemptContext, rollout: Rollout) -> GradeResult:
-        if not self._grades:  # only with grade_group(), which gives the reward
+        # An episode without grade() has grade_group(), which gives the reward.
+        if not self._grades:
             return GradeResult(reward=None)
         attempt_id = attempt.spec.identity.attempt_id
         state = self._live[attempt_id]
@@ -284,7 +311,8 @@ class EpisodeRuntime:
                 task=self._tasks[member.rollout.task.id].copy(),
                 transcript=member.transcript,
                 reward=member.rollout.reward,
-                # A private copy: the trained rollout keeps its own, whatever the judge does.
+                # Give the group grader a private copy, so the trained rollout keeps its
+                # own whatever the grader does.
                 metadata=json_mapping(member.rollout.metadata, where="metadata"),
             )
             for member in members
@@ -303,8 +331,10 @@ class EpisodeRuntime:
         return None
 
     async def _close(self, attempt: AttemptContext) -> None:
-        """The attempt is over: its episode closes, then its sandbox's client, then its
-        own directory goes; each after the one before, however that one ended."""
+        """Close the attempt's episode, then its sandbox clients, then delete its directory.
+
+        Each step runs after the one before, however that one ended.
+        """
         attempt_id = attempt.spec.identity.attempt_id
         state = self._live.pop(attempt_id, None)
         attachment = self._attachments.pop(attempt_id, None)
@@ -329,8 +359,8 @@ class EpisodeRuntime:
                     if grading_attachment is not None:
                         await grading_attachment.close()
             finally:
-                # Off the loop: a large tree (or a slow disk) would otherwise stall
-                # every other rollout and clock while it goes.
+                # Delete off the event loop. A large tree or a slow disk would otherwise
+                # stall every other rollout and clock while it goes.
                 directory = self._attempt_dir(attempt)
                 if directory.exists():
                     await in_thread(shutil.rmtree, directory)
@@ -343,7 +373,7 @@ class EpisodeRuntime:
         }
 
     def _attempt_dir(self, attempt: AttemptContext) -> Path:
-        """Where the attempt's processes run by default; no other attempt shares it."""
+        """Return where the attempt's processes run by default. No other attempt shares it."""
         return self._work_dir / "attempts" / attempt.spec.identity.attempt_id
 
     async def _provision(
@@ -364,19 +394,22 @@ class EpisodeRuntime:
         return plan.kind(handle.resource.name, environment, attachment)
 
     def _attempt_options(self) -> BaseModel | None:
-        """A private copy of the options, so no episode or group grader can change another's."""
+        """Return a private copy of the options, so no episode or group grader changes another's."""
         return None if self._options is None else self._options.model_copy(deep=True)
 
 
 def create_runtime(config: Mapping[str, JsonValue], *, context: RuntimeContext) -> EpisodeRuntime:
-    """The factory ``[rollout_runtime] factory = "loops_cookbook.episodes:create_runtime"`` names."""
+    """Build the ``EpisodeRuntime`` that a run's ``[rollout_runtime]`` table configures.
+
+    The table names this factory as ``factory = "loops_cookbook.episodes:create_runtime"``.
+    """
     try:
         settings = EpisodeSettings.model_validate(config)
     except ValidationError as error:
         raise RuntimeConfigurationError(f"[rollout_runtime.config]: {error}") from None
     limits = context.limits
-    # A cut run() returns once its processes have exited after SIGTERM, or been
-    # killed after the kill grace and waited for, and then it has its own
+    # A cut run() returns once its processes have exited after SIGTERM, or have been
+    # killed after the kill grace and waited for. After that, run() gets its own
     # cancellation grace.
     stopped = (
         settings.agent_timeout_seconds
@@ -387,14 +420,15 @@ def create_runtime(config: Mapping[str, JsonValue], *, context: RuntimeContext) 
     configured = limits.rollout_timeout_seconds
     if configured is not None and configured < stopped:
         raise RuntimeConfigurationError(
-            f"[rollout] rollout_timeout_seconds ({configured:g}s) is below "
-            f"{stopped:g}s: [rollout_runtime.config] agent_timeout_seconds "
-            f"({settings.agent_timeout_seconds:g}s), [rollout.cleanup] "
-            f"process_kill_grace_seconds ({limits.process_kill_grace_seconds:g}s), the "
-            f"{GROUP_EXIT_SECONDS:g}s a killed process group is waited for, and "
-            f"cancellation_grace_seconds ({limits.cancellation_grace_seconds:g}s); it is the "
-            "backstop that discards a run() the agent deadline could not stop. Leave it "
-            "unset to use that sum"
+            f"[rollout] rollout_timeout_seconds ({configured:g}s) is below {stopped:g}s. "
+            "That sum is [rollout_runtime.config] agent_timeout_seconds "
+            f"({settings.agent_timeout_seconds:g}s), plus [rollout.cleanup] "
+            f"process_kill_grace_seconds ({limits.process_kill_grace_seconds:g}s), plus the "
+            f"{GROUP_EXIT_SECONDS:g}s the cookbook waits for a killed process group, plus "
+            "[rollout.cleanup] cancellation_grace_seconds "
+            f"({limits.cancellation_grace_seconds:g}s). The rollout timeout is the backstop "
+            "that discards a run() the agent deadline could not stop. Leave it unset to use "
+            "that sum"
         )
     sandbox = settings.sandbox
     grading_sandbox = settings.grading_sandbox
@@ -426,15 +460,16 @@ def create_runtime(config: Mapping[str, JsonValue], *, context: RuntimeContext) 
         )
     options = episode_options(models.options, settings.options, settings.episode)
     if options is not None:
-        # What ran, defaults included, which config.json's table as written is not. A
-        # digest only: a default may come from the environment, and must not reach disk.
+        # Record what ran, defaults included, which the table in config.json lacks. Record
+        # only a digest, because a default may come from the environment and must not
+        # reach disk.
         context.evidence.record_digest(
             "options", _validated_digest(options, "[rollout_runtime.config.options]")
         )
     plan = None
     if sandbox is not None and provided is not None:
         spec = sandbox.spec(provided)
-        # As the options: what each sandbox is asked for, defaults included.
+        # As with the options, record what each sandbox is asked for, defaults included.
         context.evidence.record_digest(
             "sandbox", _validated_digest(spec, "[rollout_runtime.config.sandbox]")
         )
@@ -464,9 +499,9 @@ def create_runtime(config: Mapping[str, JsonValue], *, context: RuntimeContext) 
 def episode_options(
     model: type[BaseModel] | None, table: Mapping[str, JsonValue] | None, path: str
 ) -> BaseModel | None:
-    """``[rollout_runtime.config.options]`` validated with the episode's options model.
+    """Validate ``[rollout_runtime.config.options]`` with the episode's options model.
 
-    Options no model validates are refused rather than passed on unread.
+    Options that no model validates are refused rather than passed on unread.
     """
     if model is None:
         if table is not None:
@@ -484,7 +519,7 @@ def episode_options(
 
 
 def _validated_digest(value: BaseModel, where: str) -> str:
-    """The digest of what ran: the validated model's dump."""
+    """Return the digest of what ran, which is the validated model's dump."""
     return task_digest(validated_dump(value, where=where))
 
 
@@ -496,12 +531,12 @@ def _provided_sandbox(
     *,
     table: str = "sandbox",
 ) -> type[SandboxKind[Any]] | None:
-    """The kind of sandbox the table's provider gives the episode: one of the kind the
-    episode is written for, from an adapter that can back it.
+    """Return the sandbox kind that the table's provider gives the episode.
 
-    Matched by type, never by name: whatever a provider is called in [providers], its
-    adapter declares the kind it provides. The provided kind's spec is what validates
-    the table, so it is the one the allow list checks.
+    The kind must be the one the episode is written for, or a subclass of it, from an
+    adapter that can back it. The match is by type, never by name. Whatever a provider
+    is called in [providers], its adapter declares the kind it provides. The provided
+    kind's spec validates the table, so the allow list checks that spec.
     """
     if sandbox is None:
         if kind is not None:
@@ -531,10 +566,10 @@ def _provided_sandbox(
 
 
 def _declared_spec(kind: type[SandboxKind[Any]], path: str) -> None:
-    """Refuse ``kind``'s spec unless it is a ``SandboxSpec`` the allow list allows.
+    """Refuse ``kind``'s spec unless it is a ``SandboxSpec`` that the allow list allows.
 
-    The table it validates is written to config.json, and what it validated is run
-    evidence, as the options are, so the one allow list holds for it too.
+    The table the spec validates is written to config.json, and what it validated is
+    run evidence, as with the options. So the same allow list holds for the spec.
     """
     role = f"{kind.__name__} sandbox spec"
     if not (inspect.isclass(kind.spec) and issubclass(kind.spec, SandboxSpec)):
@@ -546,15 +581,16 @@ def _declared_spec(kind: type[SandboxKind[Any]], path: str) -> None:
 
 
 def defines(episode: type[Episode[Any, Any]], hook: str) -> bool:
-    """Whether the class, or a base of its own, overrides ``Episode``'s ``hook``."""
+    """Return whether the class, or one of its own bases, overrides ``Episode``'s ``hook``."""
     return inspect.getattr_static(episode, hook) is not inspect.getattr_static(Episode, hook)
 
 
 def episode_class(path: str) -> type[Episode[Any, Any]]:
-    """The ``Episode`` subclass ``module:Class`` names, defining the hooks it must, each async.
+    """Import the ``Episode`` subclass that ``module:Class`` names, and check its hooks.
 
-    ``run()`` is required; so is ``grade()``, unless ``grade_group()`` gives the
-    rewards, and then it must be an async classmethod: it sees no live episode.
+    ``run()`` is required. ``grade()`` is required too, unless ``grade_group()`` gives
+    the rewards. Every hook must be async. A ``grade_group()`` must be an async
+    classmethod, because it sees no live episode.
     """
     found = import_attribute(path, "episode")
     if not inspect.isclass(found) or not issubclass(found, Episode):
@@ -598,7 +634,7 @@ def episode_class(path: str) -> type[Episode[Any, Any]]:
 
 @dataclass(frozen=True, slots=True)
 class EpisodeModels:
-    """Validated task/options types and independently declared sandbox requirements."""
+    """Holds the validated task and options types, and the separately declared sandbox kinds."""
 
     task: type[BaseModel] | None
     options: type[BaseModel] | None
@@ -607,19 +643,21 @@ class EpisodeModels:
 
 
 def declared_models(episode: type[Episode[Any, Any]], path: str) -> EpisodeModels:
-    """The models ``episode`` declares, each refused unless every model it reaches is allowed.
+    """Return the models ``episode`` declares, refusing any that reaches a model not allowed.
 
-    One allow list holds for task and options models alike, and for a sandbox kind's
-    spec (``_declared_spec``). A model forbids keys it
-    does not declare, so a misspelt one is refused rather than dropped unread; and it
-    dumps what it validated, since a task is digested by its dump and the run records
-    its options' digest. So a model computes and serializes nothing of its own; each
-    field is read and dumped by its own name and never excluded; and each field's
-    type dumps as its value: a JSON scalar, a Literal or Enum of JSON scalars, a list
-    or ``dict[str, ...]`` of allowed types, a union of them, a type alias of one, a
-    recursive JSON type, or an allowed model.
-    Anything else, a secret or an untyped dict among them, is refused by model and
-    field. A task's ``id`` is the cookbook's, so no task model may declare one.
+    One allow list holds for task models, options models and a sandbox kind's spec,
+    which ``_declared_spec`` checks. A model must forbid keys it does not declare, so a
+    misspelt key is refused rather than dropped unread. A model must also dump what it
+    validated, because a task is digested by its dump and the run records its options'
+    digest.
+
+    So a model computes and serializes nothing of its own. Each field is read and
+    dumped by its own name, and is never excluded. Each field's type must dump as its
+    value. The allowed types are a JSON scalar, a Literal or Enum of JSON scalars, a
+    list or ``dict[str, ...]`` of allowed types, a union of them, a type alias of one,
+    a recursive JSON type, and an allowed model. The cookbook refuses anything else,
+    such as a secret or an untyped dict, and names the model and field. A task's ``id``
+    belongs to the cookbook, so no task model may declare one.
     """
     task_argument, options_argument = episode_models(episode)
     task, options = (
@@ -628,8 +666,8 @@ def declared_models(episode: type[Episode[Any, Any]], path: str) -> EpisodeModel
     )
     if task is not None and "id" in task.model_fields:
         raise RuntimeConfigurationError(
-            f"episode {path!r}: task model {task.__name__} declares a field 'id'; a task's "
-            "id names its line, and is read as task.id"
+            f"episode {path!r}: task model {task.__name__} declares a field 'id'. A task's "
+            "id names its line, and the episode reads it as task.id"
         )
     return EpisodeModels(
         task,
@@ -640,7 +678,10 @@ def declared_models(episode: type[Episode[Any, Any]], path: str) -> EpisodeModel
 
 
 def _declared_sandbox(argument: object, path: str) -> type[SandboxKind[Any]] | None:
-    """The sandbox kind a class declaration names: a subclass of SandboxKind naming its provider."""
+    """Return the sandbox kind a class declaration names.
+
+    It must be a subclass of SandboxKind that names its provider.
+    """
     if argument is None:
         return None
     if isinstance(argument, typing.TypeVar):
@@ -655,8 +696,8 @@ def _declared_sandbox(argument: object, path: str) -> type[SandboxKind[Any]] | N
     provider = getattr(kind, "provider", None)
     if not isinstance(provider, str) or not provider:
         raise RuntimeConfigurationError(
-            f"episode {path!r}: sandbox kind {kind.__name__} names no provider; a provider's "
-            'kind sets provider, such as provider = "blaxel"'
+            f"episode {path!r}: sandbox kind {kind.__name__} names no provider. A provider's "
+            'sandbox kind sets one, such as provider = "blaxel"'
         )
     return kind  # pyright: ignore[reportUnknownVariableType]
 
@@ -683,13 +724,14 @@ def _declared_model(argument: object, role: str, path: str) -> type[BaseModel] |
 # The types a field may dump as its value, and the values a Literal may name.
 _SCALARS: tuple[object, ...] = (str, int, float, bool, NoneType)
 _LITERALS = (str, int, bool, NoneType)
-# Pydantic's recursive JSON type, which dumps as the JSON it validated. It is a
-# tagged union of forward references the walk does not read; the cookbook's
-# JsonValue, and any JSON type alias of one's own, the walk reads as what it names.
+# Pydantic's recursive JSON type dumps as the JSON it validated. It is a tagged union
+# of forward references, so the walk accepts it whole instead of reading it. The walk
+# reads the cookbook's JsonValue, and any JSON type alias a user writes, as the type
+# each one names.
 _JSON_VALUES: tuple[object, ...] = (PydanticJsonValue,)
 _ALIASES = (typing.TypeAliasType, typing_extensions.TypeAliasType)
-# What Annotated may add to a type: constraints, validators and Field(), which change
-# what validates and never what dumps.
+# Annotated may add constraints, validators and Field() to a type. These change what
+# validates, and never what dumps.
 _METADATA = (
     BaseMetadata,
     GroupedMetadata,
@@ -703,13 +745,16 @@ _METADATA = (
 
 @dataclass(frozen=True, slots=True)
 class _Refused:
-    """Why a field is refused, as the words that follow its name."""
+    """Holds why a field is refused, as the words that follow its name."""
 
     why: str
 
 
 def _refusal(root: type[BaseModel]) -> str | None:
-    """The first model ``root`` reaches, itself included, that is not allowed, and why."""
+    """Return the first model that ``root`` reaches and that is not allowed, and why.
+
+    ``root`` itself counts as a model it reaches.
+    """
     seen: set[type[BaseModel]] = set()
     pending = [root]
     while pending:
@@ -729,12 +774,13 @@ def _refusal(root: type[BaseModel]) -> str | None:
 
 
 def _serialization_refusal(schema: object, model: str, field: str | None) -> str | None:
-    """Where in ``schema`` a serialization of its own is set, if one is anywhere.
+    """Return where in ``schema`` a serialization of its own is set, if one is set anywhere.
 
-    Every way pydantic lets a model dump other than its values, a serializer
-    decorator, an annotated serializer or a config's ``json_encoders``, is a
-    ``serialization`` key in its core schema, a nested model's and a type
-    definition's included. ``model`` and ``field`` name where the walk is.
+    Pydantic lets a model dump something other than its values in three ways. They
+    are a serializer decorator, an annotated serializer and a config's
+    ``json_encoders``. Each one is a ``serialization`` key in the core schema, including
+    a nested model's schema and a type definition's. ``model`` and ``field`` name where
+    the walk is.
     """
     parts: list[tuple[object, str | None]] = []
     if isinstance(schema, Mapping):
@@ -773,7 +819,7 @@ def _model_refusal(model: type[BaseModel]) -> str | None:
 
 
 def _field_reaches(field: FieldInfo) -> Iterator[type[BaseModel] | _Refused]:
-    """The models ``field`` reaches, and why it is refused if it is."""
+    """Yield the models ``field`` reaches, and a refusal for each reason it is refused."""
     if field.exclude or field.exclude_if is not None:
         yield _Refused("is excluded from its dump")
     for alias in (field.alias, field.validation_alias, field.serialization_alias):
@@ -786,10 +832,10 @@ def _field_reaches(field: FieldInfo) -> Iterator[type[BaseModel] | _Refused]:
 def _type_reaches(
     annotation: object, aliases: frozenset[object] = frozenset()
 ) -> Iterator[type[BaseModel] | _Refused]:
-    """The models ``annotation`` reaches, and a refusal for each part not allowed.
+    """Yield the models ``annotation`` reaches, and a refusal for each part not allowed.
 
-    A type alias is what it names; ``aliases`` are those already being checked, so
-    a recursive one, such as a JSON type of one's own, is checked once.
+    A type alias counts as the type it names. ``aliases`` holds the aliases already
+    being checked, so a recursive alias, such as a user's own JSON type, is checked once.
     """
     origin, arguments = get_origin(annotation), get_args(annotation)
     if origin is Annotated:
@@ -824,7 +870,8 @@ def _metadata_refusals(metadata: Iterable[object]) -> Iterator[_Refused]:
 
 
 def _is_scalar_enum(annotation: object) -> bool:
-    """An Enum whose members dump as JSON scalars, each naming one member."""
+    """Return whether ``annotation`` is an Enum whose members each dump as a JSON scalar."""
+
     return (
         inspect.isclass(annotation)
         and issubclass(annotation, Enum)

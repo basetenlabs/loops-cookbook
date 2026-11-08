@@ -1,4 +1,7 @@
-"""The renderer contract: what the client needs from any message-to-token provider."""
+"""The renderer contract, which says what the client needs from any renderer.
+
+A renderer turns messages into tokens and parses sampled tokens back into a reply.
+"""
 
 from __future__ import annotations
 
@@ -11,17 +14,17 @@ from renderers.base import ParsedToolCall
 
 from loops_cookbook.evidence import JsonValue, TokenSpan
 
-# Message values stay open: content parts carry image bytes or PIL images as well
-# as JSON, and the selected renderer is what checks them.
+# Message values stay open, because content parts carry image bytes or PIL images as
+# well as JSON. The selected renderer checks them.
 Message = Mapping[str, object]
 Tool = Mapping[str, JsonValue]
 
 Content = str | Sequence[str | Mapping[str, object]] | None
-"""Message content: plain text, or parts whose shapes belong to the renderer.
+"""Message content, which is plain text or a list of parts whose shapes the renderer defines.
 
-Open on purpose. Which parts render -- text, images, tool references, the bundled
-output of a tool part -- is the selected renderer's to decide, and ``check_messages``
-rejects whatever it cannot represent.
+The type is open on purpose. The selected renderer decides which parts render, such as
+text, images, tool references, or the bundled output of a tool part.
+``check_messages`` rejects whatever the renderer cannot represent.
 """
 
 
@@ -36,7 +39,7 @@ class UserMessage(TypedDict):
 
 
 class ToolMessage(TypedDict):
-    """One tool result, answering a call by the id the model gave it."""
+    """One tool result, answering a call by the ID the model gave it."""
 
     role: Literal["tool"]
     tool_call_id: str
@@ -45,11 +48,12 @@ class ToolMessage(TypedDict):
 
 
 AssistantMessage = Mapping[str, object]
-"""The renderer's own assistant history, taken from ``LLMResponse.native_message``.
+"""The renderer's own assistant message for history, taken from ``LLMResponse.native_message``.
 
-Deliberately not a closed shape: what a model family puts here differs -- GLM-5.3
-carries ``reasoning_content``, others do not -- so an agent appends the message it
-was handed instead of building one, and this type promises no fields.
+This type is deliberately not a closed shape, because model families put different
+fields here. For example, GLM-5.3 carries ``reasoning_content`` and others do not. So
+an agent appends the message it was handed instead of building one, and this type
+promises no fields.
 """
 
 
@@ -59,37 +63,40 @@ class _OptionalToolFields(TypedDict, total=False):
 
 
 class ToolSchema(_OptionalToolFields):
-    """A function tool: a name, and optionally how to call it.
+    """A function tool, with a name and optionally a description of how to call it.
 
     The name is the only part the renderer requires. Prime also accepts the wrapped
-    ``{"type": "function", "function": {...}}`` envelope; ``Tool`` covers both.
+    ``{"type": "function", "function": {...}}`` envelope, and ``Tool`` covers both.
     """
 
     name: str
 
 
 class RenderingError(ValueError):
-    """A message or renderer result violates the rendering contract."""
+    """Raised when a message or a renderer's result violates the rendering contract."""
 
 
 class UnsupportedContextError(RenderingError):
-    """The selected provider cannot represent this context."""
+    """Raised when the selected renderer cannot represent this context."""
 
 
 class RendererFailure(RuntimeError):
-    """The renderer could not read a sampled completion: the cookbook's fault, not the model's.
+    """Raised when the renderer could not read a sampled completion.
 
-    Raised after sampling, when parsing raises or returns no native message without
-    reporting a tool call it could not parse. The attempt fails whatever its caller
-    does with this, and is retried as a fresh one; nothing of it trains. A tool call
-    the renderer reports as broken is not this: that is the model's output.
+    This is the cookbook's fault, not the model's. It is raised after sampling, when
+    parsing raises, or when it returns no native message without reporting a tool call
+    it could not parse. The attempt fails whatever its caller does with this error, and
+    it is retried as a fresh attempt. Nothing of it trains. A tool call that the
+    renderer reports as broken is not this failure, because that call is the model's
+    output.
     """
 
 
 def token_ids(values: Sequence[int]) -> TokenSpan:
-    """Validate a rendered token sequence, kept at four bytes a token.
+    """Validate a rendered token sequence, and keep it at four bytes a token.
 
-    A span is returned as it is: it was checked when it was made, and never changes.
+    A ``TokenSpan`` is returned as it is, because it was checked when it was made and
+    never changes.
     """
     refused = "Renderer token IDs must be nonempty nonnegative integers below 2**32"
     try:
@@ -112,12 +119,12 @@ class ParsedReply:
 
 @dataclass(frozen=True, slots=True)
 class RenderedPrompt:
-    """Expanded prompt token IDs plus the chunk structure the Loops wire needs.
+    """A prompt's expanded token IDs, plus the chunk structure that Loops requests need.
 
-    ``ids`` is what training sees and compares; ``prompt_input`` carries the same
+    ``ids`` is what training sees and compares. ``prompt_input`` carries the same
     positions as text and image chunks, so ``prompt_input.length == len(ids)``. ``ids``
-    is a ``TokenSpan``: it reads, compares and hashes as the tuple of its tokens, at
-    four bytes a token instead of a Python int each.
+    is a ``TokenSpan``. It reads, compares and hashes as the tuple of its tokens, but it
+    takes four bytes a token instead of a Python int each.
     """
 
     ids: TokenSpan
@@ -143,13 +150,15 @@ class RenderedPrompt:
 class RenderedConversation:
     """A whole conversation's tokens, with the renderer's attribution of each one.
 
-    For supervised training, where the targets come from the conversation rather than
-    from a sampler. ``owners[k]`` is the index of the message token ``k`` belongs to, or
-    -1 for template text no message owns (a preamble, the tool declarations).
-    ``generated[k]`` says whether the template has the model produce token ``k`` rather
-    than receive it: reasoning, content, tool calls, and the token that ends the turn.
-    A generated token belongs to the assistant message whose turn writes it, even where
-    the template renders it as the next message's role marker (GLM's ``<|user|>``).
+    Supervised training uses it, because its targets come from the conversation
+    rather than from a sampler. ``owners[k]`` is the index of the message that token
+    ``k`` belongs to. It is -1 for template text that no message owns, such as a
+    preamble or the tool declarations. ``generated[k]`` says whether the template has
+    the model produce token ``k`` rather than receive it. Generated tokens are the
+    reasoning, the content, the tool calls, and the token that ends the turn. A
+    generated token belongs to the assistant message whose turn writes it. That holds
+    even where the template renders the token as the next message's role marker, such
+    as GLM's ``<|user|>``.
     """
 
     ids: tuple[int, ...]
@@ -168,13 +177,14 @@ class RenderedConversation:
 
 
 class Renderer(Protocol):
-    """Stateless message formatting and parsing, with provider-native policy.
+    """Formats messages into tokens and parses sampled tokens, without keeping state.
 
-    ``render`` may return a ``RenderedPrompt`` or, for text-only renderers, a plain
-    sequence of token IDs; the client accepts both. An optional ``bridge`` with the
-    same return type extends a sampled prefix instead of re-rendering. An optional
-    ``reasoning_tokens(completion_ids, parsed)`` counts a reply's reasoning tokens, which
-    the Chat Completions gateway reports as ``usage.completion_tokens_details``.
+    ``render`` may return a ``RenderedPrompt``. A text-only renderer may instead return
+    a plain sequence of token IDs, and the client accepts both. An optional ``bridge``
+    with the same return type extends a sampled prefix instead of rendering again. An
+    optional ``reasoning_tokens(completion_ids, parsed)`` counts a reply's reasoning
+    tokens. The Chat Completions gateway reports that count in
+    ``usage.completion_tokens_details``.
     """
 
     @property

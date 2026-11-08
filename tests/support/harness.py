@@ -1,7 +1,7 @@
 """A scripted runtime and a real driver around it, for lifecycle tests.
 
 The capacity broker, attempt lease, and attempt driver are the real ones; only the
-runtime, the sampler, and the renderer are fakes. A test scripts the runtime's
+rollout runtime, the sampler, and the renderer are fakes. A test scripts the rollout runtime's
 hooks as coroutines and reads back every call it received.
 """
 
@@ -101,7 +101,7 @@ async def default_grade(attempt: AttemptContext, rollout: Rollout) -> GradeResul
 
 @dataclass
 class Runtime:
-    """A runtime whose hooks are scripted; every call is recorded."""
+    """A rollout runtime whose hooks are scripted; every call is recorded."""
 
     capabilities: RuntimeCapabilities = field(
         default_factory=lambda: RuntimeCapabilities(
@@ -210,7 +210,7 @@ def rig(
     """A driver over ``runtime``; ``keep_transcript`` records transcripts, kept by it.
 
     ``access`` builds each attempt's model access in place of direct access through
-    the harness renderer; ``model_access`` is the mode the runtime declares.
+    the harness renderer; ``model_access`` is the mode the rollout runtime declares.
     """
     runtime = runtime or Runtime()
     if isinstance(runtime, Runtime):

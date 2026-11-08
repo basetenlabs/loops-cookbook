@@ -1,7 +1,7 @@
 """Fine-tune a model on fixed data with Baseten Loops.
 
-`loops check` renders every conversation with the model's chat template and reports
-what trains, what is split per turn and what is refused, and why; it launches nothing.
+`loops check` renders every conversation with the model's chat template. It reports
+what trains, what is split per turn, and what is refused and why. It launches nothing.
 `loops run` does the same, then trains.
 """
 
@@ -18,8 +18,11 @@ from loops_cookbook.sft.run import Outcome
 
 
 def load_config(path: Path, overrides: dict[str, Any] | None = None) -> Config:
-    """Load SFT settings; a file a setting names is relative to the config that names it,
-    or to the shell when it came from a flag."""
+    """Load the SFT settings from ``path``.
+
+    A file that a setting names is relative to the config that names it, or to the
+    shell's directory when the setting came from a flag.
+    """
     return RECIPE.load(path, overrides)
 
 

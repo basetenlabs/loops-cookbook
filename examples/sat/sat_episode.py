@@ -1,12 +1,11 @@
-"""3-SAT, one model call per problem: find values for the variables that make every
-clause true.
+"""3-SAT, with one model call per problem to find values that make every clause true.
 
-Each problem is generated from its seed: random clauses of three literals over
-``variables`` variables, ``clause_ratio`` clauses per variable, each kept only if a
-hidden assignment satisfies it, so every problem has a solution. Near a ratio of 4.26
-random 3-SAT is at its hardest. Any assignment that satisfies every clause scores 1;
-anything else, or no answer, scores 0. A reply cut off by the token budget scores 0
-too, but is discarded, so it counts in its group's baseline and doesn't train.
+Each problem is generated from its seed. It has ``clause_ratio`` random clauses per
+variable, over ``variables`` variables, and each clause has three literals. A clause is
+kept only if a hidden assignment satisfies it, so every problem has a solution. Random
+3-SAT is at its hardest near a ratio of 4.26. Any assignment that satisfies every clause
+scores 1. Anything else, or no answer, scores 0. A reply cut off by the token budget
+scores 0 too, but is discarded, so it counts in its group's baseline and doesn't train.
 """
 
 import random
@@ -48,8 +47,10 @@ type Clause = tuple[int, int, int]
 
 
 def clauses(seed: int, variables: int, ratio: float) -> list[Clause]:
-    """The problem ``seed`` generates: each clause three distinct variables, each negated
-    or not, kept only if a hidden assignment satisfies it."""
+    """Return the problem ``seed`` generates.
+
+    Each clause has three distinct variables, each negated or not. A clause is kept only
+    if a hidden assignment satisfies it."""
     rng = random.Random(seed)
     hidden = [rng.random() < 0.5 for _ in range(variables + 1)]
     kept: list[Clause] = []
@@ -84,13 +85,14 @@ class SatEpisode(Episode[Problem, Options]):
     async def run(self, sample: Sampling) -> dict[str, JsonValue]:
         conversation = sample.model.conversation()
         reply = await conversation.generate(messages=[{"role": "user", "content": self.prompt()}])
-        # Cut off by the token budget, not wrong: it scores 0 in its group's baseline but
-        # doesn't train, so long reasoning isn't pushed down for its length. A reply the
-        # model ended itself, answer or not, trains as it scored.
+        # A reply the token budget cut off isn't wrong. It scores 0 in its group's
+        # baseline but doesn't train, so long reasoning isn't pushed down for its
+        # length. A reply the model ended itself, answer or not, trains as it scored.
         cut_off = reply.sample.stop_reason == "length"
         if cut_off:
             conversation.discard(reply)
-        # The answer is the reply's last line, exactly; a reply cut off has none.
+        # The answer is exactly the reply's last line. A reply that was cut off has
+        # none.
         lines = [] if cut_off else (reply.content or "").strip().splitlines()
         found = ANSWER.fullmatch(lines[-1].strip()) if lines else None
         if found:

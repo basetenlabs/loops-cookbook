@@ -51,10 +51,10 @@ async def test_the_snapshot_is_one_merged_view_while_running_and_silent_after(rl
 
     (during,) = seen
     assert during["progress/groups_needed"] == float(run.config.training.groups_per_step)
-    # The pipeline, the runtime and this run's own discard counters, in one dict.
+    # The pipeline, the rollout runtime and this run's own discard counters, in one dict.
     assert {"pipeline/sampled", "discard/generations"} <= during.keys()
     # Every count the progress display reads is one this run actually produces
-    # (Harbor's own row is checked against the Harbor runtime's metrics).
+    # (Harbor's own row is checked against the Harbor rollout runtime's metrics).
     from loops_cookbook.console import STAGES, WORKER_SLOTS
 
     read = {key for key, _ in STAGES} | {k for key, _, cap in WORKER_SLOTS for k in (key, cap)}
@@ -1739,7 +1739,7 @@ async def test_a_runtime_that_derives_no_rollout_clock_is_refused_one_before_any
     run, trainer, runtime = rl_run(rollout_timeout_seconds=None)
     with pytest.raises(
         RuntimeConfigurationError,
-        match=r"\[rollout\] rollout_timeout_seconds is required: this runtime derives no",
+        match=r"\[rollout\] rollout_timeout_seconds is required: this rollout runtime derives no",
     ):
         await asyncio.wait_for(run.execute(), timeout=5)
     assert runtime.samples == [] and runtime.closed and trainer.closed

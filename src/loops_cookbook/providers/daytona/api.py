@@ -1,10 +1,11 @@
-"""The Daytona calls the adapter makes, as one narrow facade over the pinned async SDK.
+"""Make the adapter's Daytona calls through one narrow facade over the pinned async SDK.
 
 The adapter's ownership logic is tested against a fake of this class. Everything that
-touches the SDK's own types lives here; the two private members it reaches are the
-image's build context (``Image._context_list``), which a declarative image carries and
-its JSON description must too, and its Dockerfile (``Image._dockerfile``), which
-rebuilding the image from that description sets.
+touches the SDK's own types lives here. The module reaches two private members of an
+image. The first is the build context, ``Image._context_list``, which a declarative
+image carries and its JSON description must carry too. The second is the Dockerfile,
+``Image._dockerfile``, which the module sets when it rebuilds the image from that
+description.
 """
 
 from __future__ import annotations
@@ -30,10 +31,11 @@ from loops_cookbook.evidence import JsonValue
 from loops_cookbook.providers.daytona.usage import state_of
 
 LIST_PAGE = 100
-# The client's connection cap. The SDK's 250 queued calls behind a run's ~400 live
-# sandboxes; this leaves room for any run near that size and still bounds a runaway.
+# The client's connection cap. With the SDK's default cap of 250, calls queued behind a
+# run's ~400 live sandboxes. This cap leaves room for any run near that size and still
+# bounds a runaway.
 CONNECTIONS = 1024
-# What a sandbox's ``image`` may say: a declarative build, or a registry image.
+# The keys of a sandbox's ``image``, which is a declarative build or a registry image.
 DOCKERFILE = "dockerfile"
 CONTEXT = "context"
 BASE = "base"
@@ -50,7 +52,10 @@ class Observed:
 
 
 def observed(sandbox: Any) -> Observed:
-    """The facts the adapter reads from an SDK sandbox, its state as Daytona's wire value."""
+    """Return the facts the adapter reads from an SDK sandbox.
+
+    The state is Daytona's wire value.
+    """
     return Observed(
         id=str(sandbox.id),
         name=str(sandbox.name or sandbox.id),
@@ -60,7 +65,7 @@ def observed(sandbox: Any) -> Observed:
 
 
 def describe_image(image: Image) -> dict[str, JsonValue]:
-    """A declarative image as JSON: its Dockerfile text and its build context."""
+    """Return a declarative image as JSON, which holds its Dockerfile text and build context."""
     contexts = image._context_list  # pyright: ignore[reportPrivateUsage]
     return {
         DOCKERFILE: image.dockerfile(),
@@ -72,12 +77,12 @@ def describe_image(image: Image) -> dict[str, JsonValue]:
 
 
 def dockerfile_image(dockerfile: Path) -> dict[str, JsonValue]:
-    """A declarative build of ``dockerfile``, with its directory as the build context."""
+    """Return a declarative build of ``dockerfile``, with its directory as the build context."""
     return describe_image(Image.from_dockerfile(dockerfile))
 
 
 def image_from(description: Mapping[str, JsonValue]) -> Image | str:
-    """The SDK image ``describe_image`` (or ``{"base": ref}``) describes."""
+    """Return the SDK image that a ``describe_image`` result or ``{"base": ref}`` describes."""
     if BASE in description:
         return str(description[BASE])
     image = Image()
@@ -101,7 +106,7 @@ def image_from(description: Mapping[str, JsonValue]) -> Image | str:
 def create_params(
     config: Mapping[str, Any],
 ) -> CreateSandboxFromImageParams | CreateSandboxFromSnapshotParams:
-    """The SDK's create parameters for a sandbox ``config`` the adapter completed."""
+    """Return the SDK's create parameters for a sandbox ``config`` that the adapter completed."""
     fields = dict(config)
     image = fields.pop("image", None)
     resources = fields.pop("resources", None)
@@ -114,11 +119,11 @@ def create_params(
 
 
 class DaytonaApi:
-    """The control-plane calls, each raising the SDK's own errors.
+    """Make the control-plane calls. Each call raises the SDK's own errors.
 
-    It owns the provider's one ``AsyncDaytona`` client, configured from
-    ``[providers.daytona]``; Harbor's environment runs commands and file transfers
-    through the sandboxes it gives.
+    The class owns the provider's one ``AsyncDaytona`` client, configured from
+    ``[providers.daytona]``. Harbor's environment runs commands and file transfers
+    through the sandboxes that this client returns.
     """
 
     def __init__(self, *, api_key: str, api_url: str | None, target: str | None) -> None:
@@ -136,10 +141,10 @@ class DaytonaApi:
         return self._client
 
     async def create(self, config: Mapping[str, Any], timeout: float) -> Observed:
-        """Create and wait until Daytona reports it started, within ``timeout``.
+        """Create a sandbox and wait until Daytona reports it started, within ``timeout``.
 
-        A configuration the SDK's parameters cannot take fails before anything is sent,
-        as the SDK's own pre-send ``DaytonaBadRequestError``.
+        A configuration that the SDK's parameters cannot take fails before anything is
+        sent. It raises the SDK's own pre-send ``DaytonaBadRequestError``.
         """
         try:
             params = create_params(config)
@@ -151,11 +156,14 @@ class DaytonaApi:
         return observed(await self.client().get(id_or_name))
 
     async def delete(self, sandbox_id: str) -> None:
-        """Ask Daytona to delete the sandbox; it returns once the delete is accepted."""
+        """Ask Daytona to delete the sandbox, and return once Daytona accepts the delete."""
         await (await self.client().get(sandbox_id)).delete()
 
     async def list(self, labels: Mapping[str, str]) -> AsyncGenerator[Sequence[Observed], None]:
-        """Every sandbox carrying ``labels``, filtered by Daytona, one fetched page at a time."""
+        """Yield every sandbox that carries ``labels``, one fetched page at a time.
+
+        Daytona does the filtering.
+        """
         query = ListSandboxesQuery(labels=dict(labels), limit=LIST_PAGE)
         page: list[Observed] = []
         async for sandbox in self.client().list(query):

@@ -1,30 +1,31 @@
-"""Blaxel sandboxes and image builds as registry-owned resources.
+"""Provide Blaxel sandboxes and image builds as resources that the registry owns.
 
 Two kinds of request reach this adapter.
 
-``sandbox``: one Blaxel sandbox. Its specification is::
+A ``sandbox`` request asks for one Blaxel sandbox. Its specification is::
 
     {"sandbox": <the SandboxInstance.create configuration: name, image, memory,
                  ttl, labels, and optionally region, network, extra_args>,
      "image": {"name": <the image the sandbox runs>, "force_build": bool,
                "build": <an image_build specification without its name>}}
 
-``image`` is optional; when present and the image is not yet built, the sandbox
-has one ``image_build`` prerequisite, keyed by image name, so concurrent sandboxes
-of one image wait for one build. An image that already exists is adopted and
-owned by no one: the cookbook never deletes an image.
+``image`` is optional. When it is present and the image is not yet built, the
+sandbox has one ``image_build`` prerequisite, keyed by image name, so concurrent
+sandboxes of one image wait for one build. An image that already exists is adopted
+and owned by no one, because the cookbook never deletes an image.
 
-``image_build``: one build, whose provider identity is the builder sandbox Blaxel
-names after the image. Its specification is ``{"name", "base_image",
-"instructions", "local_files", "has_entrypoint", "memory", "sandbox_version"}``,
-and it is always ``release_after_create``: the builder is deleted once the image
-is registered.
+An ``image_build`` request asks for one build. Its provider identity is the builder
+sandbox, which Blaxel names after the image. Its specification is ``{"name",
+"base_image", "instructions", "local_files", "has_entrypoint", "memory",
+"sandbox_version"}``. It is always ``release_after_create``, which means the builder is
+deleted once the image is registered.
 
-Every create carries the cookbook's ownership labels; a sandbox's name is the one
-its caller chose, validated here. A failed create is classified by
-``creation_disposition``; reconciliation finds the sandbox by name, and absence
-counts only once its delete was accepted: a ``404`` for the name, or the sandbox
-still shown as ours but ``TERMINATED``, which frees the name for a new create.
+Every create carries the cookbook's ownership labels. A sandbox's name is the one its
+caller chose, and this adapter validates it. ``creation_disposition`` classifies a
+failed create. Reconciliation finds the sandbox by name. Absence counts only after
+Blaxel accepted the sandbox's delete, and then shows as either a ``404`` for the name
+or the sandbox still shown as ours but ``TERMINATED``. A ``TERMINATED`` sandbox's name
+is free for a new create.
 """
 
 from __future__ import annotations
@@ -65,7 +66,7 @@ TERMINATED = "TERMINATED"
 POLL_SECONDS = 2.0
 IMAGE_POLL_SECONDS = 5.0
 OTHER_BUILDER = "another owner"
-# Harbor's own limit and alphabet for the names it derives.
+# Harbor's own length limit and alphabet for the names it derives.
 MAX_NAME = 40
 NAME = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
 
@@ -92,14 +93,14 @@ class Api(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class Credentials:
-    """``BL_WORKSPACE`` and ``BL_API_KEY``, as the SDK reads them from the environment."""
+    """Hold ``BL_WORKSPACE`` and ``BL_API_KEY``, as the SDK reads them from the environment."""
 
     workspace: str
     api_key: SecretStr
 
 
 class BlaxelContractError(ValueError):
-    """A request this adapter cannot turn into a Blaxel resource."""
+    """Raised for a request that this adapter cannot turn into a Blaxel resource."""
 
 
 def _mapping(value: JsonValue | None, where: str) -> dict[str, JsonValue]:
@@ -109,17 +110,20 @@ def _mapping(value: JsonValue | None, where: str) -> dict[str, JsonValue]:
 
 
 def valid_name(name: object) -> str:
-    """A Blaxel resource name exactly as Harbor derives one, or a contract error."""
+    """Return ``name`` if it is a Blaxel resource name in the form Harbor derives.
+
+    Any other value raises ``BlaxelContractError``.
+    """
     if not isinstance(name, str) or len(name) > MAX_NAME or not NAME.match(name):
         raise BlaxelContractError(
-            f"{name!r} is not a Blaxel name: at most {MAX_NAME} lowercase letters, digits, "
-            "and inner hyphens"
+            f"{name!r} is not a Blaxel name, which has at most {MAX_NAME} lowercase letters, "
+            "digits and inner hyphens"
         )
     return name
 
 
 class BlaxelAdapter:
-    """The ``ResourceAdapter`` for Blaxel sandboxes, and their ``SandboxProvider``."""
+    """Implement ``ResourceAdapter`` and ``SandboxProvider`` for Blaxel sandboxes."""
 
     sandbox_kind: ClassVar[type[Blaxel]] = Blaxel
 
@@ -136,7 +140,8 @@ class BlaxelAdapter:
         self._api = api
         self._sleep = sleep
         self._closed = False
-        self._deleted: set[str] = set()  # names whose delete Blaxel accepted
+        # The names whose delete Blaxel accepted.
+        self._deleted: set[str] = set()
 
     @property
     def deadlines(self) -> ProviderDeadlines:
@@ -144,23 +149,27 @@ class BlaxelAdapter:
 
     @property
     def region(self) -> str:
-        """``[providers.blaxel] region``: where every sandbox and image build runs."""
+        """Return ``[providers.blaxel] region``, where every sandbox and image build runs."""
         return self._settings.region
 
     async def image_tags(self, name: str) -> frozenset[str] | None:
-        """``ImageProvider``: the tags of the built image ``name``, or ``None`` when the
-        workspace holds no built image by that name. One lookup within the reconcile
-        deadline; a failure raises, and the caller says the image went unchecked."""
+        """Return the tags of the built image ``name``, for ``ImageProvider``.
+
+        It returns ``None`` when the workspace holds no built image by that name. The
+        method makes one lookup within the reconcile deadline. A failure raises, and the
+        caller reports that the image went unchecked.
+        """
         async with asyncio.timeout(self.deadlines.reconcile_seconds):
             return await self._api.image_tags(name)
 
     # ------------------------------------------------------------- identity
 
     def desired_name(self, request: ResourceRequest, resource_id: str) -> str:
-        """The caller's name for the sandbox, or one unique to the resource.
+        """Return the caller's name for the sandbox, or a name unique to the resource.
 
-        Harbor names each trial's sandbox; a runtime that asks for sandboxes by
-        specification alone gets ``loops-<resource id>``, so no two collide.
+        Harbor names each trial's sandbox. A custom rollout runtime that asks for
+        sandboxes by specification alone gets ``loops-<resource id>``, so no two names
+        collide.
         """
         specification = dict(request.specification)
         if request.kind == SANDBOX:
@@ -191,7 +200,7 @@ class BlaxelAdapter:
         image = _mapping(request.specification["image"], "image")
         name = valid_name(image.get("name"))
         if not image.get("force_build") and await self._image_built(name):
-            return []  # adopted: an existing image is owned by no one
+            return []  # An existing image is adopted, and no one owns it.
         build = _mapping(image.get("build"), "image.build")
         return [
             ResourceRequest(
@@ -199,8 +208,8 @@ class BlaxelAdapter:
                 kind=IMAGE_BUILD,
                 logical_key=f"image-build:{name}",
                 specification={**build, "name": name},
-                # The name: an image is reused by name, so builds of it that differ only in
-                # their source paths or builder memory are one build.
+                # The identity is the name alone. An image is reused by name, so builds of
+                # it that differ only in source paths or builder memory are one build.
                 identity={"name": name},
                 release_after_create=True,
             )
@@ -238,10 +247,10 @@ class BlaxelAdapter:
         return config
 
     async def wait_deployed(self, resource: ProviderResource) -> ProviderResource:
-        """Poll a created sandbox until it is ``DEPLOYED``; a dead one is a failure.
+        """Poll a created sandbox until it is ``DEPLOYED``, and fail if it dies.
 
-        The caller's deadline bounds the wait. A sandbox that dies is known to exist,
-        so the failure carries it and the registry owns and releases it.
+        The caller's deadline bounds the wait. A sandbox that dies is known to exist, so
+        the failure carries it, and the registry owns and releases it.
         """
         while True:
             status = resource.metadata.get("status")
@@ -291,7 +300,7 @@ class BlaxelAdapter:
                 builder is not None
                 and builder.labels.get("loops.resource_id") == intent.resource_id
             ):
-                # Our own build failed: its builder exists and is ours to release.
+                # Our own build failed. Its builder exists, and it is ours to release.
                 raise ProvisioningFailure(
                     failure, CreationDisposition.DEFINITELY_CREATED, self._resource(builder)
                 ) from error
@@ -303,7 +312,7 @@ class BlaxelAdapter:
                     CreationDisposition.DEFINITELY_NOT_CREATED,
                     refused=create_refused(error),
                 ) from error
-            # Another process is building the same content-addressed image; its image
+            # Another process is building the same content-addressed image. Its image
             # is as good as ours, and its builder is not ours to delete. The caller's
             # deadline bounds the wait.
             while not await self._image_built(name):
@@ -317,8 +326,10 @@ class BlaxelAdapter:
         return resource
 
     async def _image_built(self, name: str) -> bool:
-        """``image_built``, asked again through a transient failure; the caller's deadline
-        bounds it."""
+        """Ask ``image_built``, and ask again after a transient failure.
+
+        The caller's deadline bounds the retries.
+        """
         while True:
             try:
                 return await self._api.image_built(name)
@@ -328,7 +339,7 @@ class BlaxelAdapter:
             await self._sleep(IMAGE_POLL_SECONDS)
 
     async def _builder(self, name: str) -> Observed | None:
-        """The builder sandbox, or ``None`` when Blaxel says there is none."""
+        """Return the builder sandbox, or ``None`` when Blaxel says there is none."""
         try:
             return await self._api.get(name)
         except Exception as error:
@@ -344,15 +355,15 @@ class BlaxelAdapter:
     async def reconcile_create(
         self, intent: ResourceIntent, *, settled: bool = False
     ) -> ReconcileResult:
-        """Read the uniquely named sandbox back; never issue a second create.
+        """Read the uniquely named sandbox back, and never issue a second create.
 
-        A just-created sandbox may not be readable yet, so ``404``, ``429``, ``502``
-        to ``504``, and transport errors are retried until the registry's reconcile
-        deadline; a lookup proves absence only when the create is ``settled``, when a
-        ``404`` for the name means no such sandbox exists. A sandbox is waited for until it is
-        ``DEPLOYED``; one that is ``FAILED``, ``TERMINATED``, or ``DELETING`` is found
-        but unusable, so it is owned and released and its provision fails. A builder
-        is usable only once its image is built.
+        A just-created sandbox may not be readable yet. A ``404``, a ``429``, a ``502``
+        to ``504`` and transport errors are therefore retried until the registry's
+        reconcile deadline. A lookup proves absence only when the create is ``settled``.
+        Then a ``404`` for the name means no such sandbox exists. The method waits for a
+        sandbox to become ``DEPLOYED``. A sandbox that is ``FAILED``, ``TERMINATED`` or
+        ``DELETING`` is found but unusable, so the registry owns and releases it, and its
+        provision fails. A builder is usable only once its image is built.
         """
         while True:
             try:
@@ -389,7 +400,8 @@ class BlaxelAdapter:
 
     async def release(self, resource: ProviderResource) -> None:
         if resource.metadata.get("built_by") == OTHER_BUILDER:
-            return  # no builder of ours was left; the other owner's is theirs
+            # No builder of ours was left, and the other owner's builder is theirs.
+            return
         try:
             await self._api.delete(resource.name)
         except Exception as error:
@@ -398,13 +410,14 @@ class BlaxelAdapter:
         self._deleted.add(resource.name)
 
     async def confirm_absent(self, resource: ProviderResource) -> ReconcileResult:
-        """Absent once the name answers ``404``, or shows ours ``TERMINATED`` after our delete.
+        """Wait until the sandbox is proven absent.
 
-        The ``TERMINATED`` rule rests on observed Blaxel behaviour, not documented
-        behaviour: a deleted sandbox stays readable as ``TERMINATED`` for many
-        minutes, yet a create may take its name at once, so it collides with
-        nothing. It counts only for a name this adapter's delete was accepted for.
-        The registry's deadline bounds the wait.
+        It is absent once its name answers ``404``, or shows our sandbox ``TERMINATED``
+        after our delete. The ``TERMINATED`` rule rests on observed Blaxel behaviour, not
+        documented behaviour. A deleted sandbox stays readable as ``TERMINATED`` for many
+        minutes, yet a create may take its name at once, so the old sandbox collides with
+        nothing. The rule counts only for a name whose delete Blaxel accepted from this
+        adapter. The registry's deadline bounds the wait.
         """
         while True:
             try:
@@ -420,8 +433,8 @@ class BlaxelAdapter:
             else:
                 owner = observed.labels.get("loops.resource_id")
                 if owner != resource.labels.get("loops.resource_id"):
-                    # The name now belongs to a different sandbox; ours is not proven
-                    # gone by it, and nothing here may touch it.
+                    # The name now belongs to a different sandbox. That does not prove
+                    # ours is gone, and nothing here may touch the other sandbox.
                     return ReconcileResult(
                         ReconcileStatus.UNKNOWN,
                         evidence=f"{resource.name} is held by another sandbox",
@@ -430,7 +443,7 @@ class BlaxelAdapter:
                     return ReconcileResult(
                         ReconcileStatus.PROVEN_ABSENT,
                         evidence=f"GET /sandboxes/{resource.name} shows it TERMINATED after "
-                        "its delete; observed, not documented, Blaxel behaviour: a "
+                        "its delete; by observed, not documented, Blaxel behaviour, a "
                         "terminated name is free for a new create",
                     )
             await self._sleep(POLL_SECONDS)
@@ -438,7 +451,7 @@ class BlaxelAdapter:
     async def list_owned(
         self, labels: Mapping[str, str]
     ) -> AsyncGenerator[Sequence[ProviderResource], None]:
-        # Blaxel filters no labels server-side, so every page of the workspace is read.
+        # Blaxel cannot filter by label on the server, so every page of the workspace is read.
         pages = self._api.list()
         try:
             async for page in pages:
@@ -453,7 +466,10 @@ class BlaxelAdapter:
     # ---------------------------------------------------------------- usage
 
     def usage_environment(self, resource: ProviderResource) -> Mapping[str, str | SecretStr]:
-        """What a separate process needs to reach this sandbox. The key is workspace-wide."""
+        """Return what a separate process needs to reach this sandbox.
+
+        The API key is workspace-wide.
+        """
         return {
             "BL_WORKSPACE": self._credentials.workspace,
             "BL_REGION": self._settings.region,
@@ -462,7 +478,10 @@ class BlaxelAdapter:
         }
 
     async def client(self, resource: ProviderResource) -> SandboxInstance:
-        """The SDK's usage client for the sandbox, once it is ``DEPLOYED``; see ``usage.attach``."""
+        """Return the SDK's usage client for the sandbox, once it is ``DEPLOYED``.
+
+        ``usage.attach`` has the details.
+        """
         return await usage.attach(
             resource,
             timeout_seconds=self.deadlines.attach_seconds,
@@ -473,9 +492,10 @@ class BlaxelAdapter:
         await close_clients(client)
 
     async def alive(self, resource: ProviderResource) -> bool:
-        """Whether the sandbox is still ours and ``DEPLOYED``; a ``404`` for its name is not.
+        """Return whether the sandbox is still ours and ``DEPLOYED``.
 
-        A name held by another sandbox means ours was deleted and the name reused.
+        A ``404`` for its name means it is not. A name held by another sandbox means ours
+        was deleted and the name reused.
         """
         try:
             observed = await self._api.get(resource.name)
@@ -491,5 +511,9 @@ class BlaxelAdapter:
             raise RuntimeError("the Blaxel adapter is closed")
 
     async def close(self) -> None:
-        """The SDK's control-plane client is process-wide and outlives this adapter."""
+        """Mark the adapter closed.
+
+        The SDK's control-plane client is process-wide and outlives this adapter, so
+        nothing else is closed.
+        """
         self._closed = True

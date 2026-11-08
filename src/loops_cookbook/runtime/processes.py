@@ -1,27 +1,28 @@
-"""Agent processes: agent code the cookbook runs out of its own process, and can kill.
+"""Run agent code in a separate process that the cookbook supervises and can kill.
 
 ``attempt.services.processes.run(command)`` starts one operating-system process for
-an attempt and supervises it to the end:
+an attempt and supervises it to the end.
 
-- it starts in its own process group, with standard input closed, in
-  ``command.cwd``, from ``command.argv``, never inheriting the cookbook's import
-  path;
-- its environment is the non-secret allowlist below plus exactly ``command.env``;
-  a ``SecretStr`` reaches it only through that environment and is redacted from
-  the output the cookbook keeps;
-- standard output and standard error are kept as bounded tails; a nonzero exit is
-  returned in ``ProcessResult``, not raised;
-- cancelling the caller terminates the whole group: ``SIGTERM``, then ``SIGKILL``
-  after ``process_kill_grace_seconds``. ``run()`` returns or raises only once the
-  group has exited; a group that outlives ``SIGKILL`` by ``GROUP_EXIT_SECONDS`` is
-  a ``ProcessKillFailure``.
+- The process starts in its own process group, with standard input closed, in
+  ``command.cwd``, from ``command.argv``. It never inherits the cookbook's import
+  path.
+- Its environment is the non-secret allowlist below plus exactly ``command.env``. A
+  ``SecretStr`` reaches it only through that environment, and is redacted from the
+  output that the cookbook keeps.
+- The cookbook keeps standard output and standard error as tails of bounded size. A
+  nonzero exit is returned in ``ProcessResult``, not raised.
+- Cancelling the caller terminates the whole group with ``SIGTERM``, and then with
+  ``SIGKILL`` after ``process_kill_grace_seconds``. ``run()`` returns or raises only
+  once the group has exited. A group that outlives ``SIGKILL`` by
+  ``GROUP_EXIT_SECONDS`` raises ``ProcessKillFailure``.
 
-The driver also terminates an attempt's processes itself: every process when the
-rollout is sealed, every remaining one before ``finish()`` or ``abort()``, and all
-of them before a cancelled hook's own grace starts, so an agent that cannot stop
-cooperatively never makes a hook look non-quiescent. A process still being spawned
-counts as live. No process starts while a hook is being stopped, or once the
-attempt's last hook has returned: ``run()`` then raises ``ProcessesClosed``.
+The driver also terminates an attempt's processes itself. It terminates every
+process when the rollout is sealed, every remaining one before ``finish()`` or
+``abort()``, and all of them before a cancelled hook's own grace starts. An agent that
+cannot stop cooperatively therefore never makes a hook look non-quiescent. A process
+still being spawned counts as live. No process starts while a hook is being stopped,
+or once the attempt's last hook has returned. ``run()`` then raises
+``ProcessesClosed``.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ from pydantic import SecretStr
 from loops_cookbook.cancellation import outlast, stop
 from loops_cookbook.runtime.api import ProcessCommand, ProcessResult
 
-# Non-secret variables a process needs to run at all; nothing else is inherited.
+# Non-secret variables that a process needs to run at all. Nothing else is inherited.
 ALLOWED_ENVIRONMENT = (
     "PATH",
     "HOME",
@@ -57,21 +58,21 @@ ALLOWED_PREFIXES = ("LC_",)
 TAIL_BYTES = 64 * 1024
 REDACTED = "<redacted>"
 GROUP_EXIT_SECONDS = 5.0
-# Something outside the group can hold the output pipes open; the tails then end
-# where the group did.
+# Something outside the group can hold the output pipes open. The tails then end where
+# the group did.
 DRAIN_SECONDS = 1.0
 
 
 class ProcessLaunchFailure(RuntimeError):
-    """An agent process could not be started; nothing ran."""
+    """Raised when an agent process could not be started, so nothing ran."""
 
 
 class ProcessesClosed(RuntimeError):
-    """No agent process may start: its attempt is over, or its hook is being stopped."""
+    """Raised when no agent process may start, because its attempt ended or its hook is stopping."""
 
 
 class ProcessKillFailure(RuntimeError):
-    """An agent process group was still alive after ``SIGKILL`` and its bound."""
+    """Raised when an agent process group is still alive after ``SIGKILL`` and its time limit."""
 
 
 def _environment(
@@ -99,10 +100,10 @@ def _check(command: ProcessCommand) -> None:
 
 
 class _Tail:
-    """The last ``TAIL_BYTES`` a stream produced, with its secrets redacted.
+    """Keep the last ``TAIL_BYTES`` that a stream produced, with its secrets redacted.
 
-    It keeps the longest secret's length beyond the tail, so a secret that ends
-    inside the tail is whole when it is redacted, and only then trimmed.
+    It keeps the longest secret's length beyond the tail. A secret that ends inside the
+    tail is therefore whole when it is redacted, and only then trimmed.
     """
 
     def __init__(self, secrets: list[str]) -> None:
@@ -125,14 +126,14 @@ class _Tail:
 
 @dataclass(eq=False)
 class _Running:
-    """One ``run()``, registered before its spawn so that no termination misses it."""
+    """One ``run()``, registered before its spawn, so that no termination misses it."""
 
     process: asyncio.subprocess.Process | None = None
     spawned: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 class AttemptProcessSupervisor:
-    """``AttemptProcesses`` for one attempt: every process it starts, until each exits."""
+    """Implement ``AttemptProcesses`` for one attempt, supervising each process until it exits."""
 
     def __init__(
         self, kill_grace_seconds: float, *, environ: Mapping[str, str] | None = None
@@ -187,23 +188,23 @@ class AttemptProcessSupervisor:
         drains = asyncio.create_task(_drain(process, stdout, stderr))
         try:
             await _exited(process)
-            # Whatever the leader left behind in its group goes too, or its pipes stay open.
+            # End whatever the leader left behind in its group too, or its pipes stay open.
             await self._terminate(running)
             await asyncio.wait({drains}, timeout=DRAIN_SECONDS)
         except asyncio.CancelledError:
-            # The group ends before the cancellation goes on; ending it is bounded.
+            # End the group before the cancellation goes on. Ending it has a time limit.
             ending = asyncio.ensure_future(self._terminate(running))
             await outlast(ending)
-            ending.exception()  # observed; the cancellation is the outcome
+            ending.exception()  # Observe it, because the cancellation is the outcome.
             raise
         finally:
             drained = await stop(drains, grace=None)
-            # Our ends of the pipes, which a descendant outside the group may still hold.
+            # Close our ends of the pipes, which a descendant outside the group may hold.
             process._transport.close()  # pyright: ignore[reportAttributeAccessIssue]
-            await asyncio.sleep(0)  # the pipe transports close on the next iteration
+            await asyncio.sleep(0)  # The pipe transports close on the next iteration.
         drained.propagate()
         if not drains.cancelled():
-            drains.result()  # a tail that failed
+            drains.result()  # Raise the failure of a tail that failed.
         code = process.returncode
         assert code is not None
         return ProcessResult(
@@ -215,13 +216,13 @@ class AttemptProcessSupervisor:
         )
 
     async def _terminate(self, running: _Running) -> None:
-        """Stop the whole group: SIGTERM, SIGKILL after the grace, then wait it out.
+        """Stop the whole group with SIGTERM, then SIGKILL after the grace, and wait it out.
 
         A process still being spawned is waited for first, so none escapes.
         """
         await running.spawned.wait()
         process = running.process
-        if process is None:  # it never started
+        if process is None:  # It never started.
             return
         group = process.pid
         if process.returncode is not None and not _group_alive(group):
@@ -229,8 +230,8 @@ class AttemptProcessSupervisor:
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._kill_grace
         _signal(group, signal.SIGTERM)
-        # The leader is reaped by asyncio, so once it has exited the group check
-        # sees only what it left behind.
+        # asyncio reaps the leader, so once it has exited the group check sees only
+        # what it left behind.
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(_exited(process), self._kill_grace)
         while _group_alive(group) and loop.time() < deadline:
@@ -247,9 +248,9 @@ class AttemptProcessSupervisor:
                 )
 
     async def terminate(self) -> None:
-        """Terminate every live process, spawning ones included, and wait until each has exited.
+        """Terminate every live process, including those still spawning, and wait until each exits.
 
-        At sealing every live process is a sampling one: grading has not begun.
+        At sealing every live process is a sampling one, because grading has not begun.
         """
         results = await asyncio.gather(
             *(self._terminate(running) for running in list(self._live)), return_exceptions=True
@@ -266,7 +267,7 @@ class AttemptProcessSupervisor:
         self._paused -= 1
 
     async def close(self) -> None:
-        """The attempt is over: refuse every later ``run()`` and end what is still running."""
+        """End the attempt by refusing every later ``run()`` and ending what is still running."""
         self._closed = True
         await self.terminate()
 
@@ -277,10 +278,10 @@ async def _drain(process: asyncio.subprocess.Process, stdout: _Tail, stderr: _Ta
 
 
 async def _exited(process: asyncio.subprocess.Process) -> None:
-    """Until the leader has exited.
+    """Wait until the leader has exited.
 
     ``Process.wait()`` would also wait for its output pipes to close, which a
-    descendant can hold open indefinitely; the exit status arrives first.
+    descendant can hold open indefinitely. The exit status arrives first.
     """
     while process.returncode is None:
         await asyncio.sleep(0.02)

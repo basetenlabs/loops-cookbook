@@ -6,7 +6,7 @@ Choosing a pattern as a user is in [patterns/](../patterns/).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/story-4-patterns-dark.svg">
-  <img alt="The six patterns side by side: custom and Harbor runtimes, each in-process direct, in-process HTTP, and local. Each panel shows the training process with the driver and lease and the gateway, where the agent runs (in the training process or a subprocess), how it reaches the model (a Python call, or HTTP to the local gateway), where its sandbox is, and where grading runs. Everything else is identical in all six." src="assets/story-4-patterns.svg">
+  <img alt="The six patterns side by side: custom and Harbor rollout runtimes, each in-process direct, in-process HTTP, and local. Each panel shows the training process with the driver and lease and the gateway, where the agent runs (in the training process or a subprocess), how it reaches the model (a Python call, or HTTP to the local gateway), where its sandbox is, and where grading runs. Everything else is identical in all six." src="assets/story-4-patterns.svg">
 </picture>
 
 ## The idea

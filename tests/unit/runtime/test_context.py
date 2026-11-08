@@ -35,7 +35,7 @@ def test_the_factory_receives_a_private_copy_of_exactly_the_users_values():
     assert seen == [
         {"path": "/bin/bash", "endpoint": "/v1/chat", "api_key": "k", "nested": {"a": [1, 2]}}
     ]
-    assert config["nested"]["a"] == [1]  # the runtime's copy is private
+    assert config["nested"]["a"] == [1]  # the rollout runtime's copy is private
 
 
 def test_only_declared_file_aliases_resolve(tmp_path):
@@ -97,17 +97,17 @@ def test_runtime_evidence_is_recorded_once_per_name():
         (
             RuntimeCapabilities(DIRECT),
             Preflight(None, None),
-            r"\[rollout\] rollout_timeout_seconds is required: this runtime derives no rollout",
+            r"\[rollout\] rollout_timeout_seconds is required: this rollout runtime derives no rollout",
         ),
         (
             RuntimeCapabilities(BOTH),
             Preflight(None, 30),
-            r"\[rollout_runtime\] model_access is required: the runtime supports \['direct', 'openai_http'\]",
+            r"\[rollout_runtime\] model_access is required: the rollout runtime supports \['direct', 'openai_http'\]",
         ),
         (
             RuntimeCapabilities(DIRECT),
             Preflight(ModelAccessMode.DIRECT, 30),
-            "the runtime already declares 'direct'; the runtime states it once",
+            "the rollout runtime already declares 'direct'; the rollout runtime states it once",
         ),
         (
             RuntimeCapabilities(DIRECT, rollout_timeout_seconds=0),
