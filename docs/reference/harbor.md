@@ -1,13 +1,22 @@
-# Runtime: Harbor
+# Rollout runtime: Harbor
 
-Bring a Harbor dataset, define a `LoopsAgent`, run. Harbor owns the tasks, the
-environments and the verifier (on Blaxel or Daytona, the run provisions and owns every sandbox
-Harbor starts, below); you own the agent; the cookbook owns everything between the
-agent's model calls and the optimizer.
+The Harbor rollout runtime trains your agent on the tasks of a
+[Harbor](https://github.com/laude-institute/harbor) job. Use it when your tasks are
+Harbor tasks, such as a Harbor dataset like Terminal-Bench. You bring a Harbor dataset,
+define your agent as a `LoopsAgent` class, and run.
 
-Last run end to end with Harbor 0.23.0 on baseten-loops 0.28.0; the cookbook now requires
-baseten-loops 0.32.0 or newer. Harbor is an optional extra, bounded to `harbor>=0.23,<0.24`
-while the cookbook overrides Harbor's private members:
+Harbor owns the tasks, the sandboxes they run in and the verifier that scores each
+attempt. Harbor calls a sandbox an *environment*, as in a job's `environment:` key and
+in class names such as `BlaxelEnvironment`. This page says *sandbox* except where it
+names one of those. You own the agent. The cookbook owns everything between the
+agent's model calls and the optimizer. When the sandboxes run on Blaxel or Daytona,
+the run itself creates and owns every sandbox that Harbor starts, as
+[Blaxel](#blaxel) and [Daytona](#daytona) below describe.
+
+Harbor is an optional extra. Its version is bounded to `harbor>=0.23,<0.24`, because
+the cookbook overrides some of Harbor's private members. The Harbor rollout runtime
+was last run end to end with Harbor 0.23.0 on baseten-loops 0.28.0. The cookbook now
+requires baseten-loops 0.34. Install the extra for the place your sandboxes will run:
 
 ```sh
 uv sync --extra harbor      # Harbor on Docker
@@ -16,8 +25,8 @@ uv sync --extra harbor-blaxel  # Harbor on Blaxel sandboxes
 
 ## 1. Bring a Harbor dataset
 
-Any Harbor job works: a dataset from a Harbor registry or git repo, or local task
-directories. Write a normal `JobConfig`:
+Any Harbor job works. Its tasks can come from a dataset in a Harbor registry or a git
+repository, or from local task directories. Write a normal Harbor `JobConfig`:
 
 ```yaml
 # job.yaml
@@ -36,83 +45,23 @@ retry:
   max_retries: 2
 ```
 
-### What the job must satisfy
+Harbor runs each attempt as a *trial*. A trial starts the task's sandbox, runs your
+agent, and then runs the task's verifier, which scores what the agent did. A task's
+verifier either shares the agent's sandbox or runs in a separate sandbox of its own.
 
-- **Agent execution plus an enabled verifier.** `install_only`, regrade-only, and
-  `verifier.disable` jobs are rejected by `check`.
-- **One numeric reward, or `reward_key`.** The verifier's reward map must have a
-  single entry, or you name the one to train on in `[runtime.config] reward_key`. Booleans,
-  non-finite values, and a missing reward are failures, not zero.
-- **A reward gate drops rewards, never zeroes them.** `[runtime.config] reward_gate` names an
-  async `(trial, verifier_result) -> str | None`, run once the reward is final and before the
-  sandboxes still running stop; a separate verifier's agent sandbox is already released. A
-  reason drops the trial from training as `grading_failed/<reason>`, without counting toward
-  the consecutive-failure stop; its reward stays in the trial directory. A reason is the metric's
-  name: lowercase letters, digits and underscores. A gate that raises fails grading as
-  `grading_failed/reward_gate`; one that returns anything but a reason or None, as
-  `grading_failed/reward_gate_result`. The gate runs inside `grade()`, even for a multi-step
-  trial that stopped early, its sandbox held until it answers, so it is bounded as `grade()`
-  is: past the grading deadline it fails as `grading_failed/hook_deadline`, and one that ignores
-  its cancellation is kept as any `grade()` that does (`unquiesced/grade`).
-- **Separate verifiers grade from artifacts.** For single-step tasks whose verifier
-  runs in its own environment, sampling and grading are decoupled: the agent's
-  sandbox is released as soon as the agent finishes (with `environment.delete: false`,
-  when its attempt ends), and Harbor regrades from the
-  recorded trial. Anything the verifier needs must therefore be declared as a task
-  artifact. Shared-verifier tasks are graded live in the same sandbox. Multi-step
-  tasks keep Harbor's step ordering.
-- **A failed agent is graded, as Harbor grades it.** When the agent times out
-  (`AgentTimeoutError`) or exits with an error (`NonZeroAgentExitCodeError`, or any of
-  its subclasses, such as the API errors Harbor's installed agents raise), Harbor
-  still runs the verifier, and the trial trains on that reward: an agent that runs out
-  of time earns its low reward. A separate-verifier trial is regraded from the saved
-  trial exactly when Harbor carried it on to its verification; one Harbor ended
-  before then is a rollout failure. A generation the deadline cut mid-flight is
-  dropped from the evidence; the rest of the episode trains. A shared verifier sees the
-  sandbox, and a separate one the saved trial's artifacts, never the trial's exception: an agent can leave evidence there for a custom
-  verifier to read, but a timeout or error Harbor enforced is invisible to it.
-  No runtime discards a failed agent's episode: what the verifier scores stands, and
-  only the cookbook's own rollout clock discards (see
-  [failures.md](failures.md)). The run
-  reports how often each happened as `runtime/harbor/trial_exceptions/<type>` against
-  `runtime/harbor/sampling_trials`.
-- **A sandbox that runs out is a sizing question.** Its disk or memory is the task's
-  or the job's size; the cookbook does not reinterpret the trial, and Harbor's result
-  stands. On Blaxel and Daytona, each trial reports its sandbox's OOM-kill count, read
-  when the agent phase ends: on Blaxel, a micro-VM, its kernel's (`/proc/vmstat`); on
-  Daytona, a container on a shared host kernel, its cgroup's (`memory.events`), as
-  `runtime/harbor/sandbox_oom_kills/{count,mean,max}` (and
-  `runtime/harbor/oom_killed_trials` for trials with any). It is a runtime metric
-  only: the agent's metadata is left as the agent wrote it. A count that cannot be
-  read is not reported.
-- **Other errors fail the rollout.** Harbor never retries a sampling trial itself.
-  An exception raised before sampling ends that leaves no reward is a rollout failure:
-  permanent if its type is in the job's `retry.exclude_exceptions`, otherwise eligible
-  for `[rollout] max_rollout_retries`, and it counts toward
-  `max_consecutive_rollout_failures`. A shared verifier's failure surfaces in
-  `grade()` instead, as `grading_failed/<type>` with no cookbook retry (Harbor's
-  `grading_retries` is 0). The job's `retry` block applies only to
-  separate-verifier regrades.
-- **Harbor's trial cap is derived**, as `max_concurrent_rollouts` plus the pre-start
-  places plus `max_concurrent_verifiers` (see
-  [scheduling.md](scheduling.md)). Setting `n_concurrent_trials` in the
-  job file has no effect; the cookbook is the only thing that knows these numbers.
-- **The grading deadline covers Harbor's.** `check` refuses a job whose
-  `[rollout.grading] timeout_seconds` does not exceed Harbor's own bound for one
-  `grade()`: for a separate verifier with R retries, `(R+1) x (build + verifier)` plus
-  Harbor's backoff.
-- **Resume checks contents.** A checkpoint records each task's ID and Harbor content
-  digest, and the job file's digest. Resuming after editing a task, or changing the
-  task set, restarts the task order from the beginning with a warning; a changed job
-  file is reported as a changed setting.
-- **Remote datasets download at `check`.** Private ones use your own git credentials
-  or `harbor auth login`; the cookbook adds nothing.
+The job's `environment:` key chooses where the sandboxes run. With `type: docker`
+they run on local Docker. To run them on Blaxel or Daytona, use the cookbook's
+environment class for that provider, as the next two sections show. The rules every
+job must follow are in [What the job must satisfy](#what-the-job-must-satisfy).
 
 ### Blaxel
 
 ```sh
 uv sync --extra harbor-blaxel
 ```
+
+To run the job's sandboxes on Blaxel, name the cookbook's Blaxel class in the job's
+`environment:` block:
 
 ```yaml
 environment:
@@ -122,93 +71,144 @@ environment:
     ttl: 8h                   # required
 ```
 
-Each task's `memory_mb` sizes its sandbox unless the job sets `override_memory_mb`.
-Blaxel's disk is a tmpfs of half the memory, and it does not apply a task's
-`storage_mb` or `cpus`: a sandbox gets one CPU core per 2048 MB of memory.
-`loops check` logs the sandbox sizes, grouping tasks by memory, and warns about each
-task whose declared `storage_mb` does not fit, and about any that declares `cpus` (or
-when the job sets `override_cpus`). Then add `[providers.blaxel]` to the training TOML with the region; its deadlines
-default (see [resources.md](resources.md#provider-resources)), and the defaults'
-start bound, 630 s, fits a 600 s build timeout times the shipped jobs'
-`environment_build_timeout_multiplier` of 1.1. Put
-`BL_WORKSPACE` and `BL_API_KEY` in `.env`. The region is stated in `[providers.blaxel]`
-only: every sandbox is created in it, and `loops check` refuses a job that sets
-`environment.kwargs.region`. Images are built there too: every build carries a `blaxel.toml` naming it, a task's own `blaxel.toml` gets it added in the build's copy when it names none, and `check` refuses one that names another region.
+The `import_path` is required. `loops check` refuses `type: blaxel` on its own, and it
+refuses Harbor's own Blaxel class, because with either one Harbor would create
+sandboxes that the run never owns. The job must also set `kwargs.ttl`, the
+time-to-live (TTL) for which Blaxel keeps a sandbox.
 
-The `import_path` is required: `type: blaxel` on its own, or Harbor's own Blaxel
-class, is refused, because Harbor would create sandboxes the run never owns. With
-the cookbook's class, every sandbox a trial starts (the agent's, a separate
-verifier's, a regrade's) is provisioned by the run under Harbor's own name and
-released when Harbor stops it, so a crashed run's sandboxes are recovered by
-resuming the run, which releases what its previous process left before admitting an
-attempt, or with `loops cleanup`. A job's `environment.delete: false` does not keep
-a sandbox: whatever Harbor leaves running is released when its attempt ends. A stop
-whose release does not prove the sandbox gone raises from `stop()`, where Harbor's own
-would log and carry on, so the attempt's cleanup reports it and tries again; Daytona's
-environment follows the same rule. Harbor still runs commands and verification; the run's Blaxel provider
-builds images, and an image already built is reused and never deleted, unless a task starts from an image already in Blaxel (below). Images are named by what they build, not by task, so tasks with identical environments share one image and one build. `check` also refuses a task whose
-effective build timeout (the task's `build_timeout_sec`, 600s by default, times the
-job's `environment_build_timeout_multiplier`, or `timeout_multiplier` when unset) does
-not cover the provider's
-reconcile (prerequisite resolution), image-build, create, and attach deadlines
-together, since Harbor bounds each environment start by it. The wait for a
-provisioning slot (`[rollout] max_concurrent_provisioning`) is not covered: it depends
-on how many starts overlap, and a start that runs out of time is a failed rollout,
-retried under `max_rollout_retries`. The shipped Blaxel jobs set the multiplier to 1.1.
-Only Harbor's direct mode is supported, not compose.
+Then add a `[providers.blaxel]` table to the training TOML, with the region, and put
+`BL_WORKSPACE` and `BL_API_KEY` in `.env`. The table's deadlines have defaults, which
+[resources.md](resources.md#provider-resources) describes.
+
+You state the region only in `[providers.blaxel]`. The run creates every sandbox in
+that region, and `loops check` refuses a job that sets `environment.kwargs.region`.
+The run builds images in that region too. Every build carries a `blaxel.toml` file
+that names the region. When a task has its own `blaxel.toml` that names no region, the
+run adds the region to the build's copy of that file. `loops check` refuses a task
+whose `blaxel.toml` names another region.
+
+Blaxel sizes a sandbox by its memory alone. A task's `memory_mb` sets that memory,
+unless the job sets `override_memory_mb`, which gives every task the same size. The
+disk is a tmpfs of half the memory, and the sandbox gets one CPU core per 2048 MB of
+memory. Blaxel doesn't apply a task's `storage_mb` or `cpus`. `loops check` logs the
+sandbox sizes, grouping tasks by memory. It warns about each task whose declared
+`storage_mb` doesn't fit in that disk. It also warns about each task that declares
+`cpus`, and about every task when the job sets `override_cpus`.
+
+With the cookbook's class, the run creates every sandbox that a trial starts, under
+Harbor's own name. That includes the agent's sandbox, a separate verifier's sandbox and
+a regrade's sandbox. The run releases each one when Harbor stops it. If the run
+crashes, you can recover its sandboxes in two ways. You can resume the run, which
+releases what its previous process left before it admits an attempt. Or you can run
+`loops cleanup`.
+
+A job's `environment.delete: false` doesn't keep a sandbox. Whatever Harbor leaves
+running is released when its attempt ends.
+
+Harbor's own environment logs a failed stop and carries on. The cookbook's environment
+raises from `stop()` instead whenever a release doesn't prove the sandbox gone, so the
+attempt's cleanup reports the sandbox and tries again. The cookbook's Daytona
+environment follows the same rule.
+
+Harbor still runs commands and verification. The run's Blaxel provider builds the
+images, unless a task starts from an image that is already in Blaxel, as
+[Starting from an image already in Blaxel](#starting-from-an-image-already-in-blaxel)
+describes. The provider reuses an image that is already built, and it never deletes an
+image.
+
+The run names an image by what it builds, not by the task, so tasks with identical
+environments share one image and one build. It can do this only when Harbor's content
+hash covers everything in the task's `environment/` directory. A symlink, an empty
+directory or a file that Harbor's hash ignores means the hash doesn't describe the
+build. Such a task keeps Harbor's own image name, which includes the task.
+
+Harbor bounds each sandbox start by the task's effective build timeout. That timeout
+is the task's `build_timeout_sec`, 600 s by default, times the job's
+`environment_build_timeout_multiplier`, or times `timeout_multiplier` when that is
+unset. `loops check` refuses a task whose effective build timeout doesn't cover the
+provider's deadlines for these steps together:
+
+- reconcile, which resolves the sandbox's prerequisites,
+- image build,
+- create,
+- attach.
+
+With the default deadlines, those steps add up to 630 s. That fits a 600 s build
+timeout times 1.1, which is the `environment_build_timeout_multiplier` the shipped
+Blaxel jobs set.
+
+The check doesn't count the wait for a provisioning slot, which
+`[rollout].max_concurrent_provisioning` limits, because that wait depends on how many
+starts overlap. A start that runs out of time is a failed rollout, which the run can
+retry under `[rollout].max_rollout_retries`.
+
+The cookbook supports only Harbor's direct mode, in which a task's sandbox comes from a
+Dockerfile or a `docker_image`. It doesn't support Harbor's compose mode.
 
 #### Starting from an image already in Blaxel
 
-A task that should start from an image you built yourself, rather than one the run
-builds, says so once, in its own `task.toml`:
+A task can start from an image that you built yourself, instead of one that the run
+builds. The task says so once, in its own `task.toml`:
 
 ```toml
 [environment]
 docker_image = "blaxel://sandbox/my-image:v1"
 ```
 
-Everything after `blaxel://` goes to Blaxel's sandbox create unchanged, so any image
-reference Blaxel accepts works, and nothing is built, so `force_build` does not apply.
-As for any Harbor task with a `docker_image`, a nonempty `environment/` with no
-Dockerfile is uploaded into the working directory once the sandbox starts; with a
-Dockerfile, the Dockerfile is ignored and nothing is uploaded. A `docker_image` without
-the scheme keeps Harbor's meaning, a base image the run builds on. The scheme is not a
-Docker reference, so neither can be mistaken for the other.
+The run passes everything after `blaxel://` to Blaxel's sandbox create unchanged, so
+any image reference that Blaxel accepts works. Nothing is built, so `force_build`
+doesn't apply.
 
-An imported image must carry Blaxel's sandbox API, which every Blaxel sandbox runs as
-its entrypoint. An image the run builds gets it from Blaxel's builder; an imported one
-skips that build, so its Dockerfile adds it, at a pinned version:
+The task's `environment/` directory follows Harbor's rule for any task with a
+`docker_image`. If the directory isn't empty and has no Dockerfile, its contents are
+uploaded into the working directory once the sandbox starts. If it has a Dockerfile,
+the Dockerfile is ignored and nothing is uploaded.
+
+A `docker_image` without the `blaxel://` scheme keeps Harbor's meaning, which is a base
+image that the run builds on. The scheme isn't a Docker reference, so neither form can
+be mistaken for the other.
+
+An imported image must carry Blaxel's sandbox API. Every Blaxel sandbox runs it as its
+entrypoint, and every command and file operation in the sandbox goes through it. An
+image that the run builds gets it from Blaxel's builder. An imported image skips that
+build, so its Dockerfile must add the sandbox API, at a pinned version:
 
 ```dockerfile
 COPY --from=ghcr.io/blaxel-ai/sandbox:<version> /sandbox-api /usr/local/bin/sandbox-api
 ENTRYPOINT ["/usr/local/bin/sandbox-api"]
 ```
 
-Blaxel requires it: every command and file operation in the sandbox goes through it.
+There are two ways to get the image into the workspace. You can push it with `bl push`,
+as Blaxel's [custom images](https://docs.blaxel.ai/Sandboxes/Templates) guide
+describes. Or you can have Blaxel import it from a registry with `POST /images`. That
+request takes `name`, `resourceType: "sandbox"`, `image`, `tag`, and a `dockerConfig`
+that holds the registry's pull credential.
 
-Get the image into the workspace with `bl push` (see Blaxel's
-[custom images](https://docs.blaxel.ai/Sandboxes/Templates)), or have Blaxel import one
-from a registry with `POST /images` (`name`, `resourceType: "sandbox"`, `image`, `tag`,
-and a `dockerConfig` holding the registry's pull credential). Blaxel reserves the tag
-`latest`, and tags are immutable. `bl get image sandbox/<name> --latest` shows an
-image's tags; `sandbox/<name>:<tag>` is the reference to write.
+Blaxel reserves the tag `latest`, and its tags are immutable. Run
+`bl get image sandbox/<name> --latest` to see an image's tags. The reference to write
+is `sandbox/<name>:<tag>`.
 
-A separate verifier's environment, or a step verifier's, may name one the same way, in
-its own `[verifier.environment]`. `loops check`, and `loops run` before it starts
-anything, refuse a task naming a `blaxel://` image in any of its environments:
+A separate verifier's sandbox, or a step verifier's, can name an imported image the
+same way, in its own `[verifier.environment]`. `loops check` refuses a task that names
+a `blaxel://` image in any of its sandboxes in these cases:
 
-- on a job not backed by Blaxel (Daytona, local Docker), which would pull it as a
-  Docker image and fail on every trial;
-- written `sandbox/<name>` with no tag;
-- written `sandbox/<name>:<tag>` when the workspace has no image `<name>`, or the image
-  has no tag `<tag>`.
+- The job isn't backed by Blaxel. A Daytona or local Docker job would pull the
+  reference as a Docker image, and every trial would fail.
+- The reference is `sandbox/<name>` with no tag.
+- The reference is `sandbox/<name>:<tag>`, and the workspace has no image `<name>` or
+  the image has no tag `<tag>`.
 
-Each image is looked up once, whatever tags name it, with
-`GET /images/sandbox/<name>/tags`, and only when a task names one. Blaxel looks images up by name only, so a reference in any other
-form it accepts goes unchecked, as does one Blaxel does not answer for; the check logs
-each such image. When every environment of a task starts from a `blaxel://` image,
-nothing is built, so the task's build timeout need not cover the image build deadline,
-and its own `blaxel.toml` is not checked for region.
+`loops run` makes the same check before it starts anything.
+
+The check looks up each image once with `GET /images/sandbox/<name>/tags`, however
+many tags name it, and only when a task names one. Blaxel looks images up by name only,
+so the check can't verify a reference in any other form that Blaxel accepts. It also
+can't verify an image that Blaxel doesn't answer for. The check logs each image that it
+couldn't verify.
+
+When every sandbox of a task starts from a `blaxel://` image, nothing is built. The
+task's build timeout then doesn't need to cover the image build deadline, and
+`loops check` doesn't check the task's own `blaxel.toml` for its region.
 
 ### Daytona
 
@@ -224,20 +224,27 @@ environment:
   override_storage_mb: 3072
 ```
 
-Add `[providers.daytona]` to the training TOML, with its sandbox sizes and `ttl_minutes`, and put
-`DAYTONA_API_KEY` in `.env`. Daytona applies a task's `cpus`, `memory_mb`, and
-`storage_mb` independently; a sandbox the run loses stops after idling, is deleted as
-it stops, and is destroyed at a wall-clock TTL. As on Blaxel, the `import_path` is
-required, every sandbox is provisioned and released by the run, and `check` refuses a
-build timeout that does not cover the provider's reconcile, create, and attach
-deadlines. See [daytona.md](daytona.md) for what the cookbook adds to Harbor's Daytona
-environment, sizing, and choosing between the two.
+Add a `[providers.daytona]` table to the training TOML. It must set the default sandbox
+size, `cpu`, `memory_gib` and `disk_gib`, and `ttl_minutes`. Its other keys have
+defaults. Put `DAYTONA_API_KEY` in `.env`.
+
+Daytona applies a task's `cpus`, `memory_mb` and `storage_mb` independently. A sandbox
+that the run loses stops after it has been idle, is deleted as it stops, and is
+destroyed when it reaches a wall-clock TTL.
+
+The rules that apply on Blaxel apply here too. The `import_path` is required, the run
+creates and releases every sandbox, and `loops check` refuses a build timeout that
+doesn't cover the provider's reconcile, create and attach deadlines together.
+[daytona.md](daytona.md) explains what the cookbook adds to Harbor's Daytona
+environment, how sizing works, and how to choose between Blaxel and Daytona.
 
 ## 2. Define a `LoopsAgent`
 
-Your agent is a Harbor `BaseAgent` that subclasses `LoopsAgent`. The cookbook binds the
-attempt's services before `setup`, and `self.llm()` then returns its model client. Declare its settings with a Harbor `AgentOptions` model so
-`agents[].kwargs` is validated.
+Your agent is a Harbor agent, a `BaseAgent`, that subclasses the cookbook's
+`LoopsAgent`. Before Harbor calls `setup`, the cookbook binds the attempt's services
+to the agent. After that, `self.llm()` returns the attempt's model client. Declare the
+agent's settings with a Harbor `AgentOptions` model, so that the job's
+`agents[].kwargs` is validated against it.
 
 ```python
 # my_agent.py
@@ -292,25 +299,36 @@ class MyAgent(LoopsAgent):
                                 "content": result.stdout})
 ```
 
-`generate` renders the history with the model's chat template, samples, records the
-exact tokens, and returns a reply with `content`, `reasoning_content`, `tool_calls`
-(parsed, each with a `status`; `arguments` is a dict when it parsed, and `id` may be
-`None`), `stop_reason`, `usage`, `parse_error`, `native_message`, `history_message`
-(what to append: the native message, or the turn as written when a call did not
-parse, appended as it is: it continues only from its sampled tokens, see
-[model-access.md](model-access.md)), and `truncated`. Pass the full history and the current tools every call; append-only
-continuations reuse the sampled prefix. Everything about tokens is in
-[model-access.md](model-access.md).
+`generate` renders the history with the model's chat template, samples a reply,
+records the exact tokens and returns the reply. The reply has these fields:
 
-Check `truncated` before you use a reply. A generation cut short — by `max_tokens`,
-inside reasoning, or inside a tool call — can be indistinguishable from a finished
-turn: an empty `content` with no `tool_calls` is what both look like. Appending one
-as the model's reply, or grading whatever it left behind, scores an answer the model
-never gave. `truncated` folds those signals into one question; what to do with a cut
-turn is yours, but it is never an answer.
+- `content` and `reasoning_content` hold the reply's text and its reasoning.
+- `tool_calls` holds the parsed tool calls. Each call has a `status`. Its `arguments`
+  is a dict when the call parsed, and its `id` may be `None`.
+- `stop_reason` says why the generation stopped, and `usage` counts its tokens.
+- `parse_error` says why a tool call didn't parse.
+- `native_message` is the assistant turn in the model's own format.
+- `history_message` is the turn to append to your history. It is the native message,
+  or the turn as the model wrote it when a call didn't parse. Append it as it is,
+  because the next turn continues only from its sampled tokens.
+  [model-access.md](model-access.md) explains why.
+- `truncated` says whether the generation was cut short, as described below.
 
-If you decline a turn you have already sampled — a cut generation, a losing
-candidate in best-of-n, a speculative probe — tell the conversation:
+Pass the full history and the current tools on every call. When a call's history only
+appends messages to the previous call's, the call reuses the tokens already sampled as
+the start of its prompt. [model-access.md](model-access.md) covers everything about
+tokens.
+
+Check `truncated` before you use a reply. A generation can be cut short by
+`max_tokens`, inside its reasoning or inside a tool call. A cut generation can look
+exactly like a finished turn, because both can have an empty `content` and no
+`tool_calls`. If you append a cut turn as the model's reply, or grade whatever it left
+behind, you score an answer the model never gave. `truncated` combines those signals
+into one flag. You decide what to do with a cut turn, but it is never an answer.
+
+Sometimes you decline a turn that you have already sampled, such as a cut generation,
+a losing candidate in best-of-n, or a speculative probe. Tell the conversation when you
+do:
 
 ```python
 reply = await conversation.generate(messages=history, tools=TOOLS, max_tokens=512)
@@ -318,74 +336,97 @@ if reply.truncated:
     conversation.discard(reply)          # then re-ask, or give up on the rollout
 ```
 
-Sampling it recorded it, and everything recorded is trained. A rejected generation
-left in place is trained with the rollout's advantage, and because chains are
-covered by exact token prefix, it also splits the trajectory in two — so the datum
-it lands in ends on the completion you rejected. `discard` removes it and restores
-the sampled prefix the next turn extends, which is what lets a retry render one
-clean chain. Only the most recent generation can be discarded, and the sampling
-record is untouched: this decides what trains, not what happened.
+The conversation recorded the generation when it sampled it, and the run trains
+everything that was recorded. If you leave a rejected generation in place, it trains
+with the rollout's advantage. It also splits the trajectory in two. The run builds
+training data from chains of generations, in which each generation's prompt starts with
+the exact tokens of the one before it. So the rejected generation ends a chain, and the
+training datum it lands in ends on the completion you rejected.
 
-A rollout whose agent discards every generation is still graded, and its reward still
-counts in its group's baseline; it just has nothing to train. So a cut-off reply can
-score 0 against the replies that finished without its long reasoning being pushed
-down for running out of room (examples/sat does this). A group whose only nonzero
-advantages fall on such rollouts is rejected as `nothing_to_train`.
+`discard` removes the generation and restores the sampled prefix that the next turn
+extends, so a retry renders one clean chain. Only the most recent generation can be
+discarded. The sampling record isn't changed, because `discard` decides what trains,
+not what happened.
 
-`loops_cookbook.llm` publishes the shapes for the history you build: `SystemMessage`,
-`UserMessage` and `ToolMessage`, plus `ToolSchema` for a tool declaration and
-`Content` for a message body. The message shapes are `TypedDict`s and `Content` is a
-type alias, so you keep writing plain dicts
-and a type checker tells you when a tool result is missing its `tool_call_id`.
-`AssistantMessage` is deliberately open — that one comes back from the renderer as
-`native_message`, and what it carries differs by model family (GLM-5.3 has
-`reasoning_content`), so append what you were given rather than building your own.
-`Message` and `Tool` remain the broad types the renderer itself accepts.
+The run still grades a rollout whose agent discards every generation, and its reward
+still counts in its group's baseline. The rollout only has nothing to train. So a reply
+cut off by `max_tokens` can score 0 against the replies that finished, without pushing
+down its long reasoning for running out of room. [examples/sat](../../examples/sat/)
+does this. When a group's only nonzero advantages fall on such rollouts, the run
+rejects the group as `nothing_to_train`.
 
-Keep your own base class if you have one: implement `bind_loops_services(self,
-services)` as a plain method that stores the attempt's services, and declare
-`model_access = ModelAccessMode.DIRECT` on the class. The runtime calls the
-setter before `setup`; `services.model_access.llm(producer)` then returns a client
-locked to that producer. An agent that uses several producers asks once per
-producer: `self.llm("critic")`. The shortcuts `self.conversation(producer="critic")`
-and `await self.http_connection(producer="critic")` use the same attempt binding.
-Every producer an agent names is declared in
-`[rollout.producers]`, with whether it trains; `llm()` with no name is `main`, and a
-name the table does not declare raises `ModelAccessError`.
+`loops_cookbook.llm` exports types for the history you build. `SystemMessage`,
+`UserMessage` and `ToolMessage` are the message shapes. `ToolSchema` is a tool
+declaration, and `Content` is a message body. The message shapes are `TypedDict`s and
+`Content` is a type alias, so you keep writing plain dicts, and a type checker tells you
+when a tool result is missing its `tool_call_id`. `AssistantMessage` is deliberately
+open. The assistant message comes back from the renderer as `native_message`, and what
+it carries differs by model family. For example, a GLM-5.3 message has
+`reasoning_content`. Append the message you were given rather than building your own.
+`Message` and `Tool` are still the broad types that the renderer itself accepts.
 
-Complete examples: [patterns/harbor/in_process_direct](../../patterns/harbor/in_process_direct/)
-(one call, write an answer, runs on local Docker) and
-[terminal_bench](../../examples/terminal_bench/) (multi-turn bash agent with
-parallel tool dispatch and output truncation).
+You can keep your own base class instead of `LoopsAgent`. Implement
+`bind_loops_services(self, services)` as a plain, synchronous method that stores the
+attempt's services, and declare `model_access` on the class, such as
+`model_access = ModelAccessMode.DIRECT`. The Harbor rollout runtime calls
+`bind_loops_services` before `setup`. After that,
+`services.model_access.llm(producer)` returns a client locked to that producer.
 
-Images work the same way for vision models: put `{"type": "image", "image": <PNG or
-JPEG bytes>}` parts in a user or tool message's content list alongside text parts. See
-[renderers.md](renderers.md#images) for accepted shapes and which models render them.
+A producer is a named source of model calls. Every producer an agent names must be
+declared in `[rollout.producers]`, together with whether its generations train. `llm()` with no name uses `main`, and a name the table
+doesn't declare raises `ModelAccessError`. An agent that uses several producers asks
+for a client once per producer, such as `self.llm("critic")`. The shortcuts
+`self.conversation(producer="critic")` and
+`await self.http_connection(producer="critic")` use the same attempt binding.
 
-Supported today: agent code running on the host, calling the model through
-`self.llm()`, with the task executing in the sandbox; and an agent program run as a
-process on the host, calling the model over HTTP. An in-process agent can also call
-the model over HTTP through an OpenAI client
-([patterns/harbor/in_process_openai_http](../../patterns/harbor/in_process_openai_http/)). For the second, declare
-`model_access = ModelAccessMode.OPENAI_HTTP`, run the program with
-`self.services.processes.run(...)`, and give it
-`self.services.model_access.http_connection()` and the trial environment's
-`usage_environment()`, so its tools act on the trial's
-sandbox through the provider's API. The cookbook's Blaxel and Daytona environments
-provide that usage environment. [patterns/harbor/local](../../patterns/harbor/local/) is the
-complete example. Agents that run entirely inside the sandbox are not supported yet.
+Two complete examples show a `LoopsAgent`.
+[patterns/harbor/in_process_direct](../../patterns/harbor/in_process_direct/) makes one
+model call, writes the answer, and runs on local Docker.
+[terminal_bench](../../examples/terminal_bench/) is a multi-turn bash agent with
+parallel tool dispatch and output truncation.
 
-Over HTTP, every response the program received trains. A program that declines a
-turn — a losing best-of-n candidate, a malformed tool call it re-asks for — posts
-`{"id": "<completion id>"}` to `<base_url>/loops/discard` with the same key, which
-does what `conversation.discard(reply)` does above;
-[model-access.md](model-access.md#over-http) has the rules and errors.
+Images work the same way for vision models. Put
+`{"type": "image", "image": <PNG or JPEG bytes>}` parts in the content list of a user
+or tool message, alongside text parts. [renderers.md](renderers.md#images) lists the
+accepted shapes and the models that render them.
+
+### Agent placement
+
+A Harbor agent can run in two places today:
+
+- **In-process.** The agent is Python code that runs inside the training process and
+  calls the model through `self.llm()`, while the task's commands run in the sandbox. An
+  in-process agent can also call the model over HTTP through an OpenAI client, as
+  [patterns/harbor/in_process_openai_http](../../patterns/harbor/in_process_openai_http/)
+  shows.
+- **Local.** The agent is a separate program that runs as a process on the training
+  machine and calls the model over HTTP.
+
+Remote agents, which run entirely inside the sandbox, aren't supported yet.
+
+To run a local agent, declare
+`model_access = ModelAccessMode.OPENAI_HTTP` and start the program with
+`self.services.processes.run(...)`. Give the program two things. The first is
+`self.services.model_access.http_connection()`, the attempt's connection to the model.
+The second is the trial environment's `usage_environment()`, which lets the program's
+tools act on the trial's sandbox through the provider's API. The cookbook's Blaxel and
+Daytona environments provide that usage environment.
+[patterns/harbor/local](../../patterns/harbor/local/) is the
+complete example.
+
+Over HTTP, every response the program received trains. A program can decline a turn,
+such as a losing best-of-n candidate or a malformed tool call that it asks for again.
+To decline it, the program posts `{"id": "<completion id>"}` to
+`<base_url>/loops/discard` with the same key. That does what
+`conversation.discard(reply)` does above.
+[model-access.md](model-access.md#over-http) has the rules and the errors.
 
 ## 3. Run
 
-Copy [patterns/harbor/train_template.toml](../../patterns/harbor/train_template.toml) as `train.toml` next to
-`job.yaml` and `my_agent.py`, set `base_model` and `[runtime.files] job`, put
-`BASETEN_API_KEY` in a `.env` in the same directory, then:
+Copy [patterns/harbor/train_template.toml](../../patterns/harbor/train_template.toml)
+as `train.toml`, next to `job.yaml` and `my_agent.py`. In it, set
+`[model].base_model`, and point `job` in `[rollout_runtime.files]` at your job
+file. Put `BASETEN_API_KEY` in a `.env` file in the same directory. Then run:
 
 ```sh
 uv run loops check train.toml     # resolves the dataset, imports the agent, builds the renderer
@@ -393,14 +434,18 @@ uv run loops run   train.toml     # provisions Loops resources (billable) and tr
 uv run loops run   train.toml --training.max_steps 1 --training.group_size 2 --training.max_group_losses 0 --training.groups_per_step 1   # one-update smoke
 ```
 
-The config's directory is importable, which is how `import_path: my_agent:MyAgent`
-resolves. `[runtime.files]` and `resume_from` are relative to `train.toml`; `output_dir`
-is relative to where you run, and so are the paths inside the job file, such as
-`tasks[].path`, which Harbor resolves itself. `loops run --help` documents every setting, and
-[`KNOB_GLOSSARY.md`](KNOB_GLOSSARY.md) groups them by table with the few that
-only make sense together.
+The `loops` command makes the config's directory importable, which is how
+`import_path: my_agent:MyAgent` resolves. Paths resolve from two places:
 
-From Python:
+- The paths in `[rollout_runtime.files]` and `[training].resume_from` are relative
+  to `train.toml`.
+- `[output].output_dir` is relative to the directory you run from. So are the paths
+  inside the job file, such as `tasks[].path`, because Harbor resolves them itself.
+
+`loops run --help` documents every setting. [`KNOB_GLOSSARY.md`](KNOB_GLOSSARY.md)
+lists the settings by table, and points to the few that only make sense together.
+
+You can also run the config from Python:
 
 ```python
 from loops_cookbook.project import load
@@ -410,13 +455,153 @@ outcome = await project.train()
 ```
 
 `load()` makes the config's directory importable, as `loops` does. Unlike `loops`, it
-reads a `.env` only when you name one with `env_file`, which is relative to the config.
-See [the README](../../README.md#use-it-as-a-library) for the rest.
+reads a `.env` file only when you name one with `env_file`, and that path is relative
+to the config. [Using the cookbook as a library](library.md) covers the
+rest.
 
-Output goes to `output_dir/<run_name>-<time>-<id>/`; layout and resume are described
-in [training.md](training.md#outputs). By default the Loops run stays up when the
-process exits: the run ID is logged with a warning, and on dedicated Loops
-`reuse_from_run_id` reuses its warm pods next time. A dedicated run that stays up may still be billing. A serverless
-run costs nothing while it waits, but holds one of the workspace's serverless slots.
-With `[compute] keep_run = false`, the Loops run is deactivated when the process exits,
-however the run ended.
+The run writes its output to `output_dir/<run_name>-<time>-<id>/`.
+[training.md](training.md#outputs) describes the layout and how to resume.
+
+By default, the Loops run stays up when the process exits, and the cookbook logs the
+run ID with a warning. On dedicated Loops, a run that stays up may still be billing,
+and a later run's `[compute].reuse_from_run_id` can reuse its warm pods. A serverless
+run costs nothing while it waits, but it holds one of the workspace's serverless slots.
+With `[compute].keep_run = false`, the cookbook deactivates the Loops run when the
+process exits, however the run ended.
+
+## What the job must satisfy
+
+A Harbor job must meet these rules to train:
+
+- **The job must run the agent and an enabled verifier.** `loops check` rejects
+  `install_only` jobs, regrade-only jobs and jobs that set `verifier.disable`.
+- **The verifier must produce one numeric reward.** Its reward map must have a single
+  entry, or you name the entry to train on with `[rollout_runtime.config].reward_key`.
+  A boolean reward, a reward that isn't finite and a missing reward are failures, not
+  zeros.
+- **The cookbook sets Harbor's trial cap.** The cap is `max_concurrent_rollouts`, plus
+  the pre-start places, plus `max_concurrent_verifiers`. The pre-start places let a few
+  trials start their sandbox before a sampling slot is free.
+  [scheduling.md](scheduling.md) explains all three. Setting `n_concurrent_trials` in
+  the job file has no effect, because only the cookbook knows these numbers.
+- **The grading deadline must exceed Harbor's own.** `loops check` refuses a job whose
+  `[rollout.grading].timeout_seconds` doesn't exceed Harbor's own bound for one
+  `grade()` call. For a separate verifier with R retries, that bound is
+  `(R+1) x (build + verifier)`, plus Harbor's backoff between retries.
+- **Remote datasets download at `loops check`.** A private dataset uses your own git
+  credentials or `harbor auth login`. The cookbook adds nothing.
+
+## Grading and failures
+
+### Shared and separate verifiers
+
+A task whose verifier shares the agent's sandbox is graded live, in that sandbox.
+
+A single-step task whose verifier runs in its own sandbox is graded from artifacts,
+because the cookbook separates its sampling from its grading. The run releases the
+agent's sandbox as soon as the agent finishes. When the job sets
+`environment.delete: false`, it releases the sandbox when the attempt ends instead.
+Harbor then regrades the trial from what it recorded. Anything the verifier needs must
+therefore be declared as a task artifact.
+
+A multi-step task keeps Harbor's step order, and the cookbook doesn't separate its
+grading from its sampling.
+
+### When the agent fails
+
+A failed agent is graded, as Harbor grades it. The agent can fail by timing out, with
+`AgentTimeoutError`, or by exiting with an error, with `NonZeroAgentExitCodeError` or
+any of its subclasses. Those subclasses include the API errors that Harbor's installed
+agents raise. Either way, Harbor still runs the verifier, and the trial trains on its
+reward. So an agent that runs out of time earns its low reward.
+
+A separate-verifier trial is regraded from the saved trial exactly when Harbor carried
+the trial on to its verification. A trial that Harbor ended before then is a rollout
+failure.
+
+When the deadline cuts a generation off mid-flight, that generation is dropped from
+the evidence, and the rest of the episode trains.
+
+The verifier never sees the trial's exception. A shared verifier sees the sandbox, and
+a separate verifier sees the saved trial's artifacts. An agent can leave evidence in
+either place for a custom verifier to read, but the verifier can't see a timeout or an
+error that Harbor enforced.
+
+The Harbor rollout runtime never discards a failed agent's episode, and what the
+verifier scores stands. Only the cookbook's own rollout clock discards an episode, as
+[failures.md](failures.md) explains. The run reports how often each exception
+happened as `runtime/harbor/trial_exceptions/<type>`, which you can compare with the
+number of trials in `runtime/harbor/sampling_trials`.
+
+### When a sandbox runs out of memory or disk
+
+A sandbox that runs out of memory or disk is a sizing question. Its memory and disk
+are the sizes that the task or the job set. The cookbook doesn't reinterpret the
+trial, and Harbor's result stands.
+
+On Blaxel and Daytona, each trial reports its sandbox's out-of-memory (OOM) kill
+count, which the run reads when the agent phase ends. Where the count comes from
+depends on the provider:
+
+- A Blaxel sandbox is a micro-VM, so the count is its own kernel's, from
+  `/proc/vmstat`.
+- A Daytona sandbox is a container on a shared host kernel, so the count is its
+  cgroup's, from `memory.events`.
+
+The run reports the count as `runtime/harbor/sandbox_oom_kills/{count,mean,max}`, and
+`runtime/harbor/oom_killed_trials` counts the trials that had any OOM kill. The count
+is only a metric. The run leaves the agent's metadata as the
+agent wrote it. When the count can't be read, it isn't reported.
+
+### Other errors
+
+Any other error fails the rollout. Harbor never retries a sampling trial itself. An
+exception that is raised before sampling ends, and that leaves no reward, is a rollout
+failure. It is permanent if its type is in the job's `retry.exclude_exceptions`.
+Otherwise the run may retry it under `[rollout].max_rollout_retries`. Either way, it
+counts toward `[rollout].max_consecutive_rollout_failures`.
+
+A shared verifier's failure surfaces in `grade()` instead, as
+`grading_failed/<type>`. The cookbook doesn't retry it, because the Harbor rollout
+runtime's `grading_retries` is 0. The job's `retry` block applies only to
+separate-verifier regrades.
+
+### Dropping a reward with a reward gate
+
+A reward gate drops a reward from training. It never turns the reward into a zero. Name
+the gate in `[rollout_runtime.config].reward_gate` as `module:attribute`. The gate is an
+async function `(trial, verifier_result) -> str | None`:
+
+- `None` keeps the reward.
+- A reason drops the trial from training. The run reports the drop as
+  `grading_failed/<reason>`, so a reason may hold only lowercase letters, digits and
+  underscores.
+
+The run calls the gate once the reward is final, before it stops the sandboxes that are
+still running. For a task with a separate verifier, the agent's sandbox is already
+released by then.
+
+A dropped trial doesn't count toward the consecutive-failure stop. Its reward stays in
+the trial directory, so you can still read it.
+
+A gate that raises fails grading as `grading_failed/reward_gate`. A gate that returns
+anything other than a reason or `None` fails grading as
+`grading_failed/reward_gate_result`.
+
+The gate runs inside `grade()`, even for a multi-step trial that stopped early, and the
+run holds the trial's sandbox until the gate answers. The gate is therefore bounded as
+`grade()` is. A gate still running past the grading deadline fails as
+`grading_failed/hook_deadline`, and so does a gate that blocks the event loop and
+answers after the deadline. A gate that ignores its cancellation is handled like any
+`grade()` that does, and is reported as `unquiesced/grade`.
+
+## Resuming
+
+Each rollout records what its task held. A rollout's `task_digest` is Harbor's content
+digest of the task as the rollout's trial loaded it, so an edited task shows in the
+rollout records.
+
+A checkpoint records each task's ID and the digest of the job file. If you resume with
+a changed set of tasks, meaning other IDs or another order, the run restarts the task
+order from the beginning, with a warning. Editing a task's content doesn't restart it.
+A changed job file is reported as a changed setting.

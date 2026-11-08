@@ -1,5 +1,5 @@
-# SFT on real tool-agent trajectories (Agent-Ark/Toucan-1.5M). make_data.py writes the
-# data; `loops check` on this file renders it and reports what trains.
+# SFT on real tool-agent trajectories from Agent-Ark/Toucan-1.5M. make_data.py writes
+# the data. `loops check` on this file renders it and reports what trains.
 
 recipe = "sft"
 
@@ -7,7 +7,8 @@ recipe = "sft"
 base_model = "Qwen/Qwen3.6-35B-A3B"
 lora_rank = 32
 max_seq_len = 4096
-# Toucan has no reasoning; see "Choosing settings" in docs/reference/sft.md.
+# Toucan has no reasoning. "Choosing settings" in docs/reference/sft.md explains what
+# that means for these settings.
 renderer_chat_template_kwargs = { enable_thinking = false }
 
 [data]

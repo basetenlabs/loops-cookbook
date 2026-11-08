@@ -1,4 +1,4 @@
-"""Host-only hill climb: sample one A–D label; reward the hidden target (B by default)."""
+"""A host-only hill climb that rewards one hidden label from A to D, B by default."""
 
 from typing import Literal
 

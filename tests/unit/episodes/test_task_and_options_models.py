@@ -111,7 +111,7 @@ async def test_a_generic_base_bound_by_a_subclass_declares_the_models_it_is_boun
         options={"url": "u"},
     )
     (task,) = await runtime.prepare()
-    assert task.digest == task_digest({"prompt": "p", "answer": "a", "points": 1})
+    assert runtime._task_digest(task.id) == task_digest({"prompt": "p", "answer": "a", "points": 1})
 
 
 @pytest.mark.parametrize(
@@ -208,7 +208,7 @@ def test_every_kind_of_field_the_allow_list_names_is_accepted_as_task_or_options
 
 @pytest.mark.parametrize(
     ("role", "where"),
-    [("task model", r"tasks\.jsonl:1"), ("options model", r"\[runtime\.config\.options\]")],
+    [("task model", r"tasks\.jsonl:1"), ("options model", r"\[rollout_runtime\.config\.options\]")],
 )
 def test_a_validated_value_that_does_not_dump_as_its_field_type_is_refused(
     tmp_path, monkeypatch, role, where
@@ -231,7 +231,7 @@ async def test_a_model_dump_override_is_not_what_task_or_options_are_digested_by
     )
     if role == "task model":
         (task,) = await runtime.prepare()
-        digest = task.digest
+        digest = runtime._task_digest(task.id)
     else:
         digest = evidence.digests["options"]
     assert digest == task_digest({"q": "a"})

@@ -55,7 +55,7 @@ PACKAGE_EXPORTS = {
         "StaleRolloutError",
         "TaskRef",
     },
-    # What runtimes and agents use.
+    # What rollout runtimes and agents use.
     "loops_cookbook.model_access": {
         "CaptureIntegrityFailure",
         "ModelAccess",
@@ -116,14 +116,14 @@ def test_each_package_exports_exactly_its_contract(package):
 
 
 FIELDS = {
-    "TaskRef": ("id", "digest"),
+    "TaskRef": ("id",),
     "AttemptIdentity": ("run_id", "group_id", "rollout_id", "attempt_id"),
     "AttemptSpec": ("identity", "task"),
     "AttemptServices": ("model_access", "capacity", "resources", "processes", "metrics"),
     "ProcessCommand": ("argv", "cwd", "env"),
     "ProcessResult": ("exit_code", "signal", "stdout_tail", "stderr_tail", "elapsed_seconds"),
     "AttemptContext": ("spec", "services"),
-    "EpisodeResult": ("metadata",),
+    "EpisodeResult": ("metadata", "task_digest"),
     "GradeResult": ("reward", "metadata"),
     "RuntimeCapabilities": (
         "model_access_modes",
@@ -165,7 +165,15 @@ FIELDS = {
         "max_tokens",
         "clamped_from",
     ),
-    "Rollout": ("identity", "task", "samples", "reward", "metadata", "discarded_versions"),
+    "Rollout": (
+        "identity",
+        "task",
+        "samples",
+        "reward",
+        "metadata",
+        "discarded_versions",
+        "task_digest",
+    ),
 }
 
 
@@ -186,14 +194,14 @@ NORMATIVE = {
     "abort": ["self", "attempt", "reason"],
     "close": ["self"],
 }
-# What a runtime may add beside the hooks: ``GroupGrader``, for one that declares
+# What a rollout runtime may add beside the hooks: ``GroupGrader``, for one that declares
 # ``pending_group_grade``.
 OPTIONAL = {"grade_group": ["self", "members"]}
 PATTERNS = Path(__file__).resolve().parents[2] / "patterns"
 
 
 def _runtime_class(where: str) -> type:
-    """A runtime class by ``module:Class``, or by ``path/to/file.py:Class`` for an example."""
+    """A rollout runtime class by ``module:Class``, or by ``path/to/file.py:Class`` for an example."""
     module_name, _, name = where.partition(":")
     if module_name.endswith(".py"):
         spec = importlib.util.spec_from_file_location(

@@ -1,6 +1,6 @@
 """An episode class's run and its training config, for the tests that run or check one.
 
-``episode`` is the class's path, ``module:Class``, as ``[runtime.config] episode``
+``episode`` is the class's path, ``module:Class``, as ``[rollout_runtime.config] episode``
 names it.
 """
 
@@ -22,13 +22,13 @@ def settings(config, tmp_path, episode, *, options=None, tasks=TASKS, **override
     """A one-step run of ``episode`` over ``tasks``, offline; ``overrides`` win."""
     return config(
         **{
-            "runtime.factory": FACTORY,
-            "runtime.config": {
+            "rollout_runtime.factory": FACTORY,
+            "rollout_runtime.config": {
                 "episode": episode,
                 "agent_timeout_seconds": 20,
                 **({} if options is None else {"options": options}),
             },
-            "runtime.files": {"tasks": str(task_file(tmp_path, tasks))},
+            "rollout_runtime.files": {"tasks": str(task_file(tmp_path, tasks))},
             "compute.sampler_replica_affinity": True,
             "max_steps": 1,
             **overrides,

@@ -35,7 +35,7 @@ def test_the_factory_receives_a_private_copy_of_exactly_the_users_values():
     assert seen == [
         {"path": "/bin/bash", "endpoint": "/v1/chat", "api_key": "k", "nested": {"a": [1, 2]}}
     ]
-    assert config["nested"]["a"] == [1]  # the runtime's copy is private
+    assert config["nested"]["a"] == [1]  # the rollout runtime's copy is private
 
 
 def test_only_declared_file_aliases_resolve(tmp_path):
@@ -97,17 +97,17 @@ def test_runtime_evidence_is_recorded_once_per_name():
         (
             RuntimeCapabilities(DIRECT),
             Preflight(None, None),
-            r"\[rollout\] rollout_timeout_seconds is required: this runtime derives no rollout",
+            r"\[rollout\] rollout_timeout_seconds is required: this rollout runtime derives no rollout",
         ),
         (
             RuntimeCapabilities(BOTH),
             Preflight(None, 30),
-            r"\[runtime\] model_access is required: the runtime supports \['direct', 'openai_http'\]",
+            r"\[rollout_runtime\] model_access is required: the rollout runtime supports \['direct', 'openai_http'\]",
         ),
         (
             RuntimeCapabilities(DIRECT),
             Preflight(ModelAccessMode.DIRECT, 30),
-            "the runtime already declares 'direct'; the runtime states it once",
+            "the rollout runtime already declares 'direct'; the rollout runtime states it once",
         ),
         (
             RuntimeCapabilities(DIRECT, rollout_timeout_seconds=0),
@@ -121,20 +121,19 @@ def test_capabilities_are_validated_at_preflight(capabilities, preflight, match)
         check_capabilities(capabilities, preflight)
 
 
-def test_prepared_tasks_are_task_refs_with_one_digest_per_id():
-    digest = "sha256:" + "a" * 64
-    other = "sha256:" + "b" * 64
-    assert check_tasks([TaskRef("t", digest), TaskRef("t", digest)])
-    with pytest.raises(RuntimeConfigurationError, match="two digests"):
-        check_tasks([TaskRef("t", digest), TaskRef("t", other)])
+def test_prepared_tasks_are_task_refs_an_id_repeated_as_the_runtime_lists_it():
+    assert check_tasks([TaskRef("t"), TaskRef("t")]) == [TaskRef("t"), TaskRef("t")]
     with pytest.raises(RuntimeConfigurationError, match="not a TaskRef"):
         check_tasks(["t"])
     with pytest.raises(RuntimeConfigurationError, match="no tasks"):
         check_tasks([])
 
 
-def test_a_task_digest_must_be_a_sha256():
-    from loops_cookbook.evidence import TrajectoryError
+@pytest.mark.parametrize("digest", ["sha256:ABC", "md5:" + "a" * 32, 7])
+def test_an_attempts_task_digest_must_be_a_sha256(digest):
+    from loops_cookbook.evidence import TrajectoryError, check_task_digest
 
     with pytest.raises(TrajectoryError):
-        TaskRef("t", "sha256:ABC")
+        check_task_digest(digest, where="rollout")
+    assert check_task_digest(None, where="rollout") is None
+    assert check_task_digest("sha256:" + "a" * 64, where="rollout")

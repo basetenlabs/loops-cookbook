@@ -1,6 +1,6 @@
 """``loops check`` on an RL config, and what a resumed run reports, for any runtime.
 
-The runtime is the in-process direct pattern's, as its config names it; nothing here
+The rollout runtime is the in-process direct pattern's, as its config names it; nothing here
 depends on which runtime it is.
 """
 
@@ -64,7 +64,7 @@ def test_check_refuses_a_model_loops_does_not_serve_before_building_the_runtime(
 
     assert code == 2
     assert "[model] base_model 'm' is not a model Loops serves; closest: m2" in err
-    assert "Runtime:" not in out
+    assert "Rollout runtime:" not in out
 
 
 def test_check_passes_offline_and_says_the_model_was_not_checked(
@@ -152,9 +152,9 @@ def settings(config, tmp_path):
     def build(**overrides):
         return config(
             **{
-                "runtime.factory": "loops_cookbook.episodes:create_runtime",
-                "runtime.config": RUNTIME,
-                "runtime.files": {"tasks": str(task_file(tmp_path, TASKS))},
+                "rollout_runtime.factory": "loops_cookbook.episodes:create_runtime",
+                "rollout_runtime.config": RUNTIME,
+                "rollout_runtime.files": {"tasks": str(task_file(tmp_path, TASKS))},
                 "compute.sampler_replica_affinity": True,
                 "max_steps": 1,
                 **overrides,

@@ -1,33 +1,39 @@
-# A custom runtime, local: local_episode.py runs agent_program.py as its own process on
-# the training machine for each episode, in a sandbox the run provisions, and
-# verifier.py scores it. The program calls the model over the run's gateway.
+# A custom rollout runtime, local. For each episode, local_episode.py runs
+# agent_program.py as its own process on the training machine, in a sandbox the run
+# provisions. The program calls the model over the run's gateway, and verifier.py
+# scores the result.
 # uv run loops check patterns/custom_runtime/local/train.toml
 #
-# local_sandbox.py makes each sandbox a directory, so this runs anywhere. A real
-# provider such as [providers.blaxel] slots in through [runtime.config.sandbox]:
-# agent_program.py and verifier.py reach the sandbox only through its usage environment.
+# local_sandbox.py makes each sandbox a directory, so this config runs anywhere. A real
+# provider such as [providers.blaxel] plugs in through [rollout_runtime.config.sandbox].
+# agent_program.py and verifier.py reach the sandbox only through its usage environment,
+# so they work with either.
 
 recipe = "rl"
 
-[runtime]
+[rollout_runtime]
 factory = "loops_cookbook.episodes:create_runtime"
 
-[runtime.files]
-tasks = "../../../tasks/hidden_answer.jsonl"   # one hidden answer to learn (tasks/README)
+[rollout_runtime.files]
+# Each task hides one answer for the model to learn. tasks/README.md describes the file.
+tasks = "../../../tasks/hidden_answer.jsonl"
 
-[runtime.config]
+[rollout_runtime.config]
 episode = "local_episode:DirectoryAgentEpisode"
-agent_timeout_seconds = 90   # cut after its reply: graded on what it left; before it: unversioned
+# The agent's deadline. A rollout cut off before the model replies is discarded.
+# One cut off after the reply is graded on what the agent left.
+agent_timeout_seconds = 90
 
 # The two programs run with the PATH's python3, which `uv run` makes the training
 # interpreter, with the Blaxel SDK that sandbox_io needs for a Blaxel sandbox.
 # A ./ or ../ path in either command resolves beside local_episode.py.
-[runtime.config.options]
+[rollout_runtime.config.options]
 agent = ["python3", "./agent_program.py"]
 verifier = ["python3", "./verifier.py"]
-grade_against = "files"   # or "sandbox": verify the answer it left in its sandbox
+# Set "sandbox" to verify the answer the agent left in its sandbox instead.
+grade_against = "files"
 
-[runtime.config.sandbox]
+[rollout_runtime.config.sandbox]
 provider = "local_sandbox"
 
 [providers.local_sandbox]
@@ -55,7 +61,9 @@ group_size = 16
 max_group_losses = 0
 groups_per_step = 1
 max_steps = 5
-max_consecutive_unusable_groups = 20   # stop if every group scores alike
+# Stop after this many groups in a row that can't train, such as groups in which
+# every rollout scores alike.
+max_consecutive_unusable_groups = 20
 learning_rate = 0.0001
 loss_fn = "cispo"
 

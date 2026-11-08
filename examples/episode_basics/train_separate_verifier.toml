@@ -1,22 +1,25 @@
-# Standalone SeparateVerifierEpisode: guess A-D and score the hidden target.
+# A standalone SeparateVerifierEpisode. The model guesses a letter from A to D. A
+# separate Blaxel verifier sandbox scores the guess against the hidden target.
 # uv run loops run examples/episode_basics/train_separate_verifier.toml
 
 recipe = "rl"
 
-[runtime]
+[rollout_runtime]
 factory = "loops_cookbook.episodes:create_runtime"
 
-[runtime.config]
+[rollout_runtime.config]
 episode = "episodes:SeparateVerifierEpisode"
-agent_timeout_seconds = 90   # cut before the reply: unversioned; after it: graded, 0 if no answer was kept
+# The agent's deadline. A rollout cut off before the model replies is discarded.
+# One cut off after the reply is graded, and scores 0 if it kept no answer.
+agent_timeout_seconds = 90
 
-[runtime.config.sandbox]
+[rollout_runtime.config.sandbox]
 provider = "blaxel"
 image = "blaxel/base-image:latest"
 memory_mb = 2048
 ttl = "10m"
 
-[runtime.config.grading_sandbox]
+[rollout_runtime.config.grading_sandbox]
 provider = "blaxel"
 image = "blaxel/base-image:latest"
 memory_mb = 2048
@@ -25,7 +28,7 @@ ttl = "10m"
 [providers.blaxel]
 region = "us-was-1"
 
-[runtime.files]
+[rollout_runtime.files]
 tasks = "questions.jsonl"
 
 [model]
@@ -43,7 +46,9 @@ group_size = 16
 max_group_losses = 0
 groups_per_step = 1
 max_steps = 5
-max_consecutive_unusable_groups = 20   # stop if every group scores alike
+# Stop after this many groups in a row that can't train, such as groups in which
+# every rollout scores alike.
+max_consecutive_unusable_groups = 20
 learning_rate = 0.0001
 loss_fn = "cispo"
 

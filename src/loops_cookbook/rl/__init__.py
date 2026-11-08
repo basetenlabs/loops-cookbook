@@ -1,4 +1,7 @@
-"""Environment-agnostic RL core: scheduling, GRPO, and the Loops trainer."""
+"""The RL core, which schedules rollouts, computes GRPO advantages and drives the trainer.
+
+It knows nothing about any one environment.
+"""
 
 from loops_cookbook.rl.config import Config
 from loops_cookbook.rl.pipeline import Pipeline

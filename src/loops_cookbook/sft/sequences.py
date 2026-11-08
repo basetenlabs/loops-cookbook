@@ -1,13 +1,13 @@
-"""Conversations to supervised sequences: the tokens a model sees, and which it learns.
+"""Turn conversations into supervised sequences, the tokens a model reads and the ones it learns.
 
-One rule decides the targets for every model: **a token is trained when the trained
-model's chat template has it produce that token, in a trained turn, after the turn's
-own generation prompt.** It needs only what the renderer reports per token -- which
-message owns it and whether the template has the model generate it -- so no model has
-code of its own here. Its consequences (every turn learns to end, each turn trains in
-its own context, a prefill is context, a turn is tokenized as the model writes it) are
-set out in docs/reference/sft.md. A conversation the rule cannot train is refused with
-the reason, never trained some other way.
+One rule decides the targets for every model. **A token is trained when the trained
+model's chat template has the model produce that token, in a trained turn, after the
+turn's own generation prompt.** The rule needs only two facts that the renderer reports
+for each token, namely which message owns it and whether the template has the model
+generate it. So no model has code of its own here. docs/reference/sft.md sets out the
+rule's consequences. For example, every turn learns to end, and a prefill is context.
+A conversation that the rule cannot train is refused with the reason. It is never
+trained some other way.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ IGNORE_INDEX = -100
 
 
 class TrainingRenderer(Protocol):
-    """What supervised training needs from a renderer; ``PrimeRenderer`` is one."""
+    """What supervised training needs from a renderer. ``PrimeRenderer`` provides it."""
 
     @property
     def stop_sequences(self) -> tuple[str, ...] | tuple[int, ...]: ...
@@ -56,26 +56,29 @@ class TrainingRenderer(Protocol):
 
 
 class Refused(ValueError):
-    """A conversation the rule cannot train, and why."""
+    """Raised for a conversation that the rule cannot train, with the reason."""
 
 
 @dataclass(frozen=True, init=False)
 class SupervisedSequence:
-    """One training sequence: every token the model reads, and the ones it learns.
+    """One training sequence, with every token the model reads and the ones it learns.
 
-    A run holds every sequence until it ends, so each is kept compact: its ids as
-    machine integers, a byte per token for whether it trains, and its model input as
-    the runs of ``ids`` its text chunks hold. ``ids``, ``trained``, ``model_input``
-    and ``datum()`` are built from these when asked for, equal to what was given.
+    A run holds every sequence until it ends, so each one is kept compact. Its IDs are
+    machine integers, and one byte per token says whether that token trains. Its model
+    input is stored as the runs of ``ids`` that its text chunks hold. ``ids``,
+    ``trained``, ``model_input`` and ``datum()`` are rebuilt from these when asked for,
+    and they equal what was given.
     """
 
     row: str
-    """The name of the row it trains, ``file:line``."""
+    """The name of the row this sequence trains, as ``file:line``."""
     _ids: array[int]
     _trained: bytes
     _chunks: tuple[int | ModelInputChunk, ...]
-    """The model input's chunks: a text chunk holding the next ``n`` of ``ids`` as
-    ``n``, and any other chunk (an image) as itself."""
+    """The model input's chunks.
+
+    A text chunk that holds the next ``n`` of ``ids`` is stored as ``n``. Any other
+    chunk, such as an image, is stored as itself."""
 
     def __init__(
         self, row: str, ids: Sequence[int], model_input: ModelInput, trained: Sequence[bool]
@@ -96,22 +99,27 @@ class SupervisedSequence:
 
     @property
     def length(self) -> int:
+        """The number of tokens in the sequence."""
         return len(self._ids)
 
     @property
     def ids(self) -> tuple[int, ...]:
+        """Every token ID the model reads, in order."""
         return tuple(self._ids)
 
     @property
     def trained(self) -> tuple[bool, ...]:
+        """Whether each token in ``ids`` is one the model learns."""
         return tuple(map(bool, self._trained))
 
     @property
     def trained_tokens(self) -> int:
+        """The number of tokens the model learns."""
         return self._trained.count(1)
 
     @property
     def model_input(self) -> ModelInput:
+        """The sequence as Loops model input, with its text and image chunks."""
         chunks: list[ModelInputChunk] = []
         position = 0
         for chunk in self._chunks:
@@ -124,7 +132,7 @@ class SupervisedSequence:
         return ModelInput(chunks=chunks)
 
     def datum(self) -> Datum:
-        """The Loops row: position ``i`` reads token ``i`` and predicts token ``i + 1``."""
+        """Build the Loops datum, in which position ``i`` reads token ``i`` and predicts token ``i + 1``."""
         ids, trained = self.ids, self.trained
         length = len(ids) - 1
         targets = [
@@ -142,8 +150,10 @@ class SupervisedSequence:
 
 
 def _packed(ids: Sequence[int]) -> array[int]:
-    """``ids`` in four bytes each, or eight for an id that does not fit (a tokens row
-    is only held to non-negative integers)."""
+    """Pack ``ids`` in four bytes each, or in eight if an ID does not fit.
+
+    A tokens row is held only to non-negative integers, so an ID may need eight bytes.
+    """
     try:
         return array("I", ids)
     except OverflowError:
@@ -156,18 +166,19 @@ class Supervised:
 
     sequences: tuple[SupervisedSequence, ...]
     per_turn: bool
-    """Whether the template's history differs from a turn's context, so each trained
-    turn is its own sequence."""
+    """Whether the template's history differs from a turn's context.
+
+    When it does, each trained turn is its own sequence."""
 
 
 def supervise(row: Row, renderer: TrainingRenderer | None, *, max_seq_len: int) -> Supervised:
-    """The sequences that train ``row``'s trained turns, or ``Refused``.
+    """Build the sequences that train ``row``'s trained turns, or raise ``Refused``.
 
-    ``renderer`` is needed for a chat row only; a tokens row is never rendered.
+    Only a chat row needs ``renderer``. A tokens row is never rendered.
     """
     example = row.example
     if isinstance(example, TokenExample):
-        # Taken as given: the user owns these targets, stop tokens included.
+        # The row is taken as given. The user owns these targets, including stop tokens.
         sequence = SupervisedSequence(
             row.name,
             example.input_ids,
@@ -210,7 +221,7 @@ def _turn_sequence(
     tools: Sequence[Tool],
     stops: frozenset[int],
 ) -> SupervisedSequence:
-    """The sequence that trains the last of ``messages`` alone, after its own prompt."""
+    """Build the sequence that trains only the last of ``messages``, after its own prompt."""
     turn = len(messages) - 1
     conversation = _conversation(renderer, messages, tools)
     if _starts_with(conversation.ids, prompt.ids):
@@ -229,14 +240,15 @@ def _written_after(
     tools: Sequence[Tool],
     stops: frozenset[int],
 ) -> SupervisedSequence:
-    """The latest turn as the model writes it: the prompt's own tokens, then the turn's
-    text tokenized from where the prompt ends.
+    """Build the latest turn as the model writes it.
 
-    For a template whose tokenizer merges a token across the end of the generation
-    prompt -- Qwen and Nemotron prefill ``<think>\\n``, and an empty reasoning's ``\\n``
-    renders with it as one ``\\n\\n`` -- so the full render is not the prompt plus
-    anything. The model never reads that merged token: it is given the prompt and
-    writes the rest. The texts must still agree exactly, or the row is refused.
+    The sequence is the prompt's own tokens, then the turn's text tokenized from where
+    the prompt ends. This handles a template whose tokenizer merges a token across the
+    end of the generation prompt. For example, Qwen and Nemotron prefill
+    ``<think>\\n``, and an empty reasoning's ``\\n`` renders with it as one
+    ``\\n\\n``. The full render is then not the prompt followed by anything. The model
+    never reads that merged token, because it is given the prompt and writes the rest.
+    The texts must still agree exactly, or the row is refused.
     """
     shared = next(
         (k for k, (a, b) in enumerate(zip(prompt.ids, conversation.ids)) if a != b),
@@ -247,13 +259,13 @@ def _written_after(
     if not rendered.startswith(given):
         raise Refused(
             f"messages[{len(messages) - 1}] renders differently as the latest turn than "
-            "after its own generation prompt, so no sequence shows it its context; for "
-            "turns without reasoning_content, a template's thinking-off option (such as "
-            "enable_thinking = false in [model] renderer_chat_template_kwargs) renders "
+            "after its own generation prompt, so no sequence shows it its context. For "
+            "turns without reasoning_content, a template's thinking-off option, such as "
+            "enable_thinking = false in [model] renderer_chat_template_kwargs, renders "
             "them the way the model writes them"
         )
     turn = len(messages) - 1
-    # What trains here is the turn up to its stop; the template may add text after it.
+    # What trains here is the turn up to its stop. The template may add text after it.
     after_prompt = [
         (token, generated)
         for position, (token, owner, generated) in enumerate(
@@ -262,7 +274,8 @@ def _written_after(
         if owner == turn and position >= len(prompt.ids)
     ]
     stop = next((k for k, (token, _) in enumerate(after_prompt) if token in stops), None)
-    # Without a stop (GLM's turn ends with the marker of a message after it), all of it trains.
+    # Without a stop, all of the span trains. GLM's turn ends with the marker of the
+    # message after it.
     span = after_prompt if stop is None else after_prompt[: stop + 1]
     if not all(generated for _, generated in span):
         raise Refused(
@@ -293,7 +306,8 @@ def _sequence(
     owners = list(conversation.owners)
 
     def trains(position: int, turn: int, generated: bool) -> bool:
-        # Past the turn's own generation prompt: a prefilled token is context.
+        # Only tokens past the turn's own generation prompt train. A prefilled token is
+        # context.
         return generated and turn in turns and position >= len(prompts[turn].ids)
 
     trained = [
@@ -313,10 +327,10 @@ def _sequence(
     for turn in turns:
         if not _ends(ids, trained, owners, turn, stops):
             raise Refused(
-                f"messages[{turn}] has no trained stop token: the template does not have "
-                "the model end this turn, so it would never learn to"
+                f"messages[{turn}] has no trained stop token. The template does not have "
+                "the model end this turn, so the model would never learn to"
             )
-    # Nothing after the last target is ever read: a template's trailing newline
+    # Nothing after the last target is ever read, so a template's trailing newline
     # would only cost a position.
     end = max(position for position, flag in enumerate(trained) if flag) + 1
     return SupervisedSequence(row.name, ids[:end], _first(model_input, end), trained[:end])
@@ -325,9 +339,12 @@ def _sequence(
 def _conversation(
     renderer: TrainingRenderer, messages: list[dict[str, object]], tools: Sequence[Tool]
 ) -> RenderedConversation:
-    """``messages`` rendered, refused unless every token the model writes belongs to the
-    assistant turn that writes it -- the role marker that ends a turn included, though
-    GLM renders it with the next message. A turn's targets are then its own tokens."""
+    """Render ``messages``, refusing them unless each token the model writes belongs to its turn.
+
+    The owning turn must be the assistant turn that writes the token. That includes the
+    role marker that ends a turn, which GLM renders with the next message. A turn's
+    targets are then its own tokens.
+    """
     conversation = renderer.render_conversation(messages, tools)
     for position, (owner, generated) in enumerate(
         zip(conversation.owners, conversation.generated, strict=True)
@@ -336,8 +353,8 @@ def _conversation(
             whose = f"messages[{owner}], a {messages[owner]['role']}" if owner >= 0 else "none"
             raise Refused(
                 f"the renderer has the model write token {position} but gives it to "
-                f"{whose}: a token the model writes must belong to the assistant turn "
-                "that writes it, the role marker that ends the turn included"
+                f"{whose}. A token the model writes must belong to the assistant turn "
+                "that writes it, including the role marker that ends the turn"
             )
     return conversation
 
@@ -362,12 +379,12 @@ def _terminator(
     tools: Sequence[Tool],
     stops: frozenset[int],
 ) -> tuple[int, ...]:
-    """The tokens the template would have the model produce to end the final turn.
+    """Return the tokens the template would have the model produce to end the final turn.
 
-    Rendered rather than assumed: the message that naturally follows the turn -- its
-    tool results when it called tools, the user's reply otherwise -- is appended. The
-    turn had no stop token, or it would not need one, so the first it now owns is where
-    its terminator starts.
+    The tokens are rendered rather than assumed. The message that naturally follows the
+    turn is appended. That message is the tool results when the turn called tools, and
+    the user's reply otherwise. The turn had no stop token, or it would not need a
+    terminator, so the first stop token it now owns is where its terminator starts.
     """
     final = messages[-1]
     calls = final.get("tool_calls")
@@ -402,13 +419,14 @@ _PROBE_CALL_ID = "sft-probe-call-7f3a"
 
 
 def check_renderer(renderer: object) -> None:
-    """Refuse a renderer SFT cannot train with, before any row is rendered.
+    """Refuse a renderer that SFT cannot train with, before any row is rendered.
 
-    It must have the whole ``TrainingRenderer`` surface and stop sequences that are
-    token IDs. And it must not render tool call ids: a template that writes them has
-    the model generate them in its own format (Kimi K2's ``functions.{name}:{index}``),
-    while ids in data from elsewhere are only how results name their calls -- training
-    them as written would teach the model ids its own parser cannot read.
+    The renderer must have the whole ``TrainingRenderer`` surface, and its stop
+    sequences must be token IDs. It must also not render tool call IDs. A template that
+    writes them has the model generate them in its own format, such as Kimi K2's
+    ``functions.{name}:{index}``. IDs in data from elsewhere only say how results name
+    their calls. Training them as written would teach the model IDs that its own parser
+    cannot read.
     """
     missing = [
         name
@@ -417,8 +435,8 @@ def check_renderer(renderer: object) -> None:
     ]
     if missing:
         raise ValueError(
-            f"the renderer lacks {', '.join(missing)}, which supervised training needs; "
-            "use a Prime renderer"
+            f"the renderer lacks {', '.join(missing)}, which supervised training needs. "
+            "Use a Prime renderer"
         )
     training: TrainingRenderer = renderer  # pyright: ignore[reportAssignmentType]
     _stop_ids(training)
@@ -437,7 +455,7 @@ def check_renderer(renderer: object) -> None:
     if _PROBE_CALL_ID in training.detokenize(rendered.ids):
         raise ValueError(
             "this model's template renders tool call ids, so the model writes them in a "
-            "format of its own; SFT does not yet rewrite a dataset's ids into it"
+            "format of its own. SFT does not yet rewrite a dataset's ids into that format"
         )
 
 
@@ -459,12 +477,12 @@ def _starts_with(ids: Sequence[int], prefix: Sequence[int]) -> bool:
 
 
 def _without_last_token(model_input: ModelInput) -> ModelInput:
-    """The input positions: every token but the last, which is only ever a target."""
+    """Return the input positions, which are every token but the last. The last is only a target."""
     return _first(model_input, model_input.length - 1)
 
 
 def _first(model_input: ModelInput, length: int) -> ModelInput:
-    """The first ``length`` positions; the cut must fall in text, never inside an image."""
+    """Return the first ``length`` positions. The cut must fall in text, never inside an image."""
     chunks, remaining = [], length
     for chunk in model_input.chunks:
         if remaining >= chunk.length:
@@ -480,12 +498,13 @@ def _first(model_input: ModelInput, length: int) -> ModelInput:
 
 
 def digest(train: Sequence[SupervisedSequence], validation: Sequence[SupervisedSequence]) -> str:
-    """Identifies exactly what trains and what is held out -- inputs, targets, order and
-    which split each sequence is in -- for resume.
+    """Hash exactly what trains and what is held out, so that a resume can be checked.
 
-    The model input is hashed as well as the ids: an image is a run of placeholder
-    tokens in the ids, so two images of one size differ only there. Each split is
-    hashed with its length, so a held-out row moved into training is a change.
+    The hash covers the inputs, the targets, the order and which split each sequence is
+    in. The model input is hashed as well as the IDs. An image is a run of placeholder
+    tokens in the IDs, so two images of one size differ only in the model input. Each
+    split is hashed with its length, so moving a held-out row into training changes
+    the hash.
     """
     hasher = hashlib.sha256()
     for name, sequences in (("train", train), ("validation", validation)):

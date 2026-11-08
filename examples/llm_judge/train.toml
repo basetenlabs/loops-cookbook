@@ -1,27 +1,32 @@
-# An Episode, in-process, direct, with no environment, whose groups an LLM judge ranks:
-# judge_episode.py answers with llm(), and grade_group() asks a judge model, through its
-# own OpenAI-compatible client, to rank each group's answers.
+# An Episode, in-process, direct, with no environment, whose groups an LLM judge ranks.
+# judge_episode.py answers with llm(). grade_group() asks a judge model, through its own
+# OpenAI-compatible client, to rank each group's answers.
 # uv run loops check examples/llm_judge/train.toml
 
 recipe = "rl"
 
-[runtime]
+[rollout_runtime]
 factory = "loops_cookbook.episodes:create_runtime"
 
-[runtime.config]
+[rollout_runtime.config]
 episode = "judge_episode:RankedEpisode"
 agent_timeout_seconds = 60
 
-# The episode's own settings, validated at check as its JudgeOptions: its judge,
-# never the policy. No secret goes here: the key stays in the environment.
-[runtime.config.options]
-judge_base_url = "https://inference.baseten.co/v1"   # any OpenAI-compatible endpoint
+# The episode's own settings, which check validates as its JudgeOptions. They configure
+# the judge, never the policy. No secret goes here, because the key stays in the
+# environment.
+[rollout_runtime.config.options]
+# Any OpenAI-compatible endpoint works.
+judge_base_url = "https://inference.baseten.co/v1"
 judge_model = "openai/gpt-oss-120b"
-judge_api_key_env = "BASETEN_API_KEY"                # the variable that holds its key
-rank_weight = 0.8                                    # the rest is grade()'s length reward
+# The environment variable that holds the judge's key.
+judge_api_key_env = "BASETEN_API_KEY"
+# The judge's ranking makes up this share of the reward, and grade()'s length
+# reward makes up the rest.
+rank_weight = 0.8
 max_words = 60
 
-[runtime.files]
+[rollout_runtime.files]
 tasks = "tasks.jsonl"
 
 [model]
@@ -39,18 +44,23 @@ group_size = 16
 max_group_losses = 0
 groups_per_step = 1
 max_steps = 5
-max_consecutive_unusable_groups = 20   # stop if every group scores alike
+# Stop after this many groups in a row that can't train, such as groups in which
+# every rollout scores alike.
+max_consecutive_unusable_groups = 20
 learning_rate = 0.0001
 loss_fn = "cispo"
 
 [rollout]
 max_concurrent_rollouts = 16
-max_concurrent_verifiers = 4   # one judge call holds one of these for its whole group
+# One judge call holds a verifier slot for its whole group.
+max_concurrent_verifiers = 4
 setup_timeout_seconds = 60
-max_consecutive_rollout_failures = 8   # a judge that keeps failing stops the run
+# A judge that keeps failing stops the run.
+max_consecutive_rollout_failures = 8
 
 [rollout.grading]
-timeout_seconds = 120   # each grade() try, and each judge call
+# The deadline for each grade() try and each judge call.
+timeout_seconds = 120
 
 [compute]
 scope = "dedicated"

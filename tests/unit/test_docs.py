@@ -81,13 +81,13 @@ def test_the_built_in_runtime_and_provider_tables_are_listed_once_each():
         for name in model.model_fields:
             assert body.count(f"| `{name}` |") == 1, f"{heading} {name}"
     headings = {heading for heading, _, _ in BUILT_IN_SECTIONS}
-    assert {"`[runtime.config]` for Episodes", "`[providers.blaxel]`"} <= headings
+    assert {"`[rollout_runtime.config]` for Episodes", "`[providers.blaxel]`"} <= headings
 
 
 def _names_a_setting(table: str, key: str) -> bool:
     """Whether ``[table].key`` is a setting ``Config`` validates there. A table that is
-    a mapping (``[providers.*]``, ``[runtime.config]``) holds keys the user or the
-    runtime owns, so any key in it is taken as named."""
+    a mapping (``[providers.*]``, ``[rollout_runtime.config]``) holds keys the user or the
+    rollout runtime owns, so any key in it is taken as named."""
     from types import NoneType, UnionType
     from typing import Union, get_args, get_origin
 

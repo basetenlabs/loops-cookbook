@@ -3,22 +3,22 @@
 Each task is a question to answer in a sentence or two, from ``tasks.jsonl``,
 validated as a ``Question``.
 
-- ``run()`` is the agent: it asks the policy once with the cookbook's ``llm()``
+- ``run()`` is the agent. It asks the policy once with the cookbook's ``llm()``
   client, which records the exact tokens it samples.
-- ``grade()`` gives each rollout a small reward of its own: 1 when the answer stays
-  within ``max_words``, else 0. ``SandboxedRankedEpisode`` (``train_blaxel.toml``,
-  ``Episode[Question, JudgeOptions] with execution_kind = Blaxel``) keeps the answer in the attempt's
-  Blaxel sandbox, and ``grade()`` reads it back from there.
-- ``grade_group()`` asks a judge model to rank the group's answers, best first,
-  through its own OpenAI-compatible client, set up by ``JudgeOptions`` from
-  ``[runtime.config.options]``: its base URL, its model, and the name of the
-  environment variable holding its API key, never the key. It never sees the policy,
-  a sandbox or a live episode: only each member's task, transcript, reward and
-  metadata. The final reward composes the two: ``rank_weight`` of the rank, the rest
-  of ``grade()``'s.
+- ``grade()`` gives each rollout a small reward of its own, which is 1 when the answer
+  stays within ``max_words`` and 0 otherwise. ``SandboxedRankedEpisode``, which
+  ``train_blaxel.toml`` runs with ``execution_kind = Blaxel``, keeps the answer in the
+  attempt's Blaxel sandbox, and ``grade()`` reads it back from there.
+- ``grade_group()`` asks a judge model to rank the group's answers, best first, through
+  its own OpenAI-compatible client. ``JudgeOptions`` sets up that client from
+  ``[rollout_runtime.config.options]``, with its base URL, its model, and the name of
+  the environment variable that holds its API key. The key itself never goes in the
+  config. The judge never sees the policy, a sandbox or a live episode. It sees only
+  each member's task, transcript, reward and metadata. The final reward takes
+  ``rank_weight`` from the rank and the rest from ``grade()``'s reward.
 
-The judge reads each answer from the member's transcript: the reply to its last
-trainable generation, exactly as the agent received it.
+The judge reads each answer from the member's transcript. The answer is the reply to
+the member's last trainable generation, exactly as the agent received it.
 """
 
 from __future__ import annotations
@@ -35,7 +35,8 @@ from loops_cookbook.llm import ParsedTurnReply
 from loops_cookbook.providers.blaxel import Blaxel
 from loops_cookbook.runtime import JsonValue, PermanentGradingFailure
 
-ANSWER = "/tmp/answer.txt"  # where the answer lives in a sandbox
+# The answer's path inside a sandbox.
+ANSWER = "/tmp/answer.txt"
 
 
 class Question(BaseModel):
@@ -47,7 +48,7 @@ class Question(BaseModel):
 
 
 class JudgeOptions(BaseModel):
-    """``[runtime.config.options]``: the judge, and how the two rewards compose."""
+    """The ``[rollout_runtime.config.options]`` table for the judge and the reward weights."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -62,7 +63,7 @@ class JudgeOptions(BaseModel):
     @field_validator("judge_api_key_env")
     @classmethod
     def _key_is_set(cls, name: str) -> str:
-        """Refused at check rather than at every group; only the name is kept."""
+        """Refuse a missing key at check rather than at every group. Only the name is kept."""
         if not os.environ.get(name):
             raise ValueError(f"the judge's API key variable {name} is not set")
         return name
@@ -73,19 +74,19 @@ class JudgeReplyError(ValueError):
 
 
 async def ask(model: Model, prompt: str) -> str:
-    """The policy's one answer; one that won't parse is an empty one."""
+    """Return the policy's one answer. A reply that won't parse gives an empty answer."""
     conversation = model.conversation()
     reply = await conversation.generate(messages=[{"role": "user", "content": prompt}])
     return (reply.content or "").strip()
 
 
 def own_reward(answer: str, options: JudgeOptions) -> float:
-    """``grade()``'s reward: 1 for an answer within ``max_words``, else 0."""
+    """Return ``grade()``'s reward, 1 for an answer within ``max_words`` and 0 otherwise."""
     return float(0 < len(answer.split()) <= options.max_words)
 
 
 async def judged(members: Sequence[GroupMember[Question]], options: JudgeOptions) -> list[float]:
-    """Each member's final reward: ``rank_weight`` of the judge's rank, the rest its own."""
+    """Return each member's final reward, mixing the judge's rank and its own by ``rank_weight``."""
     api_key = os.environ.get(options.judge_api_key_env)
     if not api_key:
         raise PermanentGradingFailure(
@@ -103,7 +104,8 @@ async def judged(members: Sequence[GroupMember[Question]], options: JudgeOptions
 
 
 class RankedEpisode(Episode[Question, JudgeOptions]):
-    grading_retries = 2  # grade() is pure, and the judge is safe to ask again
+    # grade() is pure, and the judge is safe to ask again.
+    grading_retries = 2
 
     def __init__(self, task: Task[Question], options: JudgeOptions) -> None:
         super().__init__(task, options)
@@ -125,7 +127,7 @@ class RankedEpisode(Episode[Question, JudgeOptions]):
 
 
 class SandboxedRankedEpisode(Episode[Question, JudgeOptions]):
-    """The same episode, its answer written into the attempt's Blaxel sandbox and read back."""
+    """The same episode, with its answer written to the attempt's Blaxel sandbox and read back."""
 
     execution_kind = Blaxel
 
@@ -134,7 +136,8 @@ class SandboxedRankedEpisode(Episode[Question, JudgeOptions]):
     async def setup(self, setup: Setup) -> None:
         sandbox = setup.sandbox
         assert isinstance(sandbox, Blaxel)
-        await sandbox.client()  # attached here, on the setup clock, not the agent's
+        # Attaching here counts against the setup deadline, not the agent's.
+        await sandbox.client()
 
     async def run(self, sample: Sampling) -> Mapping[str, JsonValue]:
         model = sample.model
@@ -142,7 +145,8 @@ class SandboxedRankedEpisode(Episode[Question, JudgeOptions]):
         assert isinstance(sandbox, Blaxel)
         answer = await ask(model, self.task.value.prompt)
         box = await sandbox.client()
-        await box.fs.write(ANSWER, answer)  # the tool call: it lands in the sandbox
+        # This write is the agent's tool call. It puts the answer in the sandbox.
+        await box.fs.write(ANSWER, answer)
         return {"words": len(answer.split())}
 
     async def grade(self, grading: Grading) -> float:

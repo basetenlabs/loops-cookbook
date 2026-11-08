@@ -1,9 +1,11 @@
 """After a tool call the renderer could not parse, the conversation continues exactly.
 
-Real tokenizers and renderers, through the gateway: the model calls a tool that does
-not exist, the agent echoes the reply the 422 carries and answers the call, and the
-next prompt is the previous prompt plus the exact sampled completion, so the episode
-trains as one chain and the model sees what it wrote, never a stand-in.
+Real tokenizers and renderers, through the gateway: the model writes a call cut short
+by its token limit, or a call to a tool that does not exist. The first is a 422 whose
+reply the agent echoes and answers; the second is a response like any other, the call's
+status saying what the parser made of it. Either way the next prompt is the previous
+prompt plus the exact sampled completion, so the episode trains as one chain and the
+model sees what it wrote, never a stand-in.
 """
 
 from types import SimpleNamespace
@@ -20,7 +22,7 @@ from loops_cookbook.model_access.lease import DirectModelAccess
 from loops_cookbook.model_access.openai.access import HttpModelAccess
 from loops_cookbook.model_access.openai.gateway import Gateway, GatewaySettings
 
-# A call to a tool that was never declared: Qwen's and Nemotron's parsers report it.
+# A call to a tool that was never declared is read whole, so its message stays in history.
 UNKNOWN_CALL = (
     "<tool_call>\n<function=bsah>\n<parameter=command>\nls\n</parameter>\n</function>\n</tool_call>"
 )
@@ -71,7 +73,16 @@ async def _post(connection, body):
         return response.status, await response.json()
 
 
-async def test_an_unknown_tool_call_continues_from_its_sampled_tokens(tool_call_model):
+def _reads_whole(renderer) -> bool:
+    """Whether the renderer reads a block whole; Prime's own parsers may read in part."""
+    return bool(getattr(renderer._renderer, "reads_calls_whole", False))
+
+
+async def test_an_unknown_tool_call_is_answered_and_continues_from_its_sampled_tokens(
+    tool_call_model,
+):
+    """A cookbook renderer reads the call whole, so it is a reply the agent's tool layer
+    answers. Prime's parser may have read it in part, so it is a 422 the agent echoes."""
     tokenizer, renderer, prefix = tool_call_model
     end = "<|im_end|>"
     sampler = Sampler(tokenizer, [prefix + UNKNOWN_CALL + end, prefix + "Done." + end])
@@ -85,17 +96,19 @@ async def test_an_unknown_tool_call_continues_from_its_sampled_tokens(tool_call_
         status, first = await _post(
             connection, {"model": "policy", "messages": history, "tools": TOOLS}
         )
-        assert status == 422 and first["error"]["code"] == "tool_call_parse_error"
-        reply = first["error"]["reply"]
-        [call] = reply["tool_calls"]
+        if _reads_whole(renderer):
+            assert status == 200, first
+            message = first["choices"][0]["message"]
+            [call] = message["tool_calls"]
+        else:
+            assert status == 422 and first["error"]["code"] == "tool_call_parse_error"
+            message = first["error"]["reply"]
+            [call] = message["tool_calls"]
+            call = {key: call[key] for key in ("id", "type", "function")}
         assert call["function"] == {"name": "bsah", "arguments": '{"command": "ls"}'}
 
-        # The agent echoes the reply as an assistant message and answers its call.
-        echo = {
-            "role": "assistant",
-            "content": reply["content"],
-            "tool_calls": [{key: call[key] for key in ("id", "type", "function")}],
-        }
+        # The agent's tool layer finds no such tool and says so in its answer to the call.
+        echo = {"role": "assistant", "content": message["content"], "tool_calls": [call]}
         answer = {
             "role": "tool",
             "tool_call_id": call["id"],
@@ -132,8 +145,9 @@ TIMED_TOOLS = [
         },
     }
 ]
-# The two other things a model gets wrong: an integer written as "30s", and a call
-# cut off at max_tokens. Each family writes them in its own syntax.
+# A model gets two other things wrong. It writes an integer as "30s", which reaches the
+# tool, and its call gets cut off at max_tokens, which doesn't parse. Each family writes
+# them in its own syntax.
 BAD_CALLS = {
     ("xml", "invalid_json"): (
         "<tool_call>\n<function=bash>\n<parameter=command>\nsleep 5 && ls\n</parameter>\n"
@@ -142,18 +156,11 @@ BAD_CALLS = {
     ("xml", "truncated"): (
         "<tool_call>\n<function=bash>\n<parameter=command>\nfind . -name '*.py' -exec grep -l"
     ),
-    ("glm", "invalid_json"): (
-        "<tool_call>bash<arg_key>command</arg_key><arg_value>sleep 5 && ls</arg_value>"
-        "<arg_key>timeout</arg_key><arg_value>30s</arg_value></tool_call>"
-    ),
     ("glm", "truncated"): (
         "<tool_call>bash<arg_key>command</arg_key><arg_value>find . -name '*.py' -exec grep -l"
     ),
 }
-EXPECTED = {
-    "invalid_json": ("tool_call_parse_error", "invalid_json"),
-    "truncated": ("tool_call_truncated", "unclosed_block"),
-}
+EXPECTED = {"truncated": ("tool_call_truncated", "unclosed_block")}
 RESULT = "Error: could not run the call"
 ASK = [{"role": "user", "content": "List the files, give up after 30 seconds."}]
 
@@ -254,9 +261,46 @@ async def test_an_xml_call_that_does_not_parse_continues_from_its_sampled_tokens
     await path(xml_model, shape)
 
 
+def test_an_xml_value_its_type_cannot_read_reaches_the_tool(xml_model):
+    """A value its type can't read reaches the tool as text, for the tool to judge.
+
+    The cookbook's Nemotron renderers read ``30s`` as text, report ``ok`` and keep the
+    message. Prime's Qwen renderer reports ``invalid_json`` and may have read the block
+    in part, so the message is withheld.
+    """
+    tokenizer, renderer, syntax, prefix, end = xml_model
+    prompt = renderer.render(ASK, TIMED_TOOLS).ids
+    completion = tokenizer.encode(
+        prefix + BAD_CALLS[(syntax, "invalid_json")] + end, add_special_tokens=False
+    )
+    reply = renderer.parse(prompt, completion, TIMED_TOOLS)
+    [parsed] = reply.tool_calls
+    assert parsed.arguments == {"command": "sleep 5 && ls", "timeout": "30s"}
+    if _reads_whole(renderer):
+        assert parsed.status.value == "ok"
+        assert reply.native_message["tool_calls"][0]["function"]["arguments"] == parsed.arguments
+    else:
+        assert parsed.status.value == "invalid_json" and reply.native_message is None
+
+
 @pytest.mark.parametrize("shape", sorted(EXPECTED))
 @pytest.mark.parametrize("path", [_continues_through_the_gateway, _continues_directly])
 async def test_a_glm_call_that_does_not_parse_continues_from_its_sampled_tokens(
     glm_model, path, shape
 ):
     await path(glm_model, shape)
+
+
+def test_a_glm_value_its_type_cannot_read_reaches_the_tool(glm_model):
+    tokenizer, renderer, _, prefix, end = glm_model
+    call = (
+        "<tool_call>bash<arg_key>command</arg_key><arg_value>sleep 5 && ls</arg_value>"
+        "<arg_key>timeout</arg_key><arg_value>30s</arg_value></tool_call>"
+    )
+    prompt = renderer.render(ASK, TIMED_TOOLS).ids
+    completion = tokenizer.encode(prefix + call + end, add_special_tokens=False)
+    reply = renderer.parse(prompt, completion, TIMED_TOOLS)
+    [parsed] = reply.tool_calls
+    assert parsed.status.value == "ok"
+    assert parsed.arguments == {"command": "sleep 5 && ls", "timeout": "30s"}
+    assert reply.native_message is not None

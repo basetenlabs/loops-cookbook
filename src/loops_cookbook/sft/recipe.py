@@ -1,8 +1,8 @@
-"""The composition root for ``loops run``: an SFT run plus the standard telemetry.
+"""The composition root for an SFT ``loops run``, which joins an SFT run to the standard telemetry.
 
 ``train`` builds the renderer first, off the event loop, so a renderer that cannot be
-built fails before the run starts. ``assemble`` builds the trainer (restoring a
-resume's state) and hands both to ``Run``.
+built fails before the run starts. ``assemble`` builds the trainer, which restores a
+resume's state, and hands the renderer and the trainer to ``Run``.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from loops_cookbook.threads import in_thread
 
 @dataclass(frozen=True)
 class CheckReport:
-    """The training plan, and the first sequence's trained text to read its targets by."""
+    """The training plan, and the first sequence's trained text, which shows its targets."""
 
     plan: Plan
     preview: tuple[str, ...]
@@ -41,7 +41,7 @@ class CheckReport:
     """The manifest a resume continues from, checked against the plan."""
 
     def describe(self) -> list[str]:
-        """The same human-readable report printed by `loops check`."""
+        """Return the human-readable report that `loops check` prints."""
         resume, schedule = self.resume, self.plan.schedule
         return [
             *self.plan.describe(),
@@ -68,12 +68,11 @@ class CheckReport:
 
 
 async def check(config: Config, *, load: Callable[[str], Any] = load_tokenizer) -> CheckReport:
-    """Validate and render the data without starting a trainer or printing a report;
-    ``load`` loads the tokenizer a tokens dataset's preview is decoded with.
+    """Validate and render the data without starting a trainer or printing a report.
 
-    A resume is held to what its run trained, as ``loops run`` holds it.
-
-    Cancellation stops between preparation stages and rows, then waits for active workers.
+    ``load`` loads the tokenizer that decodes a tokens dataset's preview. A resume is
+    held to what its run trained, as ``loops run`` holds it. A cancellation stops
+    between preparation stages and rows, then waits for active workers.
     """
     resume = Manifest.resume_from(config.training.resume_from)
     planned = await prepare(config)
@@ -82,7 +81,7 @@ async def check(config: Config, *, load: Callable[[str], Any] = load_tokenizer) 
     if planned.renderer is not None:
         decode, note = planned.renderer.detokenize, ()
     else:
-        # Loading a tokenizer may download it, so it stays off the event loop too.
+        # Loading a tokenizer may download it, so the load also stays off the event loop.
         decode, note = await see_through(
             in_thread(_tokenizer_decode, config.model.tokenizer_source, load)
         )
@@ -92,17 +91,23 @@ async def check(config: Config, *, load: Callable[[str], Any] = load_tokenizer) 
 def _tokenizer_decode(
     source: str, load: Callable[[str], Any]
 ) -> tuple[Callable[[list[int]], str], tuple[str, ...]]:
-    """The model's tokenizer, to show a tokens dataset's targets as text; their ids
-    when it cannot be loaded (gated, or offline), since the data checked out regardless.
-    The second item says when the ids are shown instead."""
+    """Return a decoder that shows a tokens dataset's targets as text, and a note.
+
+    The decoder is the model's tokenizer. When the tokenizer cannot be loaded, for
+    example because it is gated or the machine is offline, the decoder shows the token
+    IDs instead, because the data checked out regardless. The note says when that
+    happens.
+    """
     try:
         return load(source).decode, ()
     except OSError as error:
-        return str, (f"Targets shown as token ids: the {source} tokenizer did not load ({error})",)
+        return str, (
+            f"Targets are shown as token ids, because the {source} tokenizer did not load ({error})",
+        )
 
 
 def _preview(sequence: SupervisedSequence, decode: Callable[[list[int]], str]) -> list[str]:
-    """The first sequence's trained text, decoded, so the targets can be read."""
+    """Decode the first sequence's trained text, so the targets can be read."""
     spans: list[list[int]] = []
     previous = False
     for token, trained in zip(sequence.ids, sequence.trained, strict=True):
@@ -122,9 +127,11 @@ def assemble(
     trainer: TrainerPort | None = None,
     renderer: TrainingRenderer | None = None,
 ) -> Run:
-    """A ``Run`` with everything it uses built here, from ``config`` and the resume
-    manifest it names. An optional renderer can be supplied; otherwise preparation
-    builds it in a worker before rendering the dataset."""
+    """Build a ``Run`` and everything it uses, from ``config`` and the resume manifest it names.
+
+    You may pass a renderer. Otherwise preparation builds one in a worker thread before
+    it renders the dataset.
+    """
     resume = Manifest.resume_from(config.training.resume_from)
     if trainer is None:
         trainer = Trainer(config, resume.trainer_state_path if resume else None)
@@ -132,13 +139,14 @@ def assemble(
 
 
 async def train(config: Config, *, source: ConfigSource | None = None) -> Outcome:
-    """Fine-tune per ``config``. Same entry point as ``loops run``. ``source`` is where
-    the config came from, which the run's log records.
+    """Fine-tune as ``config`` says, through the same entry point as ``loops run``.
 
-    ``Run`` on its own is silent; anything wanting other sinks takes one from
-    ``assemble`` and passes its own to ``execute``.
+    ``source`` is where the config came from, which the run's log records. ``Run`` on
+    its own is silent. A caller that wants other sinks takes a run from ``assemble``
+    and passes its own sink to ``execute``.
     """
-    # Built first: a renderer that cannot be built is the config's fault, not a run's.
+    # The renderer is built first, because a renderer that cannot be built is the
+    # config's fault, not a run's.
     run = assemble(config, renderer=await renderer_for(config))
     preamble = source.describe() if source else ()
     async with telemetry(run.out, config, group=run.run_id, preamble=preamble) as metrics:

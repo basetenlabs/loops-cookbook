@@ -213,7 +213,7 @@ class FakeClient:
 
 
 class FakeSpec(SandboxSpec):
-    """``[runtime.config.sandbox]`` for a ``Fake`` sandbox: a ``box`` with an image."""
+    """``[rollout_runtime.config.sandbox]`` for a ``Fake`` sandbox: a ``box`` with an image."""
 
     resource_kind: ClassVar[str] = "box"
 
@@ -349,7 +349,7 @@ _EMPTY: list[ResourceRegistry] = []
 
 
 def no_resources(identity: Any, phases: Any) -> EpisodeResourceService:
-    """An attempt's resource service for a runtime that provisions nothing.
+    """An attempt's resource service for a rollout runtime that provisions nothing.
 
     Every such attempt shares one empty registry, with no providers, so rigs that
     never touch resources do not each hold a journal open.

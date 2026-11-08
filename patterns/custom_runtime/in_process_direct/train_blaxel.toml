@@ -1,27 +1,31 @@
-# A custom runtime, in-process, direct, on Blaxel sandboxes: direct_episode.py asks the
-# model with llm(), writes the answer into a sandbox the run provisions, and grades what
-# the sandbox holds.
+# A custom rollout runtime, in-process, direct, on Blaxel sandboxes. direct_episode.py
+# asks the model with llm(), writes the answer into a sandbox the run provisions, and
+# grades what the sandbox holds.
 # uv sync --extra blaxel
 # uv run loops check patterns/custom_runtime/in_process_direct/train_blaxel.toml
 
 recipe = "rl"
 
-[runtime]
+[rollout_runtime]
 factory = "loops_cookbook.episodes:create_runtime"
 
-[runtime.config]
+[rollout_runtime.config]
 episode = "direct_episode:SandboxAnswerEpisode"
-agent_timeout_seconds = 90   # cut before the reply: unversioned; after it: graded, 0 if no answer was kept
+# The agent's deadline. A rollout cut off before the model replies is discarded.
+# One cut off after the reply is graded, and scores 0 if it kept no answer.
+agent_timeout_seconds = 90
 
-[runtime.files]
-tasks = "../../../tasks/hidden_answer_35b.jsonl"   # one hidden answer to learn (tasks/README)
+[rollout_runtime.files]
+# Each task hides one answer for the model to learn. tasks/README.md describes the file.
+tasks = "../../../tasks/hidden_answer_35b.jsonl"
 
 # One Blaxel sandbox per episode, provisioned before setup() and released by the run.
-[runtime.config.sandbox]
+[rollout_runtime.config.sandbox]
 provider = "blaxel"
 image = "blaxel/base-image:latest"
 memory_mb = 2048
-ttl = "1h"         # required: it must outlast one episode
+# Required. The sandbox must outlast one episode.
+ttl = "1h"
 
 [providers.blaxel]
 # Credentials stay in .env as BL_WORKSPACE and BL_API_KEY.
@@ -42,14 +46,17 @@ group_size = 16
 max_group_losses = 0
 groups_per_step = 1
 max_steps = 5
-max_consecutive_unusable_groups = 20   # stop if every group scores alike
+# Stop after this many groups in a row that can't train, such as groups in which
+# every rollout scores alike.
+max_consecutive_unusable_groups = 20
 learning_rate = 0.00002
 loss_fn = "cispo"
 
 [rollout]
 max_concurrent_rollouts = 8
 max_concurrent_verifiers = 8
-max_rollout_retries = 2   # a failed sandbox gets a fresh attempt
+# A rollout whose sandbox fails is retried up to this many times.
+max_rollout_retries = 2
 setup_timeout_seconds = 60
 
 [rollout.grading]

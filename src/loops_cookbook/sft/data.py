@@ -1,10 +1,10 @@
-"""The SFT data contracts: two JSONL formats, each validated row by row.
+"""The SFT data contracts, which are two JSONL formats validated row by row.
 
-A dataset is in one of them, named once by ``[data] format``: **chat**, a
-conversation in OpenAI's chat format with per-turn ``weight``, re-rendered with the
-trained model's template; or **tokens**, ``input_ids`` and 0/1 ``weights`` trained as
-given. What each accepts, and why, is in docs/reference/sft.md; the models here are
-the contract that page describes.
+``[data] format`` names the one format a dataset uses. A **chat** row is a
+conversation in OpenAI's chat format with a ``weight`` on each turn, which the cookbook
+renders again with the trained model's template. A **tokens** row is ``input_ids`` and
+0/1 ``weights``, which train as given. docs/reference/sft.md says what each format
+accepts and why, and the models here are the contract that page describes.
 """
 
 from __future__ import annotations
@@ -31,15 +31,15 @@ from pydantic import (
 from loops_cookbook.evidence import JsonValue
 
 Content = str | list[dict[str, JsonValue]] | None
-"""Plain text, or content parts (text and images) for the renderer to check."""
+"""Plain text, or content parts such as text and images, which the renderer checks."""
 
 
 class Record(BaseModel):
-    """A row as exported: fields the contract does not read are kept aside, not refused.
+    """A row as exported, which keeps aside the fields the contract does not read.
 
-    Real exports carry columns of their own -- an ``id``, a ``source``, OpenAI's
-    ``parallel_tool_calls`` -- and refusing a dataset over them would make every user
-    clean it first. They are never rendered or trained, and ``check`` lists them, so a
+    Real exports carry columns of their own, such as an ``id``, a ``source`` or OpenAI's
+    ``parallel_tool_calls``. Refusing a dataset over them would make every user clean
+    it first. These fields are never rendered or trained. ``check`` lists them, so a
     misspelt field is visible rather than silently missing.
     """
 
@@ -48,8 +48,8 @@ class Record(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _null_is_absent(cls, data: object) -> object:
-        # A Hugging Face export gives every message every key any message has, null
-        # where it has none: `"tool_calls": null` is a message that calls no tool.
+        # A Hugging Face export gives every message every key that any message has, with
+        # null where it has none. For example, `"tool_calls": null` calls no tool.
         if not isinstance(data, dict):
             return data
         return {
@@ -60,7 +60,7 @@ class Record(BaseModel):
         }
 
     def ignored(self, at: str = "") -> set[str]:
-        """Dotted paths of every field kept aside here and in nested records."""
+        """Return the dotted paths of every field kept aside here and in nested records."""
         paths = {f"{at}{name}" for name in self.model_extra or {}}
         for name, value in self:
             items = value if isinstance(value, list) else [value]
@@ -72,7 +72,7 @@ class Record(BaseModel):
 
 
 def _flag(value: object) -> object:
-    # 1.0 is how a dataframe writes 1; true is not a weight.
+    # A dataframe writes 1 as 1.0, so 1.0 is accepted. true is not a weight.
     if isinstance(value, bool):
         raise ValueError("must be 0 or 1, not a boolean")  # noqa: TRY004 - pydantic reports ValueError
     if isinstance(value, float) and value in (0.0, 1.0):
@@ -81,14 +81,15 @@ def _flag(value: object) -> object:
 
 
 Flag = Annotated[StrictInt, Field(ge=0, le=1), BeforeValidator(_flag)]
-"""0 or 1; ``1.0`` is accepted as 1, ``true`` is refused."""
+"""A 0 or 1 flag. ``1.0`` is accepted as 1, and ``true`` is refused."""
 
 
 class Function(Record):
     name: str = Field(min_length=1)
     arguments: str
-    """A JSON object, as OpenAI writes it; a mapping, as Hugging Face datasets do, is
-    encoded to one."""
+    """A JSON object encoded as a string, as OpenAI writes it.
+
+    A mapping, which Hugging Face datasets write, is encoded to a string."""
 
     @field_validator("arguments", mode="before")
     @classmethod
@@ -151,12 +152,13 @@ _ROLES = frozenset(
 
 
 class ChatExample(Record):
-    """The chat contract: one conversation, and which of its assistant turns train."""
+    """One conversation in the chat contract, and which of its assistant turns train."""
 
     messages: list[Message] = Field(min_length=1)
     tools: list[dict[str, JsonValue]] = Field(default_factory=list[dict[str, JsonValue]])
-    """OpenAI tool declarations; a JSON string of them, as Hub datasets often store
-    them, is decoded."""
+    """OpenAI tool declarations.
+
+    Hub datasets often store them as a JSON string, which is decoded."""
     metadata: dict[str, JsonValue] = Field(default_factory=dict[str, JsonValue])
 
     @field_validator("tools", mode="before")
@@ -192,7 +194,7 @@ class ChatExample(Record):
                 _check_answers(self.messages, index, message.tool_calls)
                 following = self.messages[index + 1 : index + 2]
                 if following and not isinstance(following[0], ToolMessage):
-                    # The model ends a turn that calls tools by handing over to them; a
+                    # The model ends a turn that calls tools by handing over to them. A
                     # turn followed by anything else never happened as written.
                     raise ValueError(
                         f"messages[{index}]: an assistant message with tool_calls must be "
@@ -204,15 +206,17 @@ class ChatExample(Record):
             message = self.messages[index]
             assert isinstance(message, AssistantMessage)
             if not (message.content or message.reasoning_content or message.tool_calls):
-                # Usually a field the export dropped; trained, it teaches saying nothing.
+                # This is usually a field the export dropped. Trained, it would teach
+                # the model to say nothing.
                 raise ValueError(
-                    f"messages[{index}]: a trained assistant message with no content, "
-                    "reasoning_content or tool_calls; give it weight 0 to keep it as context"
+                    f"messages[{index}]: a trained assistant message has no content, "
+                    "reasoning_content or tool_calls. Give it weight 0 to keep it as context"
                 )
         return self
 
     @property
     def trained_turns(self) -> tuple[int, ...]:
+        """The indexes of the assistant messages that train, which are those with weight 1."""
         return tuple(
             index
             for index, message in enumerate(self.messages)
@@ -220,10 +224,12 @@ class ChatExample(Record):
         )
 
     def chat_messages(self) -> list[dict[str, object]]:
-        """The messages as a renderer takes them: only the contract's own fields, no
-        ``weight``, tool call arguments decoded (chat templates iterate them as a
-        mapping), and calls given without ids numbered so their results name them in
-        order."""
+        """Return the messages in the form a renderer takes.
+
+        The result keeps only the contract's own fields and drops ``weight``. Tool call
+        arguments are decoded, because chat templates iterate them as a mapping. Calls
+        given without IDs are numbered, so that their results name them in order.
+        """
         result: list[dict[str, object]] = []
         unnamed: list[str] = []
         for index, message in enumerate(self.messages):
@@ -255,9 +261,12 @@ def _declared(record: Record, *, exclude: set[str]) -> dict[str, object]:
 
 
 def _check_answers(messages: Sequence[object], index: int, calls: list[ToolCall]) -> None:
-    """The tool block after ``messages[index]`` answers each of its calls exactly once,
-    or is empty: a conversation may end on the calls. With ids, results name their
-    calls; without any, the ``n``-th result answers the ``n``-th call."""
+    """Check that the tool block after ``messages[index]`` answers each call exactly once.
+
+    The block may also be empty, because a conversation may end on the calls. With IDs,
+    results name their calls. Without any IDs, the ``n``-th result answers the ``n``-th
+    call.
+    """
     results = []
     for following in messages[index + 1 :]:
         if not isinstance(following, ToolMessage):
@@ -270,21 +279,21 @@ def _check_answers(messages: Sequence[object], index: int, calls: list[ToolCall]
     if all(name is None for name in [*ids, *answered]):
         if len(results) != len(calls):
             raise ValueError(
-                f"messages[{index}]: {len(calls)} tool call(s) and {len(results)} result(s); "
-                "without ids, results answer calls in order, so there must be one each"
+                f"messages[{index}]: {len(calls)} tool call(s) and {len(results)} result(s). "
+                "Without ids, results answer calls in order, so there must be one each"
             )
         return
     if None in ids or None in answered:
         raise ValueError(
             f"messages[{index}]: ids are given for some of its tool calls or results and "
-            "not others; give every call an id and every result its tool_call_id, or none"
+            "not others. Give every call an id and every result its tool_call_id, or give none"
         )
     named = [name for name in ids if name is not None]
     answers = [name for name in answered if name is not None]
     if len(set(named)) != len(named):
         raise ValueError(f"messages[{index}]: two tool calls share an id")
     if not set(answers) <= set(named):
-        # A result answering no call: that message reports it.
+        # A result answers no call, and the tool message's own check reports it.
         return
     if twice := sorted({name for name in answers if answers.count(name) > 1}):
         raise ValueError(f"messages[{index}]: its tool results answer {', '.join(twice)} twice")
@@ -295,7 +304,7 @@ def _check_answers(messages: Sequence[object], index: int, calls: list[ToolCall]
 
 
 def _answered_calls(messages: Sequence[object], index: int) -> list[ToolCall] | None:
-    """The calls of the assistant message heading the tool block ``index`` is in."""
+    """Return the calls of the assistant message that heads the tool block ``index`` is in."""
     while index > 0:
         index -= 1
         previous = messages[index]
@@ -307,7 +316,7 @@ def _answered_calls(messages: Sequence[object], index: int) -> list[ToolCall] | 
 
 
 class TokenExample(Record):
-    """The tokens contract: a sequence tokenized for the trained model, targets marked."""
+    """One sequence in the tokens contract, tokenized for the trained model with its targets marked."""
 
     input_ids: list[Annotated[StrictInt, Field(ge=0)]] = Field(min_length=2)
     weights: list[Flag]
@@ -320,7 +329,9 @@ class TokenExample(Record):
                 f"weights has {len(self.weights)} entries for {len(self.input_ids)} input_ids"
             )
         if self.weights[0]:
-            raise ValueError("weights[0] must be 0: the first token has nothing to predict it")
+            raise ValueError(
+                "weights[0] must be 0, because nothing comes before the first token to predict it"
+            )
         if not any(self.weights):
             raise ValueError("no token is a target (every weight is 0)")
         return self
@@ -335,12 +346,12 @@ CONTRACTS: dict[str, TypeAdapter[ChatExample] | TypeAdapter[TokenExample]] = {
 
 
 class DatasetError(ValueError):
-    """Rows that do not meet the data contract, each named by file and line."""
+    """Raised for rows that do not meet the data contract, each named by file and line."""
 
 
 @dataclass(frozen=True)
 class Row:
-    """A validated example and where it came from, for every report that names it."""
+    """A validated example and where it came from, which every report about it names."""
 
     source: str
     line: int
@@ -355,8 +366,10 @@ _SHOWN_ERRORS = 20
 
 
 def load_rows(path: str, format: Format) -> list[Row]:
-    """Every row of a JSONL file in ``format``, or a ``DatasetError`` naming each one
-    that does not meet it."""
+    """Load every row of a JSONL file in ``format``.
+
+    Raise ``DatasetError``, naming each row that does not meet the format, if any fails.
+    """
     contract = CONTRACTS[format]
     source = Path(path)
     rows: list[Row] = []
@@ -385,7 +398,7 @@ def load_rows(path: str, format: Format) -> list[Row]:
 
 
 def _location(loc: tuple[int | str, ...]) -> str:
-    # The discriminated union adds the role as a path segment; it names no field.
+    # The discriminated union adds the role as a path segment, which names no field.
     parts = [str(part) for part in loc if part not in _ROLES]
     return f"{'.'.join(parts)}: " if parts else ""
 
@@ -404,7 +417,7 @@ def load_dataset(
     validation_fraction: float | None,
     seed: int,
 ) -> Dataset:
-    """The training and validation rows: from two files, or one file split by ``seed``."""
+    """Load the training and validation rows from two files, or from one file split by ``seed``."""
     train_rows = load_rows(train, format)
     if validation is not None:
         held_out = load_rows(validation, format)

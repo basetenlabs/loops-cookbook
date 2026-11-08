@@ -1,4 +1,4 @@
-"""Loops transport: accumulate gradients, step, checkpoint, and publish."""
+"""The Loops trainer for RL, which accumulates gradients, steps, checkpoints and publishes."""
 
 from __future__ import annotations
 
@@ -34,14 +34,15 @@ logger = logging.getLogger(__name__)
 
 
 class TrainerPort(Protocol):
-    """What the runner needs from a trainer; ``Trainer`` is the Loops one.
+    """What the runner needs from a trainer. ``Trainer`` is the Loops implementation.
 
-    Internal, not exported: tests and ``loops check`` pass ``Run`` their own.
+    The protocol is internal and not exported. Tests and ``loops check`` pass ``Run``
+    their own trainers.
     """
 
     sampler: SamplingClient | None
     sampler_version: int | None
-    # [compute] scope; a started run's record agrees with it.
+    # The [compute] scope. A started run's record agrees with it.
     capacity: Capacity
     resumed_step: int
 
@@ -78,7 +79,7 @@ class TrainerPort(Protocol):
 
 @dataclass(frozen=True)
 class ForwardBackwardReport:
-    """One public SDK call; its result may already aggregate transport chunks."""
+    """One public SDK call, whose result may already aggregate transport chunks."""
 
     datums: int
     trained_positions: int
@@ -109,11 +110,11 @@ class StepReport:
     sampled_version_max: int
     forward_backward_calls: int = 1
     checkpoint: str | None = None
-    """Name of the step checkpoint written after this step, when one was."""
+    """The name of the step checkpoint written after this step, when one was written."""
     checkpoint_state_path: str | None = None
-    """Path to feed back to ``resume_from``. The name alone is not enough."""
+    """The path to give back to ``resume_from``. The name alone is not enough."""
     sampler_weights: str | None = None
-    """The servable path of the weights kept after this step, when they were."""
+    """The servable path of the weights kept after this step, when they were kept."""
     mismatch_kl: float | None = None
     mismatch_kl_max_call: float | None = None
     forward_backward_reports: tuple[ForwardBackwardReport, ...] = ()
@@ -121,21 +122,28 @@ class StepReport:
     loss_metrics: dict[str, float] = field(default_factory=dict)
     """A custom loss's own metrics, averaged over datums."""
     trainer_metrics: dict[str, float] = field(default_factory=dict)
-    """The trainer's own metrics for a built-in loss other than ``mismatch_kl`` (such as
-    ``mismatch_abs_logprob_diff`` and ``mismatch_ess``), averaged over datums."""
+    """The trainer's own metrics for a built-in loss, averaged over datums.
+
+    They include every metric other than ``mismatch_kl``, such as
+    ``mismatch_abs_logprob_diff`` and ``mismatch_ess``.
+    """
     timings: dict[str, float] = field(default_factory=dict)
     mismatch: dict[str, float] = field(default_factory=dict)
     """The trainer/sampler logprob gap on trained tokens, by turn and policy lag."""
     aggregation: AggregationReport | None = None
-    """Whole-update reduction supplied by the runner, before transport chunking."""
+    """The whole-update reduction that the runner supplied, before transport chunking."""
 
     @property
     def trainable_fraction(self) -> float:
-        """Share of sent tokens that carry gradient. Low means long prompts,
-        short completions — the cost of agentic tasks, worth watching."""
+        """The share of sent tokens that carry gradient.
+
+        A low share means long prompts and short completions. That is the cost of
+        agentic tasks, and it is worth watching.
+        """
         return self.trained_positions / self.tokens if self.tokens else 0.0
 
     def gauges(self) -> dict[str, float]:
+        """Return the step's metrics as flat gauges, keyed by name such as ``train/loss``."""
         out = {
             **{f"time/{name}_seconds": value for name, value in self.timings.items()},
             "train/loss": self.loss,
@@ -155,9 +163,9 @@ class StepReport:
             "freshness/version_span": float(self.sampled_version_max - self.sampled_version_min),
         }
         if self.mismatch_kl is not None:
-            # Sampler-vs-trainer numerical agreement. Logged, never gated:
-            # a threshold picked here would kill runs that are merely
-            # unusual, and the right response is a human looking at a curve.
+            # This measures numerical agreement between the sampler and the trainer.
+            # It is logged and never gated. A threshold picked here would kill runs
+            # that are merely unusual, and the right response is a human reading a curve.
             out["train/mismatch_kl"] = self.mismatch_kl
         if self.mismatch_kl_max_call is not None:
             out["train/mismatch_kl_max_call"] = self.mismatch_kl_max_call
@@ -171,11 +179,14 @@ class StepReport:
 
 
 class Trainer(LoopsTrainer):
-    """One Loops run: a LoRA trainer and its paired sampler."""
+    """One Loops run, which is a LoRA trainer and its paired sampler."""
 
     def __init__(self, config: Config, resume_from: str | None = None) -> None:
-        """``resume_from`` is the remote trainer state a checkpoint manifest names; a
-        fresh run starts from ``[training] init_from``'s weights, if it names any."""
+        """Set up the trainer without provisioning it.
+
+        ``resume_from`` is the remote trainer state that a checkpoint manifest names. A
+        fresh run starts from the weights ``[training] init_from`` names, if it names any.
+        """
         super().__init__(
             model=config.model,
             compute=config.compute,
@@ -191,13 +202,13 @@ class Trainer(LoopsTrainer):
         """The policy version ``sampler`` was published at."""
         self._version = 0
         self.resumed_step = 0
-        # Why this trainer's accumulated gradients cannot be stepped, once they cannot.
+        # Once this trainer's accumulated gradients can't be stepped, this says why.
         self._invalid_gradients: str | None = None
         self._warned_unscored = False
         self._reset_window()
 
     async def start(self) -> SamplingClient:
-        """Provision the trainer, optionally restore state, publish, return the sampler."""
+        """Provision the trainer, restore any saved state, publish, and return the sampler."""
         if self.config.training.loss_fn != "custom":
             logger.info(
                 "Built-in loss aggregation %s requires trainer normalization contract %s",
@@ -210,17 +221,17 @@ class Trainer(LoopsTrainer):
             seed=self.config.training.seed,
         )
         self.resumed_step = await self._restore()
-        # Publish before any rollout so the first sample is served by a known
-        # version rather than by whatever the sampler happened to hold.
-        # Replay names the sampler's records of each generation, so a run that replays
-        # has every sample recorded.
+        # Publish before any rollout, so that a known version serves the first sample
+        # instead of whatever the sampler happened to hold. Router replay names the
+        # sampler's record of each generation, so a run that replays has every sample
+        # recorded.
         self.sampler = await client.save_weights_and_get_sampling_client_async(
             name="default", record_stability_info=self.config.training.router_replay
         )
         self.sampler_version = self._version
         logger.info("Published initial adapter at policy version %d", self._version)
         # The SDK defers readiness to first use, and first use is a rollout inside
-        # Harbor's agent timeout. A cold start belongs to startup, not that budget.
+        # Harbor's agent timeout. A cold start belongs to startup, not to that budget.
         logger.info("Waiting for sampler to be ready...")
         started = monotonic()
         await self.sampler.ensure_ready_async()
@@ -234,17 +245,17 @@ class Trainer(LoopsTrainer):
 
     @property
     def policy_version(self) -> int:
+        """The trainer's current policy version, which is its optimizer step count."""
         return self._version
 
     def _check_lengths(self, datums: list[Datum]) -> None:
         """Refuse a sequence longer than the run's sequence budget.
 
-        This is per *datum*, not per batch: ``max_seq_len`` bounds one
-        sequence. Splitting the batch is not our problem — the SDK already
-        splits ``data`` when the request body would exceed its 24 MiB cap and
-        dispatches one op per chunk, and the trainer accumulates gradients
-        across those calls until ``optim_step``, so split calls are mathematically
-        equivalent to one.
+        The check is per *datum*, not per batch, because ``max_seq_len`` bounds one
+        sequence. Splitting a large batch is left to the SDK. It splits ``data`` when the
+        request body would exceed its 24 MiB cap, and it dispatches one op per chunk.
+        The trainer accumulates gradients across those calls until ``optim_step``, so
+        split calls are mathematically equivalent to one.
         """
         budget = self.config.model.max_seq_len
         if budget is None:
@@ -254,23 +265,23 @@ class Trainer(LoopsTrainer):
             if length > budget:
                 raise ValueError(
                     f"a single datum is {length} tokens, over the {budget}-token "
-                    "max_seq_len; shorten the agent's context or raise max_seq_len"
+                    "max_seq_len. Shorten the agent's context or raise max_seq_len."
                 )
 
     def _action_scores(
         self, rows: list[TrainingRow], outputs: list[dict[str, TensorData]]
     ) -> list[list[Sequence[float]]] | None:
-        """The trainer's logprobs on each row's actions, for the mismatch gauges.
+        """Return the trainer's logprobs on each row's actions, for the mismatch gauges.
 
-        Loops already holds this call's gradients, so an answer that does not fit the
-        rows invalidates them before it raises. A backend that returns no logprobs
-        only costs the gauges.
+        Loops already holds this call's gradients, so an answer that doesn't fit the
+        rows invalidates them before this raises. A backend that returns no logprobs
+        costs only the gauges.
         """
         scored = sum("logprobs" in output for output in outputs)
         if not scored:
             if not self._warned_unscored:
                 self._warned_unscored = True
-                logger.warning("Loops returned no logprobs; mismatch/* is not reported")
+                logger.warning("Loops returned no logprobs, so mismatch/* is not reported")
             return None
         try:
             if scored < len(outputs):
@@ -283,10 +294,10 @@ class Trainer(LoopsTrainer):
     async def accumulate(self, rows: list[TrainingRow]) -> None:
         """Accumulate a complete batch without stepping the optimizer.
 
-        The caller normalizes replay eligibility (``normalize_batch_provenance``)
-        before recording or submitting the batch, so what it records is what trains; a
-        batch that is not normalized is refused. Multiple calls may share an
-        optimizer step only with one consistent replay mode; Loops accumulates their
+        The caller normalizes replay eligibility with ``normalize_batch_provenance``
+        before it records or submits the batch, so what it records is what trains. A
+        batch that is not normalized is refused. Several calls may share an optimizer
+        step only when they use one consistent replay mode. Loops accumulates their
         gradients until that step, reduced as ``loss_aggregation`` asks.
         """
         if self.client is None:
@@ -300,8 +311,8 @@ class Trainer(LoopsTrainer):
         routed = all(row.routed for row in rows)
         if any(row.routed for row in rows) and not (routed and self.config.training.router_replay):
             raise ValueError(
-                "the batch's provenance is not normalized: pass it through "
-                "normalize_batch_provenance(enabled=[training] router_replay) first"
+                "the batch's provenance is not normalized. Pass it through "
+                "normalize_batch_provenance(enabled=[training] router_replay) first."
             )
         if self._window_routed is not None and routed != self._window_routed:
             raise ValueError(
@@ -311,7 +322,7 @@ class Trainer(LoopsTrainer):
         started = monotonic()
         training = self.config.training
         if training.loss_fn == "custom":
-            # Loaded from these settings, which require it with a custom loss_fn.
+            # It was loaded from these settings, which require it with a custom loss_fn.
             assert self._custom_loss is not None
             loss, loss_metrics, scores = await forward_backward_custom(
                 self.client, rows, self._custom_loss
@@ -328,7 +339,7 @@ class Trainer(LoopsTrainer):
             check_token_normalization(result.metrics, averaged)
             loss, loss_metrics = result.loss, {}
             scores = self._action_scores(rows, result.loss_fn_outputs)
-            # The reduction's echo is checked above, not a measurement of the step.
+            # The reduction's echo was checked above, and it doesn't measure the step.
             server_metrics = {
                 key: float(value)
                 for key, value in (result.metrics or {}).items()
@@ -343,19 +354,21 @@ class Trainer(LoopsTrainer):
         )
         if not math.isfinite(loss):
             self._invalid_gradients = "Nonfinite loss"
-            raise RuntimeError("Nonfinite trainer loss; refusing optimizer step and publication")
+            raise RuntimeError(
+                "Nonfinite trainer loss. The optimizer step and publication are refused."
+            )
         self._pending_datums += len(datums)
         self._pending_tokens += sum(d.model_input.length for d in datums)
         trained = sum(row.trained_positions for row in rows)
         self._pending_trained += trained
-        # Match SDK response aggregation, not the server's global token mean:
-        # SDK chunk merging does not preserve the server's token denominators.
+        # Match the SDK's response aggregation, not the server's global token mean.
+        # The SDK's chunk merging doesn't keep the server's token denominators.
         self._loss_numerator += loss * len(datums)
         for key, value in loss_metrics.items():
             total = self._loss_metric_numerators.get(key, 0.0)
             self._loss_metric_numerators[key] = total + value * len(datums)
-        # Datum-weighted like mismatch_kl, which keeps its own fields: the
-        # trainer's per-call means arrive already token-weighted.
+        # Weight these by datum, like mismatch_kl, which keeps its own fields. The
+        # trainer's per-call means arrive already weighted by token.
         for key, value in server_metrics.items():
             if key != "mismatch_kl":
                 total = self._trainer_metric_numerators.get(key, 0.0)
@@ -380,8 +393,9 @@ class Trainer(LoopsTrainer):
             )
         self._calls += 1
         if scores is not None:
-            # Last, and on the loop in slices: everything above already accounts for
-            # the gradients Loops holds, so a cancellation here costs only these gauges.
+            # This runs last, on the loop in slices. Everything above already accounts
+            # for the gradients Loops holds, so a cancellation here costs only these
+            # gauges.
             gaps = MismatchTotals()
             await in_slices(gaps.add_in_slices(rows, scores, self.policy_version))
             self._gaps.merge(gaps)
@@ -398,8 +412,8 @@ class Trainer(LoopsTrainer):
     ) -> StepReport:
         """Step the optimizer over everything accumulated, then publish.
 
-        Once this returns the update is applied: the sampler serves it. Keeping it
-        is ``checkpoint()``'s, a separate step that can fail without undoing it.
+        Once this returns, the update is applied and the sampler serves it.
+        ``checkpoint()`` keeps it, in a separate step that can fail without undoing it.
         """
         if self.client is None:
             raise RuntimeError("Trainer.start() has not been awaited")
@@ -447,11 +461,11 @@ class Trainer(LoopsTrainer):
         self._applied(step, after)
         self._version = after
 
-        # The per-step weight sync goes to "default": this is what the paired
-        # sampler hot-swaps to, and it is overwritten every step by design. A
-        # serverless sampling client is pinned to this publication instead (the SDK
-        # gives each serverless save a name of its own), so its samples take
-        # ``sampler_version``, and leases read the new handle at their next generation.
+        # The per-step weight sync goes to "default". The paired sampler hot-swaps to
+        # it, and it is overwritten every step by design. A serverless sampling client
+        # is pinned to this publication instead, because the SDK gives each serverless
+        # save a name of its own. So its samples take ``sampler_version``, and leases
+        # read the new handle at their next generation.
         started = monotonic()
         self.sampler = await self.client.save_weights_and_get_sampling_client_async(
             record_stability_info=self.config.training.router_replay
@@ -502,13 +516,13 @@ class Trainer(LoopsTrainer):
     async def checkpoint(
         self, report: StepReport, *, final: bool = False, keep_sampler_weights: bool = False
     ) -> StepReport:
-        """The committed step's report, with what was kept of it.
+        """Return the committed step's report, with what was kept of the step.
 
-        ``final`` marks the last update the runner intends to make, which is
-        checkpointed whatever the cadences say: a run that ends on a step they
-        happened to skip would otherwise leave nothing to resume or serve.
-        ``keep_sampler_weights`` keeps this step's sampler weights whatever their cadence
-        says, for an eval to serve.
+        ``final`` marks the last update the runner intends to make. That update is
+        checkpointed whatever the cadences say, because a run that ends on a step they
+        skip would otherwise leave nothing to resume or serve.
+        ``keep_sampler_weights`` keeps this step's sampler weights whatever their
+        cadence says, for an eval to serve.
         """
         started = monotonic()
         checkpoint, state_path, weights = await self._checkpoint(

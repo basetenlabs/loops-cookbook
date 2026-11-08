@@ -53,12 +53,12 @@ class Answer(Episode[None, None]):
     (source / "tasks.jsonl").write_text('{"id":"question"}\n')
     values = config(
         **{
-            "runtime.factory": "loops_cookbook.episodes:create_runtime",
-            "runtime.config": {
+            "rollout_runtime.factory": "loops_cookbook.episodes:create_runtime",
+            "rollout_runtime.config": {
                 "episode": "loaded_project_episode:Answer",
                 "agent_timeout_seconds": 10,
             },
-            "runtime.files": {"tasks": "tasks.jsonl"},
+            "rollout_runtime.files": {"tasks": "tasks.jsonl"},
             "rollout.rollout_timeout_seconds": None,
             "rollout.producers": {"solver": {"trainable": True}},
             "training.max_steps": 1,
@@ -81,7 +81,7 @@ class Answer(Episode[None, None]):
     assert trainers == [], "check must never construct a Loops trainer"
     assert report.config.training.group_size == 8
     assert report.rollout_timeout_seconds > 0
-    assert report.images.error is None
+    assert report.images.tokens is None  # its config declares no images
     assert report.reasoning_efforts == ()
     assert [task.id for task in report.tasks] == ["question"]
     assert report.output_dir.parent == tmp_path / "results" / "preflight"

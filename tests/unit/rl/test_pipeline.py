@@ -80,7 +80,7 @@ class Harness:
             internally_acquired_phases=phases,
         )
         self.sampler = Sampler(lambda: self.version)
-        self.records_transcripts = False  # on for a runtime with a group grader
+        self.records_transcripts = False  # on for a rollout runtime with a group grader
         self.sleep = no_sleep  # the grading backoff: none, unless a test holds it
         self.stopped = asyncio.Event()
         """Set once the driver stops the run."""

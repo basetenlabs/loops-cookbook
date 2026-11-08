@@ -1,6 +1,6 @@
-"""The cookbook's Blaxel environment class on a local directory, for Harbor runtime tests.
+"""The cookbook's Blaxel environment class on a local directory, for Harbor rollout runtime tests.
 
-Harbor constructs it through ``import_path``, so the runtime treats the job as
+Harbor constructs it through ``import_path``, so the rollout runtime treats the job as
 Blaxel-backed; every command runs locally, and the sandbox kernel's /proc/vmstat is
 whatever the variant says it is.
 """

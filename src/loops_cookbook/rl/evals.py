@@ -1,11 +1,13 @@
-"""One eval of one set: its tasks, each rolled out ``samples_per_task`` times on a
-sampler pinned to one step's weights, graded, and summarized. Nothing here trains.
+"""One eval of one eval set, which trains nothing.
 
-An eval needs far less than training: no admission window, no staleness, no batches,
-no group selection. Each rollout goes through the run's own ``AttemptDriver`` --
-``sample()``, then ``grade()`` -- at most ``max_concurrent_rollouts`` at once. With a
-group grader, a task's graded samples are then scored together, retried as the
-training pipeline retries them.
+The eval rolls out each of the set's tasks ``samples_per_task`` times, on a sampler
+pinned to one step's weights. It grades the rollouts and summarizes them.
+
+An eval needs far less than training. It has no admission window, no staleness, no
+batches and no group selection. Each rollout goes through the run's own
+``AttemptDriver``, which calls ``sample()`` and then ``grade()``, with at most
+``max_concurrent_rollouts`` at once. With a group grader, a task's graded samples are
+then scored together, and retried the way the training pipeline retries them.
 """
 
 from __future__ import annotations
@@ -35,9 +37,11 @@ from loops_cookbook.runtime.groups import GroupGrading, GroupGradingSettings
 
 
 class SetSlots:
-    """A set's bound on its rollouts at once, across every eval of the set. A hook kept
-    past its grace holds its slot until it ends, into the set's later evals; ``kept``
-    counts those slots."""
+    """A set's bound on its rollouts at once, across every eval of the set.
+
+    A hook kept past its grace holds its slot until it ends, even into the set's later
+    evals. ``kept`` counts those slots.
+    """
 
     def __init__(self, cap: int) -> None:
         self.cap = cap
@@ -46,11 +50,11 @@ class SetSlots:
 
     @property
     def all_kept(self) -> bool:
-        """Kept hooks hold every slot: no rollout of the set can start until one ends."""
+        """Whether kept hooks hold every slot, so no rollout of the set can start until one ends."""
         return self.kept >= self.cap
 
     def kept_ended(self) -> None:
-        """A kept hook ended: its slot is free again."""
+        """Free the slot of a kept hook that has ended."""
         self.kept -= 1
         self.free.release()
 
@@ -71,29 +75,33 @@ class EvalSet:
     capabilities: RuntimeCapabilities
     group_grader: GroupGrader | None
     tasks: tuple[TaskRef, ...]
-    """Already cut to ``max_tasks``."""
+    """The set's tasks, already cut to ``max_tasks``."""
     rollout_timeout_seconds: float
-    """The set's rollout clock: the one configured, else its own runtime's."""
+    """The set's rollout clock, which is the one configured or else its own rollout runtime's."""
     metrics: MetricsSink = field(default_factory=MetricsSink)
-    """What its runtime reports, kept apart from training's."""
+    """What the set's rollout runtime reports, kept apart from training's."""
     slots: SetSlots | None = None
-    """The bound on its rollouts at once, across every eval of the set. None: each
-    eval's own."""
+    """The bound on the set's rollouts at once, across every eval of the set.
+
+    When None, each eval has its own bound.
+    """
 
 
 @dataclass(frozen=True, slots=True)
 class EvalResult:
     rows: tuple[dict[str, JsonValue], ...]
-    """One per rollout, in task then sample order."""
+    """One row per rollout, in task order and then sample order."""
     gauges: dict[str, float]
-    """Every name under ``eval/<set>/``."""
+    """Every metric under ``eval/<set>/``."""
     transcripts: tuple[tuple[str, SealedTranscript], ...] = ()
-    """Each sealed rollout's conversation, by rollout ID: what the policy was asked and
-    what it replied."""
+    """Each sealed rollout's conversation, by rollout ID.
+
+    It holds what the policy was asked and what it replied.
+    """
 
 
 class _AdmitAll:
-    """Start admission for an eval: a semaphore bounds it, so admit up to the cap."""
+    """Admission for an eval, which admits up to the cap because a semaphore bounds it."""
 
     def __init__(self, cap: int) -> None:
         self._cap = cap
@@ -112,9 +120,10 @@ class PinnedSampler:
     """An eval's standalone sampler, whose samples are labelled with the eval's version.
 
     It serves exactly the checkpoint it was created on. The policy version it reports
-    is its own counter, which only weight sync moves: 0 on a dedicated sampler,
-    whatever step it serves (a serverless one reports none). Dropped, the lease labels
-    each sample with the version its handle was pinned at, the eval's.
+    is its own counter, which only weight sync moves. That counter is 0 on a dedicated
+    sampler, whatever step it serves, and a serverless sampler reports none. With the
+    reported version dropped, the lease labels each sample with the version its handle
+    was pinned at, which is the eval's.
     """
 
     def __init__(self, sampler: Any) -> None:
@@ -128,9 +137,11 @@ class PinnedSampler:
 
 DriverFactory = Callable[[RunCapacity, Callable[[SystemicFailure], None]], AttemptDriver]
 
-# One rollout's outcome: graded, or why it was discarded; and its transcript, which the
-# eval records and a group grader reads.
-_Outcome = tuple[Rollout | Discard | str, SealedTranscript | None]
+# One rollout's outcome holds three things. The first is the graded rollout or why it
+# was discarded. The second is its transcript, which the eval records and a group
+# grader reads. The third is the digest of the task it sampled, which a grading failure
+# keeps.
+_Outcome = tuple[Rollout | Discard | str, SealedTranscript | None, str | None]
 
 
 async def evaluate(
@@ -143,16 +154,18 @@ async def evaluate(
     drain_seconds: float,
     on_unsettled: Callable[[], None],
 ) -> EvalResult:
-    """Roll out, grade and summarize every task of ``eval_set`` once per sample, at
-    most ``verifiers`` grading at once, as training is bounded.
+    """Roll out, grade and summarize every task of ``eval_set`` once per sample.
 
-    A ``SystemicFailure`` or a cancellation cancels what is still running and is
-    raised. Waiting for the cancelled rollouts and the driver's drain is bounded by
-    ``drain_seconds``; a wait cut off, or a hook still running after cancellation, is
-    reported to ``on_unsettled``.
+    At most ``verifiers`` rollouts grade at once, the same bound training has.
+
+    A ``SystemicFailure`` or a cancellation cancels what is still running, and then it
+    is raised. ``drain_seconds`` bounds the wait for the cancelled rollouts and the
+    driver's drain. A wait that is cut off, or a hook still running after
+    cancellation, is reported to ``on_unsettled``.
     """
     cap = eval_set.settings.max_concurrent_rollouts
-    label = "base" if step < 0 else str(step)  # in rollout IDs: the base model's is -1
+    # The label goes into rollout IDs. The base model's step is -1.
+    label = "base" if step < 0 else str(step)
     capacity = RunCapacity(
         sampling_slots=cap,
         verification_slots=min(cap, verifiers),
@@ -178,8 +191,9 @@ async def evaluate(
             unquiesced=attempts.group_unquiesced,
         )
     )
-    # The bound on work in flight: RunCapacity gates only the sampling holds, and a
-    # runtime may acquire that phase itself. One per set, shared by its evals.
+    # This bounds the work in flight. RunCapacity gates only the sampling holds, and a
+    # rollout runtime may acquire that phase itself. Each set has one, which its evals
+    # share.
     slots = eval_set.slots or SetSlots(cap)
     if slots.all_kept:
         raise _all_kept(eval_set, slots)
@@ -191,12 +205,12 @@ async def evaluate(
         try:
             outcome = await attempts.sample(task, group_id, rollout_id)
             if isinstance(outcome, Discard):
-                return outcome, None
-            return await attempts.grade(outcome), outcome.transcript
+                return outcome, None, None
+            return await attempts.grade(outcome), outcome.transcript, outcome.rollout.task_digest
         finally:
-            # A hook kept past its grace is still running: its slot stays taken until
-            # it ends, into the set's later evals. Once kept hooks hold every slot, the
-            # rollouts waiting for one would wait without end, so the eval stops.
+            # A hook kept past its grace is still running, so its slot stays taken until
+            # it ends, even into the set's later evals. Once kept hooks hold every slot,
+            # the rollouts waiting for one would wait forever, so the eval stops.
             if attempts.after_kept(rollout_id, slots.kept_ended):
                 slots.kept += 1
                 if slots.all_kept:
@@ -225,7 +239,7 @@ async def evaluate(
         return runs
 
     async def settle() -> None:
-        # A cancelled attempt waits out its abort() before its task ends, so the
+        # A cancelled attempt waits out its abort() before its task ends. So the
         # rollouts' join and the driver's drain share one bound, as in the pipeline.
         rolling.cancel()
         await asyncio.wait({rolling})
@@ -240,7 +254,8 @@ async def evaluate(
         draining = asyncio.ensure_future(settle())
         waited = await outlast(draining, drain_seconds)
         if not waited.settled:
-            # Stop waiting, not stop cleaning: each abort() runs to its own deadline.
+            # This stops the waiting, not the cleanup. Each abort() runs to its own
+            # deadline.
             draining.cancel()
         if not waited.settled or attempts.unquiesced:
             on_unsettled()
@@ -269,15 +284,17 @@ async def _grade_group(
     group_id: str,
     outcomes: list[_Outcome],
 ) -> list[_Outcome]:
-    """The task's graded samples scored together, as ``Pipeline._grade_group`` tries
-    a group: retried within the runtime's ``grading_retries``, the members discarded
-    as ``grading_failed`` after the last."""
-    graded = [i for i, (outcome, _) in enumerate(outcomes) if isinstance(outcome, Rollout)]
+    """Score the task's graded samples together, the way ``Pipeline._grade_group`` tries a group.
+
+    A failure is retried within the rollout runtime's ``grading_retries``. After the
+    last try fails, the members are discarded as ``grading_failed``.
+    """
+    graded = [i for i, (outcome, _, _) in enumerate(outcomes) if isinstance(outcome, Rollout)]
     if not graded:
         return outcomes
     members: list[MemberEvidence] = []
     for i in graded:
-        rollout, transcript = outcomes[i]
+        rollout, transcript, _ = outcomes[i]
         if transcript is None:
             raise RuntimeError("a group grader's rollout was sealed without its transcript")
         assert isinstance(rollout, Rollout)
@@ -297,12 +314,16 @@ async def _grade_group(
             attempts.group_failed(group_id, error, ids)
             scored = list(outcomes)
             for i in graded:
-                scored[i] = (Discard.GRADING_FAILED.value, outcomes[i][1])
+                scored[i] = (Discard.GRADING_FAILED.value, *outcomes[i][1:])
             return scored
         attempts.group_scored()
         scored = list(outcomes)
         for i, member, reward in zip(graded, members, rewards, strict=True):
-            scored[i] = (replace(member.rollout, reward=reward), member.transcript)
+            scored[i] = (
+                replace(member.rollout, reward=reward),
+                member.transcript,
+                member.rollout.task_digest,
+            )
         return scored
     raise AssertionError("unreachable")
 
@@ -312,7 +333,7 @@ def _row(task: TaskRef, rollout_id: str, index: int, outcome: _Outcome) -> dict[
     graded = isinstance(result, Rollout)
     return {
         "task_id": task.id,
-        "task_digest": task.digest,
+        "task_digest": outcome[2],
         "sample": index,
         "rollout_id": rollout_id,
         "reward": result.reward if isinstance(result, Rollout) else None,

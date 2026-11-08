@@ -1,6 +1,6 @@
 """Every training config the repository ships passes ``loops check``, offline.
 
-``check`` is the first thing a user runs: it resolves the config, imports the runtime
+``check`` is the first thing a user runs: it resolves the config, imports the rollout runtime
 or the Harbor job's agent, and discovers the tasks, launching nothing. A config that
 names a moved file or a renamed setting fails here, not in a user's first command.
 """
@@ -40,7 +40,7 @@ def test_the_config_passes_check(path, loops_check):
         pytest.skip("needs the harbor extra")
     code, out, err = loops_check(path, cwd=ROOT)
     assert code == 0, err
-    assert "Runtime:" in out
+    assert "Rollout runtime:" in out
 
 
 def test_no_shipped_config_states_the_model_access_its_agent_class_states():
@@ -49,12 +49,12 @@ def test_no_shipped_config_states_the_model_access_its_agent_class_states():
     stated = [
         str(path.relative_to(ROOT))
         for path in CONFIGS
-        if "model_access" in tomllib.loads(path.read_text()).get("runtime", {})
+        if "model_access" in tomllib.loads(path.read_text()).get("rollout_runtime", {})
     ]
     assert stated == []
 
 
-# Each custom runtime's dataset is its episode's own ``AnswerTask``, one per line.
+# Each custom rollout runtime's dataset is its episode's own ``AnswerTask``, one per line.
 ANSWER_TASK_CONFIGS = [
     "patterns/custom_runtime/in_process_direct/train.toml",
     "patterns/custom_runtime/in_process_openai_http/train.toml",
@@ -75,7 +75,9 @@ def test_check_refuses_a_dataset_line_that_is_not_a_task_naming_it(
 ):
     skip_without_litellm(config)
     tasks = task_file(tmp_path, [TASK, line])
-    code, _, err = loops_check(ROOT / config, "--runtime.files", json.dumps({"tasks": str(tasks)}))
+    code, _, err = loops_check(
+        ROOT / config, "--rollout_runtime.files", json.dumps({"tasks": str(tasks)})
+    )
     assert code == 2
     assert f"{tasks}:2: the task is not a valid AnswerTask" in err
 
@@ -161,4 +163,4 @@ def test_the_config_passes_check_with_every_setting_uncommented(path, loops_chec
     variant.write_text(text)
     code, out, err = loops_check(variant, cwd=ROOT)
     assert code == 0, err
-    assert "Runtime:" in out
+    assert "Rollout runtime:" in out

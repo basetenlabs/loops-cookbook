@@ -1,23 +1,24 @@
-"""An episode with a local agent: a separate program the cookbook does not own.
+"""An episode with a local agent, which is a separate program the cookbook does not own.
 
-For each attempt the cookbook provisions a sandbox from ``[runtime.config.sandbox]``,
-then ``run()`` starts the agent program ``[runtime.config.options] agent`` names as a
-supervised process on the training machine, with the attempt's model connection and
-the sandbox's usage environment. The agent reaches the model only through the run's
-gateway, and works in the sandbox without ever creating or deleting it. However the
-program ends, ``run()`` returns, recording how it ended as ``agent_exit`` in the
-episode's metadata, so the episode is graded.
+For each attempt the cookbook provisions a sandbox from
+``[rollout_runtime.config.sandbox]``, then ``run()`` starts the agent program
+``[rollout_runtime.config.options] agent`` names as a supervised process on the training
+machine, with the attempt's model connection and the sandbox's usage environment. The
+agent reaches the model only through the run's gateway, and works in the sandbox without
+ever creating or deleting it. However the program ends, ``run()`` returns, recording how
+it ended as ``agent_exit`` in the episode's metadata, so the episode is graded.
 
-``grade()`` runs the verifier program over what the agent left: with ``grade_against =
-"files"``, the ``result.json`` it wrote in its working directory, the attempt's own;
-with ``"sandbox"``, the answer it left in the sandbox, which the episode proves was
-still there when the verifier found none, by asking the sandbox's ``alive()`` after
-the read. The verifier decides what a failed agent scores; this one scores a missing
-answer 0, and says it was missing. It is pure, so grading is declared safe to retry.
+``grade()`` runs the verifier program over what the agent left. With
+``grade_against = "files"``, the verifier reads the ``result.json`` the agent wrote in
+its working directory, which is the attempt's own. With ``"sandbox"``, it reads the
+answer the agent left in the sandbox. When the verifier finds no answer there, the
+episode asks the sandbox's ``alive()`` after the read, to prove the sandbox was still
+there. The verifier decides what a failed agent scores. This one scores a missing
+answer 0 and says it was missing. It is pure, so grading is declared safe to retry.
 A result it cannot parse, or a verifier that prints no reward, is not a measurement,
 and is a permanent grading failure.
 
-The episode is written once, over its sandbox kind, and named for each provider:
+The episode is written once, over its sandbox kind, and named for each provider. It is
 ``DirectoryAgentEpisode`` on ``local_sandbox`` (``train.toml``) and
 ``BlaxelAgentEpisode`` on Blaxel (``train_blaxel.toml``). Each task is an
 ``AnswerTask``, and ``loops check`` refuses a dataset line that is not one, options
@@ -39,7 +40,8 @@ from loops_cookbook.providers.blaxel import Blaxel
 from loops_cookbook.runtime import GradeResult, PermanentGradingFailure, ProcessResult
 
 HERE = Path(__file__).resolve().parent
-INVALID_MEASUREMENT = 3  # the verifier's exit status for "nothing valid to score"
+# The verifier exits with this status when it has nothing valid to score.
+INVALID_MEASUREMENT = 3
 
 
 class AnswerTask(BaseModel):
@@ -47,13 +49,14 @@ class AnswerTask(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str  # for people reading the dataset; the episode does not use it
+    # The name is for people reading the dataset. The episode doesn't use it.
+    name: str
     instruction: str
     answer: str
 
 
 class LocalOptions(BaseModel):
-    """``[runtime.config.options]``: the two programs, and what the verifier reads.
+    """The options table, which names the two programs and what the verifier reads.
 
     A ``./`` or ``../`` part of a command is a path beside this file.
     """
@@ -66,14 +69,14 @@ class LocalOptions(BaseModel):
 
 
 def command(argv: list[str]) -> tuple[str, ...]:
-    """``argv`` with its relative paths resolved beside this file."""
+    """Return ``argv`` with its relative paths resolved beside this file."""
     return tuple(
         str((HERE / part).resolve()) if part.startswith(("./", "../")) else part for part in argv
     )
 
 
 def ended(result: ProcessResult) -> str:
-    """How a program ended, as a label: ``status_0``, ``status_1``, ``signal_9``."""
+    """Return how a program ended as a label, such as ``status_0`` or ``signal_9``."""
     if result.signal is not None:
         return f"signal_{result.signal}"
     return f"status_{result.exit_code}"
@@ -127,7 +130,8 @@ class LocalAgentEpisode(Episode[AnswerTask, LocalOptions]):
         if verified.exit_code == INVALID_MEASUREMENT:
             raise PermanentGradingFailure(f"nothing valid to score: {tail(verified)}")
         if verified.exit_code != 0 or verified.signal is not None:
-            raise RuntimeError(f"the verifier failed: {tail(verified)}")  # retried
+            # The run retries this failure.
+            raise RuntimeError(f"the verifier failed: {tail(verified)}")
         try:
             printed = json.loads(verified.stdout_tail)
             reward, answered = printed["reward"], printed["answered"]

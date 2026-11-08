@@ -1,9 +1,9 @@
 """The answer episode from patterns/custom_runtime/in_process_direct, trained asynchronously.
 
-The episode is unchanged: async scheduling is a setting of the run, not of the episode.
-``AnswerEpisode`` (``train.toml``) keeps its answer and ``grade()`` scores it;
-``SandboxAnswerEpisode`` (``train_blaxel.toml``) writes the answer into the attempt's
-Blaxel sandbox, and ``grade()`` scores what the sandbox holds.
+The episode is unchanged, because async scheduling is a setting of the run, not of the
+episode. ``AnswerEpisode``, which ``train.toml`` runs, keeps its answer, and ``grade()``
+scores it. ``SandboxAnswerEpisode``, which ``train_blaxel.toml`` runs, writes the answer
+into the attempt's Blaxel sandbox, and ``grade()`` scores what the sandbox holds.
 """
 
 from __future__ import annotations
@@ -13,7 +13,8 @@ from pydantic import BaseModel, ConfigDict
 from loops_cookbook.episodes import Episode, Grading, Model, Sampling, Setup, Task
 from loops_cookbook.providers.blaxel import Blaxel
 
-ANSWER = "/tmp/answer.txt"  # where the answer lives in a sandbox
+# The answer's path inside a sandbox.
+ANSWER = "/tmp/answer.txt"
 
 
 class AnswerTask(BaseModel):
@@ -21,13 +22,14 @@ class AnswerTask(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str  # for people reading the dataset; the episode does not use it
+    # The name is for people reading the dataset. The episode doesn't use it.
+    name: str
     instruction: str
     answer: str
 
 
 async def ask(model: Model, instruction: str) -> str:
-    """The model's one reply to ``instruction``; one that won't parse is a wrong answer."""
+    """Return the model's one reply to ``instruction``. An empty reply is a wrong answer."""
     conversation = model.conversation()
     reply = await conversation.generate(messages=[{"role": "user", "content": instruction}])
     return (reply.content or "").strip()
@@ -40,7 +42,8 @@ class AnswerEpisode(Episode[AnswerTask, None]):
 
     def __init__(self, task: Task[AnswerTask], options: None) -> None:
         super().__init__(task, options)
-        self.answer: str | None = None  # None until the model replies; scored as wrong
+        # The answer stays None until the model replies, and None scores as wrong.
+        self.answer: str | None = None
 
     async def run(self, sample: Sampling) -> None:
         model = sample.model
@@ -51,7 +54,7 @@ class AnswerEpisode(Episode[AnswerTask, None]):
 
 
 class SandboxAnswerEpisode(Episode[AnswerTask, None]):
-    """The same episode on a Blaxel sandbox: the answer goes into it and is graded from it."""
+    """The same episode on a Blaxel sandbox, which holds the answer that ``grade()`` scores."""
 
     execution_kind = Blaxel
 
@@ -60,7 +63,8 @@ class SandboxAnswerEpisode(Episode[AnswerTask, None]):
     async def setup(self, setup: Setup) -> None:
         sandbox = setup.sandbox
         assert isinstance(sandbox, Blaxel)
-        await sandbox.client()  # attached here, on the setup clock, not the agent's
+        # Attaching here counts against the setup deadline, not the agent's.
+        await sandbox.client()
 
     async def run(self, sample: Sampling) -> None:
         model = sample.model
@@ -68,10 +72,12 @@ class SandboxAnswerEpisode(Episode[AnswerTask, None]):
         assert isinstance(sandbox, Blaxel)
         answer = await ask(model, self.task.value.instruction)
         box = await sandbox.client()
-        await box.fs.write(ANSWER, answer)  # the tool call: into the sandbox
+        # This write is the agent's tool call. It puts the answer in the sandbox.
+        await box.fs.write(ANSWER, answer)
 
     async def grade(self, grading: Grading) -> float:
         sandbox = grading.execution_sandbox
         assert isinstance(sandbox, Blaxel)
-        held = await sandbox.read_file(ANSWER)  # None: a run that wrote none
+        # read_file returns None when the run wrote no answer, which scores as wrong.
+        held = await sandbox.read_file(ANSWER)
         return float(held == self.task.value.answer)

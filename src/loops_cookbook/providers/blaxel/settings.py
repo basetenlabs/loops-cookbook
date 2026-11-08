@@ -1,10 +1,10 @@
-"""`[providers.blaxel]`: the region, every Blaxel deadline, and sandbox labels.
+"""The `[providers.blaxel]` settings, which hold the region, the Blaxel deadlines and labels.
 
-Credentials are not settings: `BL_WORKSPACE` and `BL_API_KEY` come from the
-environment, loaded from `.env`. The region is required: where sandboxes run is
-the user's. Every deadline has a default, by the rule for defaults in
-docs/reference/KNOB_GLOSSARY.md: a wrong one only fails loudly, one value suits every workload,
-and none is unbounded.
+Credentials are not settings. `BL_WORKSPACE` and `BL_API_KEY` come from the
+environment, loaded from `.env`. The region is required, because where sandboxes run
+is the user's choice. Every deadline has a default, which follows the rule for
+defaults in docs/reference/KNOB_GLOSSARY.md. A wrong deadline only fails loudly, one
+value suits every workload, and no deadline is unbounded.
 """
 
 from __future__ import annotations
@@ -28,50 +28,58 @@ class BlaxelSettings(BaseModel):
 
     region: str = Field(
         min_length=1,
-        description="The region every sandbox is created and every image is built in. Required.",
+        description="The region where the run creates every sandbox and builds every "
+        "image. It is required.",
     )
     create_timeout_seconds: float = _deadline(
-        120, "Bound on creating one sandbox, until Blaxel reports it deployed."
+        120, "The longest the run waits for Blaxel to create one sandbox and report it deployed."
     )
     reconcile_timeout_seconds: float = _deadline(
-        60, "Bound on looking an ambiguous create up by name, and on deciding prerequisites."
+        60,
+        "The longest the run spends looking up an ambiguous create by name. It also bounds "
+        "working out what a sandbox needs created first, such as its image.",
     )
     image_build_timeout_seconds: float = _deadline(
-        420, "Bound on building one sandbox image, builder sandbox included."
+        420,
+        "The longest the run waits for one sandbox image to build. The time includes the "
+        "builder sandbox.",
     )
     image_build_memory_mb: int | None = Field(
         default=None,
         ge=1,
         le=32768,
-        description="Memory of the environment each image is built in, in MB. Unset: "
-        "Blaxel's default, which a large image can run out of mid-build. It sizes the "
-        "build alone; a sandbox's memory is its task's.",
+        description="The memory, in MB, of the environment that builds each image. When it "
+        "is unset, Blaxel uses its default, which a large image can run out of mid-build. "
+        "It sizes only the build. A sandbox's memory comes from its task.",
     )
     image_build_volume_mb: int | None = Field(
         default=None,
         ge=0,
         le=131072,
-        description="Disk for each build's intermediate layers, in MB; 0 builds in memory. "
-        "Unset: Blaxel's default, which a large image can run out of mid-build.",
+        description="The disk, in MB, for each build's intermediate layers. 0 builds in "
+        "memory. When it is unset, Blaxel uses its default, which a large image can run "
+        "out of mid-build.",
     )
-    release_timeout_seconds: float = _deadline(120, "Bound on deleting one sandbox.")
+    release_timeout_seconds: float = _deadline(
+        120, "The longest the run waits for one sandbox to be deleted."
+    )
     confirm_absent_timeout_seconds: float = _deadline(
-        60, "Bound on confirming a deleted sandbox is gone."
+        60, "The longest the run spends confirming that a deleted sandbox is gone."
     )
     list_timeout_seconds: float = _deadline(
         60,
-        "Bound on each page of the workspace listing a label sweep reads; the whole "
-        "listing is not bounded, since it grows with the workspace.",
+        "The longest the run waits for each page of the workspace listing that a label "
+        "sweep reads. The whole listing has no bound, because it grows with the workspace.",
     )
     attach_timeout_seconds: float = _deadline(
-        30, "Bound on attaching a client to a created sandbox."
+        30, "The longest the run spends attaching a client to a created sandbox."
     )
     labels: dict[str, str] = Field(
         default_factory=dict[str, str],
-        description="Labels every sandbox, image builders included, carries besides the run's "
-        "ownership labels, such as an owner to find a team's sandboxes by. "
-        "They win over the same keys from a Harbor job's or [runtime.config.sandbox]'s "
-        "labels.",
+        description="Labels that every sandbox carries in addition to the run's ownership "
+        "labels. Image builders carry them too. For example, an owner label lets a team find "
+        "its sandboxes. These labels override the same keys from a Harbor job's labels or "
+        "from [rollout_runtime.config.sandbox] labels.",
     )
 
     @property

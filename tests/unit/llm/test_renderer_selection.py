@@ -204,6 +204,11 @@ def test_default_renderer_can_be_selected_explicitly(caplog):
         ),
         ("nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16", "pkg:factory", "pkg:factory"),
         (
+            "Qwen/Qwen3.8-27B",
+            None,
+            "the cookbook's for Qwen/Qwen3.8-27B: loops_cookbook.llm.renderer_extensions.qwen36:qwen38",
+        ),
+        (
             "meta-models/Muse-Spark-Open-816B-A42B-NVFP4",
             None,
             (
@@ -212,7 +217,7 @@ def test_default_renderer_can_be_selected_explicitly(caplog):
             ),
         ),
     ],
-    ids=["prime", "cookbook", "setting", "cookbook muse"],
+    ids=["prime", "cookbook", "setting", "cookbook qwen38", "cookbook muse"],
 )
 def test_check_names_where_the_renderer_comes_from(tokenizer_name, renderer, source):
     from loops_cookbook.llm.factory import renderer_source

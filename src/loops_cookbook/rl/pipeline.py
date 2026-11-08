@@ -1,17 +1,17 @@
-"""Group admission, the freshness window, and batch selection over the attempt driver.
+"""Group admission, the freshness window and batch selection, on top of the attempt driver.
 
-The pipeline decides which rollouts to dispatch and when a group can train; the
-attempt driver owns every attempt's lifecycle, and the capacity broker owns the
-sampling and verification permits and start admission.
+The pipeline decides which rollouts to dispatch and when a group can train. The
+attempt driver owns every attempt's lifecycle. The capacity broker owns the sampling
+and verification permits, and start admission.
 
-For a runtime with a group grader, a complete group passes one more stage before it
-is ready. Before every try of the grader::
+For a rollout runtime with a group grader, a complete group passes one more stage
+before it is ready. Before every try of the grader, the pipeline runs these checks::
 
     drop stale members -> size >= min_group_size? -> grade_group()
 
-and once it has scored the group, the no-variance check. So the grader is never paid
-to score a group about to be dropped. Every group dropped before training, here or at
-selection, goes through ``_drop``.
+Once the grader has scored the group, the pipeline runs the no-variance check. So the
+grader is never paid to score a group that is about to be dropped. Every group dropped
+before training, here or at selection, goes through ``_drop``.
 """
 
 from __future__ import annotations
@@ -54,17 +54,17 @@ logger = logging.getLogger(__name__)
 
 
 class UnusableGroupsError(RuntimeError):
-    """Repeated group rejection prevents training progress."""
+    """Groups were rejected for training so many times in a row that training can't progress."""
 
 
 def _unusable_streak(
     count: int, rewards: collections.Counter[float], undersized: int, untrainable: int = 0
 ) -> str:
-    """What a streak of unusable groups was made of, and what would change it.
+    """Describe what a streak of unusable groups was made of, and what would change it.
 
     A group whose rollouts all scored the same carries no advantage to learn from. The
-    stop cannot tell a solved task from a stuck policy or a constant verifier, so it
-    reports the rewards those groups shared rather than guessing.
+    stop can't tell a solved task from a stuck policy or a constant verifier, so it
+    reports the rewards those groups shared instead of guessing.
     """
     parts = []
     if rewards:
@@ -74,12 +74,12 @@ def _unusable_streak(
         )
         parts.append(
             f"{sum(rewards.values())} gave every rollout one reward ({shared}), so they carry "
-            "nothing to learn from. If the tasks are solved, training is done; otherwise raise "
-            "[sampling] temperature or [training] group_size, or check the verifier"
+            "nothing to learn from. If the tasks are solved, training is done. Otherwise, "
+            "raise [sampling] temperature or [training] group_size, or check the verifier"
         )
     if undersized:
         parts.append(
-            f"{undersized} had too few usable rollouts (group_size - max_group_losses): check "
+            f"{undersized} had too few usable rollouts (group_size - max_group_losses). Check "
             "rollout failures and the freshness settings"
         )
     if untrainable:
@@ -87,7 +87,7 @@ def _unusable_streak(
             f"{untrainable} had an advantage only on rollouts whose agent discarded every "
             "generation, so nothing in them trains"
         )
-    return f"{count} consecutive unusable groups: " + "; ".join(parts) + "."
+    return f"{count} consecutive unusable groups: " + ". ".join(parts) + "."
 
 
 @dataclass
@@ -103,7 +103,7 @@ class Counters:
     discarded_groups: dict[str, int] = field(default_factory=dict)
 
     def discard(self, reason: Discard, n: int = 1) -> None:
-        """Count rollouts only; group rejection counts its surviving members separately."""
+        """Count discarded rollouts. A group rejection counts its surviving members separately."""
         if n:
             self.discarded[reason.value] = self.discarded.get(reason.value, 0) + n
 
@@ -134,9 +134,9 @@ class Counters:
 class Group:
     """A task's rollouts, from admission until they train or are dropped.
 
-    ``members`` are its sealed, graded rollouts. For a group grader, ``transcripts``
-    holds each member's, by rollout id, until the grader scores the group; until then
-    no member has its final reward.
+    ``members`` are its sealed, graded rollouts. With a group grader, ``transcripts``
+    holds each member's transcript, by rollout ID, until the grader scores the group.
+    Until then, no member has its final reward.
     """
 
     group_id: str
@@ -145,8 +145,9 @@ class Group:
     members: list[Rollout] = field(default_factory=list)
     resolved: int = 0
     ready_at: float | None = None
-    # When its first member, and then its last, was resolved (graded or discarded):
-    # the time its first finishers waited for the rest, which they spend ageing.
+    # When the group's first member and its last were resolved, which means graded or
+    # discarded. The gap is how long the first finishers waited for the rest, and they
+    # age while they wait.
     first_resolved_at: float | None = None
     completed_at: float | None = None
     transcripts: dict[str, SealedTranscript] = field(default_factory=dict)
@@ -156,48 +157,52 @@ class Group:
         return self.resolved == self.expected
 
     def evidence(self) -> list[MemberEvidence]:
-        """What its group grader reads: each member beside its transcript."""
+        """Return what the group grader reads, which is each member beside its transcript."""
         return [MemberEvidence(m, self.transcripts[m.identity.rollout_id]) for m in self.members]
 
     def recorded(self) -> list[Rollout]:
-        """Every member as its record shows it: before its grader scores it, no reward."""
+        """Return every member as its record shows it, with no reward until the grader scores."""
         if not self.transcripts:
             return list(self.members)
         return [replace(member, reward=None) for member in self.members]
 
 
-# Dropped because the group cannot train; these extend the unusable-groups streak.
+# These drops mean the group can't train, and they extend the unusable-groups streak.
 _UNUSABLE = frozenset({Discard.GROUP_TOO_SMALL, Discard.NO_VARIANCE, Discard.NOTHING_TO_TRAIN})
 _STALE = frozenset({Discard.STALE_BEFORE_GRADING, Discard.STALE_BEFORE_TRAINING})
-# Dropped without a verdict on the group: a resume samples it again.
+# These drops pass no verdict on the group, so a resume samples it again.
 _UNTRAINED = frozenset({Discard.TRAINING_ABORTED, Discard.CANCELLED})
-# The async survival estimate: over the last this many batches' worth of groups, and
-# never below this share, so a run of drops cannot make the expected losses unbounded.
+# The async survival estimate covers the last this many batches' worth of groups. It
+# never falls below this share, so a run of drops can't make the expected losses
+# unbounded.
 _SURVIVAL_BATCHES = 4
 _MIN_SURVIVAL = Fraction(1, 4)
 
 
 def _admission_window(fresh: Fraction, survival: Fraction, batch: int) -> Fraction:
-    """``fresh`` groups plus those ``survival`` says will drop, counted up to one ``batch``
-    and rounded up to whole groups: a replacement is a whole group, and a fraction of one
-    would hold back the replacement it was counted for.
+    """Return ``fresh`` groups plus the groups ``survival`` says will drop.
 
-    Drops rise as a policy degrades or saturates, so uncounted, the window widened most
-    when the policy was least stable, each extra group training later. A batch short
-    of replacements takes groups from the batch admitted after it, and a run dropping
-    more than a batch is better slowed than fed staler groups.
+    The drops are counted up to one ``batch`` and rounded up to whole groups. A
+    replacement is a whole group, and a fraction of one would hold back the
+    replacement it was counted for.
 
-    In exact arithmetic: float error would round some windows up a group.
+    Drops rise as a policy degrades or saturates. Without this cap, the window would
+    widen most when the policy is least stable, and each extra group would train later.
+    A batch short of replacements takes groups from the batch admitted after it. A run
+    that drops more than a batch is better slowed than fed staler groups.
+
+    The arithmetic is exact, because float error would round some windows up a group.
     """
     return fresh + math.ceil(min(fresh / survival - fresh, Fraction(batch)))
 
 
 def _admission_limit(needed: int, judged: int, survival: Fraction, batch: int) -> Fraction:
-    """Live groups not training that the steps left can use, ``needed`` groups to find.
+    """Return how many live groups not in training the steps left can use.
 
-    The ``judged`` ones passed their check and can now drop only by staleness, so the
-    allowance is for the rest alone: counted for them too, a batch already selected
-    admitted a batch more that never trains.
+    ``needed`` is the number of groups still to find. The ``judged`` groups passed their
+    check and can now drop only by staleness, so the drop allowance covers the rest
+    alone. If it covered judged groups too, a batch already selected would admit one
+    more batch that never trains.
     """
     return judged + _admission_window(Fraction(max(needed - judged, 0)), survival, batch)
 
@@ -225,7 +230,7 @@ class _Unit:
 
 
 def _length(rollout: Rollout | None) -> dict[str, int | None]:
-    """A rollout's length, for slicing dispositions by it; unknown before it sealed."""
+    """Return a rollout's length, for slicing dispositions by it. It is unknown before sealing."""
     if rollout is None:
         return {"generations": None, "sampled_tokens": None}
     return {
@@ -235,13 +240,13 @@ def _length(rollout: Rollout | None) -> dict[str, int | None]:
 
 
 class ReadyGroups:
-    """Groups ready to train, the one closest to going stale first.
+    """Groups ready to train, with the one closest to going stale first.
 
-    A group goes stale with its oldest member: ``pop`` returns the group whose
+    A group goes stale with its oldest member. ``pop`` returns the group whose
     members' oldest policy version is lowest, then the one dispatched first, then the
-    one made ready first. A group with no members sorts first; selection drops it.
+    one made ready first. A group with no members sorts first, and selection drops it.
     Completion order would let a long group, sampled early and finished late, wait
-    behind newer, shorter ones until it aged out of the off-policy window.
+    behind newer, shorter groups until it aged out of the off-policy window.
     """
 
     def __init__(self) -> None:
@@ -269,7 +274,7 @@ DriverFactory = Callable[
 
 
 class Pipeline:
-    """Own admitted groups through selection until training commits or discards them."""
+    """Hold admitted groups through selection until training commits or discards them."""
 
     def __init__(
         self,
@@ -284,13 +289,13 @@ class Pipeline:
         group_grader: GroupGrader | None = None,
     ) -> None:
         self.config, self.counters = config, Counters()
-        # Receives one record per discarded rollout; the runner writes trained ones
-        # from ``trained_record``.
+        # This receives one record per discarded rollout. The runner writes the trained
+        # ones from ``trained_record``.
         self._on_rollout = on_rollout
         self._training, self._rollout = config.training, config.rollout
         self._training_groups: set[str] = set()
-        # Dispatched and not yet resolved, with the rollout once it sealed: what a
-        # shutdown records as cancelled.
+        # Rollouts dispatched and not yet resolved, with each rollout once it sealed.
+        # A shutdown records these as cancelled.
         self._in_flight: dict[str, tuple[Group, Rollout | None]] = {}
         self._stream = TaskStream(
             tasks, group_size=self._training.group_size, seed=self._rollout.shuffle_seed
@@ -302,70 +307,75 @@ class Pipeline:
             0 <= index < initial_group_index for index in replay
         ):
             raise ValueError("replay_group_indices must be distinct and below initial_group_index")
-        # Groups a checkpoint left untrained, in task order: dispatched before any new one.
+        # Groups a checkpoint left untrained, in task order. They are dispatched before
+        # any new group.
         self._replay: collections.deque[tuple[int, Group]] = collections.deque()
         for index in range(initial_group_index):
             group = next(self._stream)
             if index in replay:
                 self._replay.append((index, group))
         self._next_group_index = initial_group_index
-        self._group_index: dict[str, int] = {}  # each live group's place in the stream
-        # Dispatched groups that neither trained nor were dropped for good: a shutdown
+        self._group_index: dict[str, int] = {}  # Each live group's place in the stream.
+        # Dispatched groups that neither trained nor were dropped for good. A shutdown
         # cancels them, so a resume must sample them again.
         self._untrained: set[int] = set()
         self._started_groups: set[str] = set()
         # Whether each recent group passed its first size and variance check (True) or
-        # was dropped as unusable (False): the share expected to survive, which sizes
-        # the async window's drop allowance. Recorded once, when judged, so a good
-        # group counts as soon as a bad one would; a later recheck can fail only by
-        # staleness.
+        # was dropped as unusable (False). This gives the share expected to survive,
+        # which sizes the async window's drop allowance. Each group is recorded once,
+        # when judged, so a good group counts as soon as a bad one would. A later
+        # recheck can fail only by staleness.
         self._outcomes: collections.deque[bool] = collections.deque(
             maxlen=_SURVIVAL_BATCHES * self._training.groups_per_step
         )
-        # Their share, floored; 1 before any. Set when one is recorded, since every
-        # admission check reads it.
+        # The floored share of those outcomes, or 1 before any. It is set when an
+        # outcome is recorded, because every admission check reads it.
         self._survival_share = Fraction(1)
         self._judged: set[str] = set()
-        # Groups that lost a member to staleness before they were judged: their fate
-        # says how the window was sized, not how the task goes, so it stays out.
+        # Groups that lost a member to staleness before they were judged. Their fate
+        # reflects how the window was sized, not how the task goes, so it stays out of
+        # the estimate.
         self._lost_to_staleness: set[str] = set()
         self._groups: dict[str, Group] = {}
         self._selected: set[str] = set()
         self._to_sample: asyncio.Queue[_Unit] = asyncio.Queue(maxsize=self._training.group_size)
         self._to_grade: asyncio.Queue[tuple[_Unit, Admitted]] = asyncio.Queue()
         self._ready = ReadyGroups()
-        # Valid groups from a batch that needed replacements: they go first next time.
+        # Valid groups from a batch that needed replacements. They go first next time.
         self._retained: collections.deque[Group] = collections.deque()
         self._changed, self._ready_changed = asyncio.Event(), asyncio.Event()
         self._tasks: list[asyncio.Task[None]] = []
         self._sampling = self._grading = self._sync_demand = 0
-        # Batches committed by this pipeline, from ``initial_step``: the runner trains
-        # until the run has made ``max_steps`` updates, a resume's earlier ones included.
+        # Batches this pipeline committed, counted from ``initial_step``. The runner
+        # trains until the run has made ``max_steps`` updates, including a resume's
+        # earlier ones.
         self._initial_step = initial_step
         self._committed_batches = 0
         self._fatal: Exception | None = None
         self._stopping = False
         self._consecutive_unusable_groups = 0
         self._streak_rewards: collections.Counter[float] = collections.Counter()
-        # Graded rewards of groups dropped as unusable since the last update took them,
-        # and those members' metadata (only that: not their samples) for the same report.
+        # Graded rewards of groups dropped as unusable since the last update took them.
+        # The same report also takes those members' metadata, but not their samples.
         self._unusable_rewards: list[float] = []
         self._unusable_metadata: list[Mapping[str, JsonValue]] = []
         self._streak_undersized = 0
         self._streak_untrainable = 0
         self._started = time.monotonic()
         # Time the async window held new groups back while fewer than
-        # max_concurrent_rollouts attempts were admitted: rollout capacity freshness
-        # left unused. Admitted, not sampling: idle slots behind sandbox start-up are
-        # not the window's doing. Since the start, and since the last update took it.
+        # max_concurrent_rollouts attempts were admitted. That is rollout capacity left
+        # unused for the sake of freshness. It counts admitted attempts, not sampling
+        # ones, because idle slots behind sandbox start-up are not the window's doing.
+        # It is kept since the start, and since the last update took it.
         self._held_since: float | None = None
         self._held_seconds = 0.0
         self._held_taken = (self._started, 0.0)
-        # The last cycle, for choosing admission_steps_ahead: how long the trainer
-        # waited for its batch, and the complete groups beyond a batch when it asked.
-        # Measured from the runner's calls: it frees when it asks for a batch and has
-        # it at start_training. An abort's cycle measures nothing.
-        self._freed: tuple[float, int] | None = None  # when, spare groups
+        # The last cycle, for choosing admission_steps_ahead. It records how long the
+        # trainer waited for its batch, and how many complete groups beyond a batch
+        # there were when it asked. It is measured from the runner's calls. The trainer
+        # is free when the runner asks for a batch, and it has the batch at
+        # start_training. An aborted cycle measures nothing.
+        self._freed: tuple[float, int] | None = None  # When, and how many spare groups.
         self._last_wait: float | None = None
         self._last_spare: int | None = None
         self.capacity = RunCapacity(
@@ -388,7 +398,9 @@ class Pipeline:
             )
         }
         if self.driver.capabilities.pending_group_grade != (group_grader is not None):
-            raise ValueError("a group grader is passed exactly when the runtime declares one")
+            raise ValueError(
+                "a group grader is passed exactly when the rollout runtime declares one"
+            )
         self._group_grading = (
             None
             if group_grader is None
@@ -404,10 +416,10 @@ class Pipeline:
             )
         )
         self._to_group_grade: asyncio.Queue[Group] = asyncio.Queue()
-        # Complete groups in the judge stage: queued for the group grader, or being judged.
+        # Complete groups in the judge stage, queued for the group grader or being judged.
         self._judging: set[str] = set()
         self.settled = True
-        """False once a shutdown leaves an attempt unsettled; the run is then unclean."""
+        """False once a shutdown leaves an attempt unsettled. The run is then unclean."""
 
     def _stop(self, error: Exception) -> None:
         if self._fatal is not None:
@@ -419,7 +431,7 @@ class Pipeline:
         self._ready_changed.set()
 
     def _sealed(self) -> None:
-        # A rollout exists: counted before evidence checks can discard it.
+        # A rollout now exists. It is counted before evidence checks can discard it.
         self.counters.sampled += 1
 
     def _capacity_changed(self) -> None:
@@ -427,7 +439,7 @@ class Pipeline:
         self._account_hold()
 
     def _account_hold(self, now: float | None = None) -> float:
-        """Start or stop the held clock on every change that can move it; the total so far."""
+        """Start or stop the held clock on every change that can move it, and return the total."""
         now = time.monotonic() if now is None else now
         held = (
             self._training.mode == "async"
@@ -442,8 +454,8 @@ class Pipeline:
         return self._held_seconds + (0.0 if self._held_since is None else now - self._held_since)
 
     def take_window_held_share(self) -> float:
-        """The share of wall time since the last call the window held rollout slots idle."""
-        now = time.monotonic()  # one instant: the total and the interval end at it
+        """Return the share of wall time since the last call that the window held slots idle."""
+        now = time.monotonic()  # The total and the interval both end at this instant.
         total = self._account_hold(now)
         since, before = self._held_taken
         self._held_taken = (now, total)
@@ -458,27 +470,27 @@ class Pipeline:
         self._survival_share = max(
             _MIN_SURVIVAL, Fraction(sum(self._outcomes), len(self._outcomes))
         )
-        self._account_hold()  # survival sizes the window: this can close it
+        self._account_hold()  # Survival sizes the window, so this can close it.
 
     def _survival(self) -> Fraction:
-        """The share of recent groups judged usable, floored; 1 before any."""
+        """Return the floored share of recent groups judged usable, or 1 before any."""
         return self._survival_share
 
     def _committed(self) -> int:
-        """Started groups not yet training: each will take a place in a later batch."""
+        """Count started groups not yet training. Each will take a place in a later batch."""
         return len(self._started_groups - self._training_groups)
 
     def _committed_rollouts(self) -> int:
-        """What the started groups not yet training hold of the window, in rollouts.
+        """Return how much of the window the started groups not yet training hold, in rollouts.
 
-        A complete group holds its whole place, since a batch takes it however many
-        members it has left; one still filling holds only its rollouts not yet
-        resolved. Counted by groups, a group whose last member ran long kept its place
-        while the rest sat finished, and a window of such groups held the sampler
-        idle: the slots its finished members left go to new groups instead. They are
-        lent, not freed: the group holds its whole place again once complete, so the
-        count can pass the window by what filling groups had finished; the groups'
-        bound in ``_room`` holds regardless.
+        A complete group holds its whole place, because a batch takes it however many
+        members it has left. A group still filling holds only its rollouts not yet
+        resolved. If the count were by groups, a group whose last member ran long would
+        keep its whole place while the rest sat finished, and a window of such groups
+        would hold the sampler idle. Instead, the slots its finished members leave go
+        to new groups. They are lent, not freed. The group holds its whole place again
+        once complete, so the count can pass the window by what filling groups had
+        finished. The bound on groups in ``_room`` holds regardless.
         """
         held = 0
         for group_id in self._started_groups - self._training_groups:
@@ -488,15 +500,16 @@ class Pipeline:
         return held
 
     def _window(self, steps: float | None = None) -> Fraction:
-        """Started groups not yet training that async admits, drops included.
+        """Return how many started groups not yet training async admits, drops included.
 
-        Fresh are the ``steps`` batches after the one training, or, with none
-        training, the batch being assembled and those after it: by default
-        ``steps_admitted_ahead``, which is ``max_steps_off_policy`` unless
-        ``admission_steps_ahead`` lowers it, by fractions of a batch. Counted in
-        groups, since a batch takes ``groups_per_step`` of them however many members
-        each has left, plus the groups recent drops say will not train, at most a batch
-        of them. Exact: a fraction of a batch is a fraction of a group's rollouts.
+        The fresh groups are the ``steps`` batches after the one in training. With no
+        batch in training, they are the batch being assembled and the batches after
+        it. ``steps`` defaults to ``steps_admitted_ahead``, which is
+        ``max_steps_off_policy`` unless ``admission_steps_ahead`` lowers it by
+        fractions of a batch. The count is in groups, because a batch takes
+        ``groups_per_step`` of them however many members each has left. It adds the
+        groups that recent drops say won't train, at most a batch of them. The result
+        is exact, because a fraction of a batch is a fraction of a group's rollouts.
         """
         ahead = self._training.steps_admitted_ahead if steps is None else steps
         batches = Fraction(ahead).limit_denominator(10**6) + (0 if self._training_groups else 1)
@@ -504,28 +517,32 @@ class Pipeline:
         return _admission_window(fresh, self._survival(), self._training.groups_per_step)
 
     def _room(self) -> bool:
-        """Room for one more group, by two bounds.
+        """Whether there is room for one more group, by two bounds.
 
-        The pace: its rollouts and those committed (``_committed_rollouts``) fit the
-        window, so the finished members of groups still filling free their slots.
-        The guarantee: the started groups fit the window ``max_steps_off_policy``
-        sizes, since each takes a batch place however few members it has left, so
-        none starts that could only train stale. With ``admission_steps_ahead``
-        unset the two are one window and the guarantee binds first: admission is
-        by groups alone.
+        The first bound is the pace. The new group's rollouts and the committed ones
+        (``_committed_rollouts``) must fit the window, so the finished members of
+        groups still filling free their slots. The second bound is the guarantee. The
+        started groups must fit the window that ``max_steps_off_policy`` sizes,
+        because each takes a batch place however few members it has left. So no group
+        starts that could only train stale. With ``admission_steps_ahead`` unset, the
+        two windows are one, and the guarantee binds first, so admission is by groups
+        alone.
         """
         size = self._training.group_size
         paced = self._committed_rollouts() + size <= self._window() * size
         return paced and self._committed() < self._window(self._training.steps_off_policy)
 
     def _needed(self) -> bool:
-        """Whether the steps left to train can use one more group; always, unlimited.
+        """Whether the steps left to train can use one more group.
 
-        Groups still to find are the batches left, less the one training, which is
-        certain. The live groups not training compete for them, plus the groups recent
-        drops say will not train (``_admission_limit``), so a dropped group frees its
-        place for a replacement. Group admission only: every admitted group is within
-        it, so start admission need not ask.
+        Without a step limit, they always can.
+
+        The groups still to find are the batches left, less the batch in training,
+        which is certain to train. The live groups not in training compete for those
+        places, with an allowance for the groups recent drops say won't train
+        (``_admission_limit``). So a dropped group frees its place for a replacement.
+        Only group admission asks this. Every admitted group is within the limit, so
+        start admission doesn't need to ask.
         """
         if self._training.step_limit is None:
             return True
@@ -543,9 +560,10 @@ class Pipeline:
         return candidates < limit
 
     def target(self, group_id: str) -> int:
-        """Start admission: a started group, and every group in sync mode, fills its slots.
+        """Return how many slots a group may fill under start admission.
 
-        In async, an unstarted group may start while the window has room, and then at
+        A started group, and every group in sync mode, fills its slots. In async mode,
+        an unstarted group may start while the window has room, and then it starts at
         full concurrency.
         """
         if self._training.mode == "sync" or group_id in self._started_groups or self._room():
@@ -553,12 +571,19 @@ class Pipeline:
         return 0
 
     def started(self, group_id: str) -> None:
+        """Record that one of a group's attempts took a sampling slot.
+
+        The capacity broker calls this on each admission. A started group fills its
+        slots from then on. It holds a place in the async window until its batch starts
+        training or the group is dropped.
+        """
         self._started_groups.add(group_id)
 
     def order(self, group_id: str) -> int:
-        """Admission order: groups in the order they were dispatched.
+        """Return a group's admission order, which is the order groups were dispatched in.
 
-        A group no longer live has no attempt waiting; it would sort after them all.
+        A group that is no longer live has no attempt waiting, and it would sort after
+        all the others.
         """
         return self._group_index.get(group_id, self._next_group_index)
 
@@ -613,8 +638,8 @@ class Pipeline:
             finally:
                 self._durations["sampling"].observe(time.monotonic() - started)
                 self._sampling -= 1
-            # Handed on. Until the next rollout is sampled -- as long as a rollout
-            # takes -- this worker must not keep this one's attempt alive.
+            # The rollout has been handed on. Sampling the next one can take as long as
+            # a rollout takes, and this worker must not keep this attempt alive meanwhile.
             del unit, result
 
     async def _grading_worker(self) -> None:
@@ -640,7 +665,8 @@ class Pipeline:
             finally:
                 self._durations["grading"].observe(time.monotonic() - started)
                 self._grading -= 1
-            # Graded, and its finish is under way: not held while the next is awaited.
+            # The rollout is graded and its finish is under way, so don't hold it while
+            # the next one is awaited.
             del unit, admitted, result
 
     def _resolve(
@@ -685,11 +711,11 @@ class Pipeline:
                 return
 
     async def _grade_group(self, group: Group) -> None:
-        """Before every try, stale members and size; then the grader; then variance.
+        """Check stale members and size before every try, then run the grader, then check variance.
 
-        A try that fails is tried again, within the runtime's ``grading_retries``,
-        on the group as it stands after the backoff: a member gone stale meanwhile
-        is dropped first, and a group left too small is never scored.
+        A failed try is tried again, within the rollout runtime's ``grading_retries``,
+        on the group as it stands after the backoff. A member that went stale in the
+        meantime is dropped first, and a group left too small is never scored.
         """
         grading = self._group_grading
         assert grading is not None
@@ -708,14 +734,16 @@ class Pipeline:
                     self.driver.group_retrying(group.group_id, error)
                     await self.driver.back_off(number)
                     continue
-                # A grading failure, like a failed grade(): budgeted, not an unusable group.
-                # The driver notes the members' cause, which their records carry.
+                # This is a grading failure, like a failed grade(). It counts against the
+                # failure budget, not as an unusable group. The driver notes the members'
+                # cause, which their records carry.
                 ids = [member.identity.rollout_id for member in group.members]
                 self.driver.group_failed(group.group_id, error, ids)
                 self._drop(group, Discard.GRADING_FAILED)
                 return
             self.driver.group_scored()
-            # New rollouts, not changed ones: the evidence the grader read stays as it was.
+            # Make new rollouts instead of changing the old ones, so the evidence the
+            # grader read stays as it was.
             group.members = [
                 replace(member, reward=reward)
                 for member, reward in zip(group.members, rewards, strict=True)
@@ -730,7 +758,7 @@ class Pipeline:
             return
 
     def _settle(self, group: Group) -> None:
-        """The group trained, or was dropped for a reason a resume would not undo."""
+        """Mark a group that trained, or was dropped for a reason a resume wouldn't undo."""
         index = self._group_index.get(group.group_id)
         if index is not None:
             self._untrained.discard(index)
@@ -755,31 +783,33 @@ class Pipeline:
         group.members = [r for r in group.members if r.identity.rollout_id not in stale]
 
     def _unusable(self, group: Group) -> Discard | None:
-        """Why a group of graded members cannot train, or ``None`` when it can."""
+        """Return why a group of graded members can't train, or ``None`` when it can."""
         if len(group.members) < self._training.min_group_size:
             return Discard.GROUP_TOO_SMALL
         rewards = [rollout.reward for rollout in group.members]
         if len(set(rewards)) == 1:
             return Discard.NO_VARIANCE
-        # Rollouts whose agent discarded every generation count in the baseline but
-        # train nothing; the group needs a member that trains with an advantage.
-        # The baseline exactly as grpo.advantages computes it.
+        # Rollouts whose agent discarded every generation count in the baseline, but
+        # they train nothing. The group needs a member that trains with an advantage.
+        # This baseline is computed exactly as grpo.advantages computes it.
         mean = fmean(r for r in rewards if r is not None)
         if not any(r.trains and r.reward != mean for r in group.members):
             return Discard.NOTHING_TO_TRAIN
         return None
 
     def _trainable(self, group: Group) -> Discard | None:
-        """Selection's recheck: members gone stale since, then size and variance."""
+        """Recheck a group at selection for members gone stale, then for size and variance."""
         self._drop_stale(group)
         return self._unusable(group)
 
     def _drop(self, group: Group, reason: Discard) -> None:
-        """Drop a group before training: the one path for every such drop.
+        """Drop a group before training. Every such drop takes this one path.
 
-        Its members are counted and recorded as discarded, and the group is released. A group that cannot train, too small or without
-        variance, also extends the streak ``max_consecutive_unusable_groups`` stops;
-        reaching that raises ``UnusableGroupsError``, and stops the pipeline.
+        The group's members are counted and recorded as discarded, and the group is
+        released. A group that can't train, because it is too small or has no
+        variance, also extends the streak that ``max_consecutive_unusable_groups``
+        stops. Reaching that limit raises ``UnusableGroupsError`` and stops the
+        pipeline.
         """
         members = group.recorded()
         if reason not in _UNTRAINED:
@@ -797,14 +827,19 @@ class Pipeline:
             self._extend_streak(group.group_id, reason, members)
 
     def take_unusable_rewards(self) -> list[float]:
-        """The graded rewards of groups dropped as unusable (no variance, too few members)
-        since the last call; the update that calls next reports them."""
+        """Return the graded rewards of groups dropped as unusable since the last call.
+
+        A group is unusable when it has no variance or too few members. The update
+        that calls next reports these rewards.
+        """
         rewards, self._unusable_rewards = self._unusable_rewards, []
         return rewards
 
     def take_unusable_metadata(self) -> list[Mapping[str, JsonValue]]:
-        """The metadata of the same graded members as ``take_unusable_rewards``, since
-        the last call; the update that calls next reports them."""
+        """Return the metadata of the same graded members as ``take_unusable_rewards``.
+
+        It covers the time since the last call, and the update that calls next reports it.
+        """
         metadata, self._unusable_metadata = self._unusable_metadata, []
         return metadata
 
@@ -812,7 +847,7 @@ class Pipeline:
         self._consecutive_unusable_groups += 1
         count = self._consecutive_unusable_groups
         reward = members[0].reward if members else None
-        if reason is Discard.NO_VARIANCE and reward is not None:  # graded: always set
+        if reason is Discard.NO_VARIANCE and reward is not None:  # A graded member always has one.
             self._streak_rewards[reward] += 1
         elif reason is Discard.NOTHING_TO_TRAIN:
             self._streak_untrainable += 1
@@ -820,7 +855,7 @@ class Pipeline:
             self._streak_undersized += 1
         if count == 1 or count % 5 == 0:
             logger.warning(
-                "%d consecutive unusable groups; latest group %s: %s",
+                "%d consecutive unusable groups. The latest, group %s, was dropped as %s",
                 count,
                 group_id,
                 reason.value,
@@ -839,14 +874,14 @@ class Pipeline:
             raise error
 
     def trained_record(self, rollout: Rollout, step: int) -> dict[str, Any]:
-        """The ``rollouts.jsonl`` record of a rollout the update at ``step`` trained on."""
+        """Return the ``rollouts.jsonl`` record of a rollout the update at ``step`` trained on."""
         note = self.driver.note(rollout.identity.rollout_id)
         return {
             "rollout_id": rollout.identity.rollout_id,
             "attempt_id": rollout.identity.attempt_id,
             "group_id": rollout.identity.group_id,
             "task_id": rollout.task.id,
-            "task_digest": rollout.task.digest,
+            "task_digest": rollout.task_digest,
             "reward": rollout.reward,
             "policy_version": rollout.minimum_policy_version,
             "sample_ids": [sample.sample_id for sample in rollout.samples],
@@ -879,10 +914,11 @@ class Pipeline:
                 "attempt_id": None if rollout is None else rollout.identity.attempt_id,
                 "group_id": group.group_id,
                 "task_id": group.task.id,
-                "task_digest": group.task.digest,
+                "task_digest": None if rollout is None else rollout.task_digest,
                 "reward": None if rollout is None else rollout.reward,
-                # As in a trained record: the oldest version it sampled at, not the
-                # trainer's when it was dropped; None when it sampled nothing.
+                # As in a trained record, this is the oldest version it sampled at, not
+                # the trainer's version when it was dropped. It is None when the rollout
+                # sampled nothing.
                 "policy_version": None if rollout is None else rollout.minimum_policy_version,
                 "sample_ids": [] if rollout is None else [s.sample_id for s in rollout.samples],
                 "step": None,
@@ -919,7 +955,7 @@ class Pipeline:
             self._drop(group, reason)
 
     async def next_batch(self) -> list[Group]:
-        """Select one batch; sync admits only its groups, including replacements."""
+        """Select one batch. In sync mode, only its groups are admitted, replacements included."""
         if self._selected:
             raise RuntimeError("commit or abort the selected batch first")
         if self._training.mode == "async":
@@ -942,7 +978,7 @@ class Pipeline:
             raise
 
     def refresh_batch(self, groups: list[Group]) -> bool:
-        """Recheck before advantages; valid groups keep their turn if replacements are needed."""
+        """Recheck a batch before advantages. Valid groups keep their turn if it needs new ones."""
         reasons = [self._trainable(group) for group in groups]
         if all(reason is None for reason in reasons):
             return True
@@ -957,7 +993,7 @@ class Pipeline:
         return False
 
     def start_training(self, groups: list[Group]) -> None:
-        """Move a complete selected batch out of the window, retaining it until commit/abort."""
+        """Move a complete selected batch out of the window, and keep it until commit or abort."""
         if (
             self._training_groups
             or len(groups) != self._training.groups_per_step
@@ -985,6 +1021,7 @@ class Pipeline:
             self._release(group)
 
     def abort_batch(self, groups: list[Group]) -> None:
+        """Discard a selected batch whose training failed, as ``training_aborted``."""
         self._sync_demand = 0
         self._freed = None
         for group in groups:
@@ -992,10 +1029,10 @@ class Pipeline:
                 self._drop(group, Discard.TRAINING_ABORTED)
 
     async def __aenter__(self) -> Self:
-        # A runner-owned phase has one worker per slot; when the runtime acquires
-        # its own phases the broker is the real limit, so workers only need never
-        # to be the bottleneck. The group_size floor keeps the dispatcher from
-        # blocking on its one-group queue.
+        # A phase the runner owns has one worker per slot. When the rollout runtime
+        # acquires its own phases, the broker is the real limit, so the workers only
+        # need never to be the bottleneck. The group_size floor keeps the dispatcher
+        # from blocking on its one-group queue.
         phases = self.driver.capabilities.internally_acquired_phases
         rollouts, verifiers = (
             self._rollout.max_concurrent_rollouts,
@@ -1013,7 +1050,7 @@ class Pipeline:
             asyncio.create_task(self._grading_worker(), name=f"grade-{i}") for i in range(grading)
         ]
         if self._group_grading is not None:
-            # Each call holds a verification slot, so no more can run at once.
+            # Each call holds a verification slot, so no more calls than this can run.
             self._tasks += [
                 asyncio.create_task(self._group_grading_worker(), name=f"grade-group-{i}")
                 for i in range(verifiers)
@@ -1025,7 +1062,7 @@ class Pipeline:
     def _worker_done(self, task: asyncio.Task[None]) -> None:
         if self._stopping:
             return
-        # Only shutdown cancels a worker, and it stops the pipeline first: any other
+        # Only shutdown cancels a worker, and it stops the pipeline first. Any other
         # cancellation lost a worker, and whatever it held would wait forever.
         if task.cancelled():
             failure = f"pipeline worker {task.get_name()} was cancelled"
@@ -1040,7 +1077,7 @@ class Pipeline:
 
     @property
     def next_group_index(self) -> int:
-        """The first place in the task stream no group has been dispatched from."""
+        """The first place in the task stream that no group has been dispatched from."""
         return self._next_group_index
 
     @property
@@ -1048,9 +1085,9 @@ class Pipeline:
         """Places below ``next_group_index`` whose groups have not trained, in order.
 
         A shutdown cancels the groups in flight, so a resume from a checkpoint replays
-        these first: they include groups admitted for the next update, and groups
-        whose update was aborted. Groups dropped as unusable, stale or failed in
-        grading are not replayed.
+        these first. They include groups admitted for the next update, and groups whose
+        update was aborted. Groups dropped as unusable, as stale or for failed grading
+        are not replayed.
         """
         return sorted(self._untrained | {index for index, _ in self._replay})
 
@@ -1065,25 +1102,28 @@ class Pipeline:
         cleanup = asyncio.create_task(self._drain(), name="pipeline-cleanup")
         drain = self._rollout.shutdown_drain_seconds
         # A second cancellation, as on a repeated Ctrl-C, still gets the drain's
-        # report: it is raised once the drain has settled or timed out.
+        # report. It is raised once the drain has settled or timed out.
         waited = await outlast(cleanup, drain)
         if not waited.settled:
-            # Stop waiting, not stop cleaning: each attempt's abort() or finish()
-            # still runs to its own cleanup deadline in the background.
+            # This stops the waiting, not the cleanup. Each attempt's abort() or
+            # finish() still runs to its own cleanup deadline in the background.
             cleanup.cancel()
             logger.warning(
-                "Attempts did not settle within shutdown_drain_seconds (%gs): %d live "
-                "episode(s), %d worker(s) still running; runtime cleanup is incomplete",
+                "Attempts did not settle within shutdown_drain_seconds (%gs). %d live "
+                "episode(s) and %d worker(s) are still running, so rollout runtime cleanup "
+                "is incomplete",
                 drain,
                 self.driver.live_attempts,
                 sum(not task.done() for task in self._tasks),
             )
         for hook in self.driver.unquiesced:
-            logger.warning("Runtime hook %s ignored cancellation and still holds its permit", hook)
+            logger.warning(
+                "Rollout runtime hook %s ignored cancellation and still holds its permit", hook
+            )
         if not waited.settled or self.driver.unquiesced:
             self.settled = False
-        # Whether or not the drain settled: its records must not wait on attempts
-        # that may never end.
+        # Write these records whether or not the drain settled. They must not wait on
+        # attempts that may never end.
         for rollout_id, (group, rollout) in self._in_flight.items():
             self._discarded(rollout_id, group, Discard.CANCELLED, rollout)
         self._in_flight.clear()
@@ -1096,14 +1136,14 @@ class Pipeline:
         waited.propagate()
 
     async def _drain(self) -> None:
-        # Queued sealed rollouts are finalized first: no worker holds them, and a
-        # slow abort elsewhere must not keep them from their finish().
+        # Queued sealed rollouts are finalized first. No worker holds them, and a slow
+        # abort elsewhere must not keep them from their finish().
         while not self._to_grade.empty():
             _, admitted = self._to_grade.get_nowait()
             self.driver.discard_admitted(admitted)
-        # A group in the judge stage is complete and will not be judged now: a
-        # stopped judge never makes its group ready. Recorded before the wait, so a
-        # drain that times out on a slow judge does not lose them.
+        # A group in the judge stage is complete and won't be judged now, because a
+        # stopped judge never makes its group ready. These groups are recorded before
+        # the wait, so a drain that times out on a slow judge doesn't lose them.
         for group_id in list(self._judging):
             self._drop(self._groups[group_id], Discard.CANCELLED)
         await asyncio.gather(*self._tasks, return_exceptions=True)
@@ -1129,9 +1169,9 @@ class Pipeline:
                 queue.get_nowait()
 
     def _window_gauges(self) -> dict[str, float]:
-        """The async window's inputs and hold time; sync has no window to report.
+        """Return the async window's inputs and hold time. Sync has no window to report.
 
-        The last cycle's wait and spare appear once a batch has started training.
+        The last cycle's wait and spare groups appear once a batch has started training.
         """
         if self._training.mode == "sync":
             return {}
@@ -1139,8 +1179,8 @@ class Pipeline:
             "admission/batch_wait_seconds": self._last_wait,
             "admission/ready_spare_groups": self._last_spare,
         }
-        # The pace's bound in whole rollouts, and the same bound in groups, fractions
-        # of one included, so the two gauges always agree.
+        # The pace's bound in whole rollouts, and the same bound in groups, including
+        # fractions of a group, so the two gauges always agree.
         rollouts = math.floor(self._window() * self._training.group_size)
         return {
             "admission/committed_groups": float(self._committed()),
@@ -1153,6 +1193,7 @@ class Pipeline:
         }
 
     def snapshot(self) -> dict[str, float]:
+        """Return the pipeline's live gauges, such as queue lengths, group counts and capacity."""
         now = time.monotonic()
         return {
             "pipeline_calls/sample": float(self._sampling),
@@ -1167,11 +1208,11 @@ class Pipeline:
             "groups/selected": float(len(self._selected)),
             "groups/outstanding": float(len(self._groups)),
             "groups/judging": float(len(self._judging)),
-            # Still gathering members. `_groups` holds every live group, so the ones
-            # in the judge stage, those complete but unselected (`ready`) and the
-            # selected batch come out of it -- leaving the four disjoint and summing
-            # to the total. Floored at zero: the reads are atomic here, but a
-            # negative would be a lie rather than a diagnosis.
+            # Groups still gathering members. `_groups` holds every live group. The
+            # groups in the judge stage, the complete but unselected ones (`ready`) and
+            # the selected batch come out of it, so the four counts are disjoint and sum
+            # to the total. The count is floored at zero. The reads are atomic here,
+            # but a negative count would be a lie, not a diagnosis.
             "groups/filling": float(
                 max(
                     0,
@@ -1182,10 +1223,11 @@ class Pipeline:
                     - len(self._selected),
                 )
             ),
-            # Graded rollouts, split by what each is waiting for: more rollouts to
-            # fill its group, or the optimizer. One number for both hid which half
-            # was the holdup. Each falls as well as rising -- a group rejected for
-            # training takes its members with it -- and neither is a fault.
+            # Graded rollouts, split by what each is waiting for, which is more
+            # rollouts to fill its group or the optimizer. One number for both would
+            # hide which half was the holdup. Each count falls as well as rises,
+            # because a group rejected for training takes its members with it. Neither
+            # is a fault.
             "queue/graded_rollouts": float(
                 sum(
                     len(group.members)

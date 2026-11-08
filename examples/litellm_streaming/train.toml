@@ -1,19 +1,24 @@
-# An agent built on LiteLLM, streaming: a custom runtime, in-process, openai_http, with
-# no environment: litellm_episode.py asks the model and scores each answer itself.
-# LiteLLM is not a cookbook dependency; run it with --with 'litellm!=1.107.0':
+# An agent built on LiteLLM that streams its replies. It uses a custom rollout runtime,
+# in-process, with openai_http model access and no environment. litellm_episode.py asks
+# the model and scores each answer itself.
+# LiteLLM is not a cookbook dependency, so run the example with
+# --with 'litellm!=1.107.0', as in this command.
 # uv run --with 'litellm!=1.107.0' loops check examples/litellm_streaming/train.toml
 
 recipe = "rl"
 
-[runtime]
+[rollout_runtime]
 factory = "loops_cookbook.episodes:create_runtime"
 
-[runtime.config]
+[rollout_runtime.config]
 episode = "litellm_episode:AnswerEpisode"
-agent_timeout_seconds = 90   # cut before the reply: unversioned; after it: graded, 0 if no answer was kept
+# The agent's deadline. A rollout cut off before the model replies is discarded.
+# One cut off after the reply is graded, and scores 0 if it kept no answer.
+agent_timeout_seconds = 90
 
-[runtime.files]
-tasks = "../../tasks/hidden_answer_35b.jsonl"   # one hidden answer to learn (tasks/README)
+[rollout_runtime.files]
+# Each task hides one answer for the model to learn. tasks/README.md describes the file.
+tasks = "../../tasks/hidden_answer_35b.jsonl"
 
 [model]
 base_model = "Qwen/Qwen3.6-35B-A3B"
@@ -30,7 +35,9 @@ group_size = 16
 max_group_losses = 0
 groups_per_step = 1
 max_steps = 5
-max_consecutive_unusable_groups = 20   # stop if every group scores alike
+# Stop after this many groups in a row that can't train, such as groups in which
+# every rollout scores alike.
+max_consecutive_unusable_groups = 20
 learning_rate = 0.00002
 loss_fn = "cispo"
 

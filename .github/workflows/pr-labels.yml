@@ -1,0 +1,53 @@
+name: pr-labels
+# Labels each PR from the type in its title, so that the release notes group it
+# (.github/release.yml). feat is enhancement, fix is bug, docs is documentation, and
+# every other type is maintenance. A "!" adds breaking. When the title changes, the
+# old type labels go. Area labels are set by hand and left alone. A PR in a stack
+# targets the branch below it, so this runs on PRs into any branch but main, whose
+# release PRs need no label.
+#
+# pull_request_target gives the token write access on PRs from forks too. The job
+# never checks out or runs the PR's code, and reads the title only through an
+# environment variable.
+on:
+  pull_request_target:
+    types: [opened, edited, reopened]
+    branches-ignore: [main]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  pr-labels:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          type_labels=(breaking enhancement bug documentation maintenance)
+          want=()
+          if [[ "$TITLE" =~ ^([a-z]+)(\([^\)]*\))?(!)?:\  ]]; then
+            case "${BASH_REMATCH[1]}" in
+              feat) want+=(enhancement) ;;
+              fix) want+=(bug) ;;
+              docs) want+=(documentation) ;;
+              *) want+=(maintenance) ;;
+            esac
+            [[ -n "${BASH_REMATCH[3]}" ]] && want+=(breaking)
+          fi
+          labels="repos/$GH_REPO/issues/$NUMBER/labels"
+          have=$(gh api "$labels" --jq '.[].name')
+          add=()
+          for label in "${type_labels[@]}"; do
+            if [[ " ${want[*]} " == *" $label "* ]]; then
+              grep -qx "$label" <<<"$have" || add+=(-f "labels[]=$label")
+            elif grep -qx "$label" <<<"$have"; then
+              gh api -X DELETE "$labels/$label" --silent
+            fi
+          done
+          if (( ${#add[@]} )); then
+            gh api -X POST "$labels" "${add[@]}" --silent
+          fi

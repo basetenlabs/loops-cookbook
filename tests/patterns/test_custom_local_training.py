@@ -28,7 +28,7 @@ from .custom_local import EXAMPLE, SANDBOX, TASKS
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX process groups")
 
 FACTORY = "loops_cookbook.episodes:create_runtime"
-OPTIONS = cli.load_training_config(EXAMPLE / "train.toml").runtime.config["options"]
+OPTIONS = cli.load_training_config(EXAMPLE / "train.toml").rollout_runtime.config["options"]
 
 
 class Seen:
@@ -92,13 +92,13 @@ def train(tmp_path, sandboxes):
             EXAMPLE / "train.toml",
             tmp_path,
             {
-                "runtime.config": {
+                "rollout_runtime.config": {
                     "episode": f"{__name__}:Watched",
                     "agent_timeout_seconds": 90,
                     "sandbox": SANDBOX,
                     "options": options,
                 },
-                "runtime.files": {"tasks": str(task_file(tmp_path, tasks))},
+                "rollout_runtime.files": {"tasks": str(task_file(tmp_path, tasks))},
                 "providers.local_sandbox.root": str(sandboxes),
                 "training.max_steps": 1,
                 "training.group_size": 4,
@@ -116,10 +116,10 @@ def train(tmp_path, sandboxes):
 
 def test_the_example_config_selects_the_episode_and_its_provider():
     config = cli.load_training_config(EXAMPLE / "train.toml")
-    assert config.runtime.factory == FACTORY
-    assert config.runtime.model_access is None  # the class states it
-    assert config.runtime.config["episode"] == "local_episode:DirectoryAgentEpisode"
-    assert config.runtime.config["options"] == {
+    assert config.rollout_runtime.factory == FACTORY
+    assert config.rollout_runtime.model_access is None  # the class states it
+    assert config.rollout_runtime.config["episode"] == "local_episode:DirectoryAgentEpisode"
+    assert config.rollout_runtime.config["options"] == {
         "agent": ["python3", "./agent_program.py"],
         "verifier": ["python3", "./verifier.py"],
         "grade_against": "files",
@@ -243,6 +243,6 @@ def test_the_programs_need_nothing_from_the_cookbook(program):
 )
 def test_check_refuses_options_the_episode_cannot_run(loops_check, options, refusal):
     changed = json.dumps({"options": {**OPTIONS, **options}})
-    code, _, err = loops_check(EXAMPLE / "train.toml", "--runtime.config", changed)
+    code, _, err = loops_check(EXAMPLE / "train.toml", "--rollout_runtime.config", changed)
     assert code == 2
     assert "is not a valid LocalOptions" in err and refusal in err

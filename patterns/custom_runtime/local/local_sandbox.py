@@ -1,17 +1,18 @@
-"""A sandbox provider with no cloud behind it: each sandbox is a directory.
+"""A sandbox provider with no cloud behind it, in which each sandbox is a directory.
 
 It stands in for a provider such as Blaxel so the agent example runs anywhere, and it
 shows what a provider owes the run's resource registry. The registry decides when a
-sandbox exists; this adapter only creates, finds, and deletes directories, and
+sandbox exists. This adapter only creates, finds and deletes directories, and it
 proves a sandbox is gone by looking for its directory, which is authoritative on a
 local disk. It is also a ``SandboxProvider``, so an Episode can name ``Directory`` as
-its sandbox kind: the client is the directory's ``Path``, and the sandbox is alive
+its sandbox kind. The client is the directory's ``Path``, and the sandbox is alive
 while the directory exists.
 
     [providers.local_sandbox]
     adapter = "local_sandbox:create"
     root = "/tmp/loops-local-sandboxes"
-    create_timeout_seconds = 30  # and the other five deadlines, as train.toml sets them
+    # train.toml sets this deadline and the other five.
+    create_timeout_seconds = 30
 """
 
 from __future__ import annotations
@@ -42,7 +43,7 @@ LABELS = ".labels.json"
 
 
 class Directory(SandboxKind[Path]):
-    """A directory sandbox, as an Episode's third type argument: its client is its ``Path``."""
+    """A directory sandbox, for an Episode's third type argument. Its client is its ``Path``."""
 
     provider = "local_sandbox"
 
@@ -109,7 +110,7 @@ class LocalSandboxes:
         return self._root / resource.name
 
     async def close_client(self, client: Path) -> None:
-        return None  # a path holds nothing open
+        return None  # A path holds nothing open.
 
     async def alive(self, resource: ProviderResource) -> bool:
         return (self._root / resource.name).is_dir()
@@ -140,7 +141,8 @@ DEADLINES = {
 
 
 def create(settings: Mapping[str, JsonValue]) -> LocalSandboxes:
-    """The ``[providers.local_sandbox]`` factory: a root, and every deadline, explicitly."""
+    """Build the ``[providers.local_sandbox]`` provider from a root and every deadline,
+    each set explicitly."""
     root = settings.get("root")
     if not isinstance(root, str) or not root:
         raise ValueError("[providers.local_sandbox] needs root, the directory sandboxes live in")

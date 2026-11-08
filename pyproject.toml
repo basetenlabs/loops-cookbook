@@ -1,11 +1,18 @@
 [project]
 name = "baseten-loops-cookbook"
-dynamic = ["version"]
+dynamic = ["version", "readme"]
 description = "RL and SFT recipes on Baseten Loops: train your agent on your tasks, or fine-tune on conversations."
-readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
+keywords = ["reinforcement-learning", "rl", "sft", "fine-tuning", "lora", "grpo", "llm", "agents", "post-training", "baseten", "loops"]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "baseten-loops>=0.34.0,<0.35",  # 0.x: a minor bump can break the SDK interface
     "pydantic>=2.7",
@@ -34,12 +41,14 @@ harbor = ["harbor>=0.23,<0.24", "litellm>=1.100.4,!=1.107.0"]
 # The Blaxel and Daytona providers reach SDK private members, so each range is
 # bounded. The dependency-ranges workflow checks both ends of each range.
 blaxel = ["blaxel>=0.4.20,<0.5"]
-# The Harbor runtime on Blaxel sandboxes: Harbor's own Blaxel extra and the provider.
+# The Harbor rollout runtime on Blaxel sandboxes. It needs Harbor's own Blaxel extra and
+# the provider.
 harbor-blaxel = ["harbor[blaxel]>=0.23,<0.24", "blaxel>=0.4.20,<0.5", "litellm>=1.100.4,!=1.107.0"]
 # The Daytona provider reads and sets two private members of the SDK's Image (its
 # Dockerfile and its build context).
 daytona = ["daytona>=0.220.0,<0.227"]
-# The Harbor runtime on Daytona sandboxes: Harbor's own Daytona extra and the provider.
+# The Harbor rollout runtime on Daytona sandboxes. It needs Harbor's own Daytona extra
+# and the provider.
 harbor-daytona = ["harbor[daytona]>=0.23,<0.24", "daytona>=0.220.0,<0.227", "litellm>=1.100.4,!=1.107.0"]
 wandb = ["wandb>=0.16.0"]
 # A live progress region and coloured log lines on a terminal. Optional: without
@@ -52,18 +61,41 @@ vision = ["torch>=2.4", "torchvision>=0.19"]
 custom-loss = ["baseten-loops[torch]>=0.34.0,<0.35"]
 
 [project.urls]
+Documentation = "https://docs.baseten.co/loops/overview"
 Repository = "https://github.com/basetenlabs/loops-cookbook"
+Changelog = "https://github.com/basetenlabs/loops-cookbook/releases"
+Issues = "https://github.com/basetenlabs/loops-cookbook/issues"
 
 [project.scripts]
 loops = "loops_cookbook.command:main"
 
 [build-system]
-requires = ["hatchling", "hatch-vcs"]
+requires = ["hatchling", "hatch-vcs", "hatch-fancy-pypi-readme"]
 build-backend = "hatchling.build"
 
 # The version is the git tag: v0.2.0 builds 0.2.0, and a commit after it a .dev version.
 [tool.hatch.version]
 source = "vcs"
+
+# PyPI shows the README without the repository around it, so the build turns its
+# relative links and images into links to the released code on main.
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '(!\[[^\]]*\]\()(?!https?://)([^)]+)\)'
+replacement = '\g<1>https://raw.githubusercontent.com/basetenlabs/loops-cookbook/main/\g<2>)'
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '((?:src|srcset)=")(?!https?://)([^"]+)"'
+replacement = '\g<1>https://raw.githubusercontent.com/basetenlabs/loops-cookbook/main/\g<2>"'
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '(\]\()(?!https?://|#|mailto:)([^)]+)\)'
+replacement = '\g<1>https://github.com/basetenlabs/loops-cookbook/blob/main/\g<2>)'
 
 # The examples, patterns and tasks ship inside the package, under loops_cookbook/bundled/
 # at their repository paths, so `loops run examples/<name>/train.toml` works from an

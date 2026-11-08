@@ -1,4 +1,7 @@
-"""The rollout runtime contract: what a runtime author implements and receives."""
+"""Export the rollout runtime contract.
+
+These are the names that the author of a custom rollout runtime implements and receives.
+"""
 
 from loops_cookbook.evidence import (
     AttemptIdentity,

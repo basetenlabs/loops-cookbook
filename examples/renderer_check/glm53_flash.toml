@@ -1,0 +1,56 @@
+# The live renderer check for zai-org/GLM-5.3-Flash.
+# uv run loops check examples/renderer_check/glm53_flash.toml
+
+recipe = "rl"
+
+[rollout_runtime]
+factory = "loops_cookbook.episodes:create_runtime"
+
+[rollout_runtime.config]
+episode = "episode:RendererCheckEpisode"
+agent_timeout_seconds = 600
+
+[rollout_runtime.config.options]
+max_turns = 12
+
+[rollout_runtime.files]
+tasks = "tasks.jsonl"
+
+[model]
+base_model = "zai-org/GLM-5.3-Flash"
+max_seq_len = 32768
+lora_rank = 32
+renderer_chat_template_kwargs = { reasoning_effort = "low", clear_thinking = false }
+
+[sampling]
+temperature = 1.0
+max_generation_tokens = 4096
+
+[training]
+mode = "sync"
+group_size = 8
+max_group_losses = 1
+groups_per_step = 2
+max_steps = 2
+max_consecutive_unusable_groups = 30
+learning_rate = 0.00001
+loss_fn = "cispo"
+
+[rollout]
+max_concurrent_rollouts = 16
+max_concurrent_verifiers = 16
+setup_timeout_seconds = 60
+
+[rollout.grading]
+timeout_seconds = 10
+
+[compute]
+scope = "serverless"
+
+[output]
+run_name = "renderer-check-glm53_flash"
+output_dir = "runs/renderer-check"
+trace = "transcripts"
+trainer_checkpoint_every = 0
+sampler_checkpoint_every = 0
+checkpoint_ttl_seconds = 0

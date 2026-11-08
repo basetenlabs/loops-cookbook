@@ -1,4 +1,4 @@
-"""The core and a non-Harbor runtime work with Harbor not installed.
+"""The core and a non-Harbor rollout runtime work with Harbor not installed.
 
 Each test runs a fresh interpreter in which ``import harbor`` fails, as it does when
 the ``harbor`` extra is absent; CI also runs these with Harbor really uninstalled.
@@ -57,7 +57,7 @@ import importlib, pkgutil
 import loops_cookbook
 from loops_cookbook.runtime.context import RuntimeConfigurationError, import_factory
 
-# The Harbor runtime and the providers' SDK code need their own extras; each
+# The Harbor rollout runtime and the providers' SDK code need their own extras. Each
 # provider package itself imports without them.
 extras = (
     "loops_cookbook.harbor",
@@ -88,7 +88,7 @@ assert command.main(["check", {str(HELLO)!r}]) == 0
 config = cli.load_training_config(
     Path({str(HELLO)!r}),
     {{
-        "runtime.files": {{"tasks": "tasks.jsonl"}},
+        "rollout_runtime.files": {{"tasks": "tasks.jsonl"}},
         "compute.sampler_replica_affinity": True,
         "output.output_dir": "runs",
         "training.max_steps": 1,

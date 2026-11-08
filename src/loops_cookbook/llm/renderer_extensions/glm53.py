@@ -1,15 +1,15 @@
-"""Local GLM-5.3 extension of pinned Prime GLM-5.1.
+"""The cookbook's GLM-5.3 renderer, which extends the pinned Prime GLM-5.1 renderer.
 
-Reference: zai-org/GLM-5.3 chat_template.jinja at
-aca966e4e02791568aa6a4ced368624b3d897f42. Training targets still come from
-captured samples, never from this renderer's historical assistant masks.
+It follows zai-org/GLM-5.3's chat_template.jinja at commit
+aca966e4e02791568aa6a4ced368624b3d897f42. Training targets still come from captured
+samples, never from this renderer's masks over historical assistant turns.
 
-Images (GLM-5.3-Flash): the HF template writes each image part as the literal text
-``<|begin_of_image|><|image|><|end_of_image|>`` and the processor then repeats
-``<|image|>`` once per vision token. This extension does the same in ``_visible_text``,
-emitting the repeated form directly, so Prime's render and bridge walks carry the
-image tokens without further changes. The token count comes from the model's own
-image processor, exactly as the trainer computes it.
+GLM-5.3-Flash takes images. The Hugging Face template writes each image part as the
+literal text ``<|begin_of_image|><|image|><|end_of_image|>``, and the processor then
+repeats ``<|image|>`` once for each vision token. This extension emits the repeated
+form directly in ``_visible_text``. So Prime's render and bridge walks carry the image
+tokens without further changes. The token count comes from the model's own image
+processor, exactly as the trainer computes it.
 """
 
 import json
@@ -18,20 +18,33 @@ from dataclasses import replace
 from typing import Any, Literal
 
 from pydantic import ConfigDict
-from renderers.base import MultiModalData, PlaceholderRange, extract_message_tool_names
+from renderers.base import (
+    MultiModalData,
+    ParsedToolCall,
+    PlaceholderRange,
+    ToolCallParseStatus,
+    extract_message_tool_names,
+)
 from renderers.configs import GLM51RendererConfig
 from renderers.glm5 import _TOOLS_FOOTER, _TOOLS_HEADER, GLM51Renderer
+from renderers.parsing import _decode
+
+from loops_cookbook.llm.renderer_extensions.arguments import (
+    Parameters,
+    read_argument,
+    tool_parameters,
+)
 
 IMAGE_TOKEN = "<|image|>"
 IMAGE_START, IMAGE_END = "<|begin_of_image|>", "<|end_of_image|>"
 
 
 def _image_parts(messages):
-    """Image parts in the order a render emits them: message order, then content order.
+    """Return the image parts in the order a render emits them, by message and then by content.
 
-    Pass the messages Prime walks, after ``_prepare``: it reorders tool results into
-    call order (as the HF template does), so this can differ from history order; the
-    cookbook adapter reads it back from ``mm_items``.
+    Pass the messages that Prime walks, after ``_prepare``. ``_prepare`` reorders tool
+    results into call order, as the Hugging Face template does, so this order can
+    differ from history order. The cookbook adapter reads it back from ``mm_items``.
     """
     from renderers.qwen3_vl import _is_image_part
 
@@ -53,12 +66,26 @@ class GLM53RendererConfig(GLM51RendererConfig):
     reasoning_effort: Literal["low", "high", "max"] = "max"
 
 
+# Under these statuses, Prime read the call's block through to its close.
+_READ = (ToolCallParseStatus.OK, ToolCallParseStatus.INVALID_JSON, ToolCallParseStatus.UNKNOWN_TOOL)
+
+
+def _find(block: list[int], token: int, start: int) -> int | None:
+    try:
+        return block.index(token, start)
+    except ValueError:
+        return None
+
+
 def _identity(value):
     return value.get("tool_call_id") or value.get("id")
 
 
 def _ordered_results(block, calls):
-    """HF sorts only when all call/result IDs make the join unambiguous."""
+    """Sort tool results into call order, as the Hugging Face template does.
+
+    The template sorts only when the call and result IDs make the join unambiguous.
+    """
     call_ids = [_identity(call) for call in calls]
     result_ids = [_identity(message) for message in block]
     if (
@@ -75,9 +102,11 @@ def _ordered_results(block, calls):
 
 
 class GLM53Renderer(GLM51Renderer):
+    reads_calls_whole = True  # a block is read whole or reported, never in part
+
     _config_cls = GLM53RendererConfig
-    is_multimodal = True  # honoured by renderers.base.is_multimodal
-    renders_tool_output_images = True  # ``_prepare`` flattens bundled tool outputs
+    is_multimodal = True  # renderers.base.is_multimodal honours this.
+    renders_tool_output_images = True  # ``_prepare`` flattens bundled tool outputs.
 
     def __init__(self, tokenizer, config=None, *, processor: Any = None):
         super().__init__(tokenizer, config)
@@ -96,18 +125,18 @@ class GLM53Renderer(GLM51Renderer):
             name = getattr(self._tokenizer, "name_or_path", None)
             if not name:
                 raise RuntimeError(
-                    "GLM53Renderer needs an image processor for image parts; pass "
-                    "processor=AutoProcessor.from_pretrained(...) or a tokenizer with name_or_path"
+                    "GLM53Renderer needs an image processor for image parts. Pass "
+                    "processor=AutoProcessor.from_pretrained(...) or a tokenizer with name_or_path."
                 )
             from transformers import AutoProcessor
 
             # GLM-5.3-Flash ships processor_config.json, not preprocessor_config.json,
-            # so AutoImageProcessor cannot load it directly; the trainer does the same.
+            # so AutoImageProcessor cannot load it directly. The trainer does the same.
             self._processor = AutoProcessor.from_pretrained(name)
         return getattr(self._processor, "image_processor", self._processor)
 
     def _image_tokens(self, part) -> int:
-        """Vision tokens one image occupies: ``grid_thw.prod() // merge_size**2``."""
+        """Return the vision tokens one image occupies, ``grid_thw.prod() // merge_size**2``."""
         from renderers.qwen3_vl import _image_hash, _load_pil_image
 
         pil = _load_pil_image(dict(part))
@@ -138,9 +167,11 @@ class GLM53Renderer(GLM51Renderer):
         return str(content)
 
     def _with_image_placeholders(self, rendered, seen):
-        """Attach ``mm_placeholders`` for every maximal run of the image token, and the
-        image parts that produced them in that order (earlier turns, whose parts this
-        call never saw, are marked with empty items)."""
+        """Attach ``mm_placeholders`` for every maximal run of the image token.
+
+        Also attach the image parts that produced the runs, in the same order. Earlier
+        turns, whose parts this call never saw, are marked with empty items.
+        """
         ranges, ids, i = [], rendered.token_ids, 0
         while i < len(ids):
             if ids[i] == self._image_token:
@@ -173,7 +204,7 @@ class GLM53Renderer(GLM51Renderer):
         tools=None,
         previous_multi_modal_data=None,
     ):
-        # Prime's GLM bridge is text-based; images ride along as repeated ``<|image|>``
+        # Prime's GLM bridge is text-based. Images ride along as repeated ``<|image|>``
         # tokens from ``_visible_text``. Placeholders are recomputed over the full
         # sequence, so earlier images are reported ahead of the new turn's.
         result = super().bridge_to_next_turn(
@@ -309,11 +340,92 @@ class GLM53Renderer(GLM51Renderer):
                 emit_special(self._arg_value_end, msg_idx, is_sampled=True, is_content=True)
             emit_special(self._tool_call_end_tok, msg_idx, is_sampled=True, is_content=True)
 
-    def prepare_extension(self, previous_messages, new_messages, tools):
-        """Prepare only new observations using the preceding call metadata.
+    # --- parsing ---------------------------------------------------------------
 
-        The previous assistant supplies ID associations, never rendered tokens.
-        Prime's inherited bridge retains the actual sampled token stream.
+    def parse_response(self, token_ids, *, tools=None, prompt_ids=None):
+        """Parse the reply as Prime does, then read each argument back as the template wrote it.
+
+        Prime strips whitespace from every ``<arg_value>``. An argument that holds file
+        text loses its final newline or its first line's indentation, and an argument of
+        only whitespace loses everything, while the call still reports success. Prime
+        also marks a call ``invalid_json`` when a value is not the JSON its schema asks
+        for, or when an untyped value is not JSON. That refuses the whole turn.
+
+        This method passes such a value on to the tool as its text instead. The sampled
+        tokens are trained whatever the parse says, so the parse only decides what the
+        environment does with them. Whether to accept an argument is the tool's decision.
+        """
+        parsed = super().parse_response(token_ids, tools=tools, prompt_ids=prompt_ids)
+        ids = list(token_ids)
+        declared = tool_parameters(tools)
+        parsed.tool_calls = [
+            self._as_written(ids, call, declared.get(call.name or "", ({}, {})))
+            for call in parsed.tool_calls
+        ]
+        return parsed
+
+    def _as_written(
+        self, ids: list[int], call: ParsedToolCall, parameters: Parameters
+    ) -> ParsedToolCall:
+        # Prime reports a call that was cut off, broke its structure or has no name. A call
+        # to an unknown tool keeps that status, and its arguments are read as usual.
+        if call.status not in _READ or call.token_span is None:
+            return call
+        # The span indexes the completion as Prime parsed it, cut at the first stop token.
+        start, end = call.token_span
+        block = ids[start + 1 : end - 1]
+        schemas, root = parameters
+        arguments: dict[str, Any] = {}
+        # The block is the name, then ``<arg_key>k</arg_key><arg_value>v</arg_value>`` pairs,
+        # with at most whitespace between them, as the template writes it. A marker inside
+        # the name, a key or a value (a second ``<tool_call>`` opener among them), a key
+        # without its value, a stray value, text between pairs or a repeated key cannot be
+        # read whole, so the call is malformed, never read in part. Prime reports an
+        # unknown tool before it checks any of that.
+        malformed = replace(call, status=ToolCallParseStatus.MALFORMED_STRUCTURE)
+        markers = {
+            self._tool_call_tok,
+            self._arg_key,
+            self._arg_key_end,
+            self._arg_value,
+            self._arg_value_end,
+        }
+        at = _find(block, self._arg_key, 0)
+        if any(token in markers for token in block[:at]):
+            return malformed
+        while at is not None:
+            key_end = _find(block, self._arg_key_end, at + 1)
+            value_at = None if key_end is None else _find(block, self._arg_value, key_end + 1)
+            value_end = (
+                None if value_at is None else _find(block, self._arg_value_end, value_at + 1)
+            )
+            if value_end is None:
+                return malformed
+            key = _decode(self._tokenizer, block[at + 1 : key_end]).strip()
+            text = _decode(self._tokenizer, block[value_at + 1 : value_end])
+            next_key = _find(block, self._arg_key, value_end + 1)
+            between = (block[key_end + 1 : value_at], block[value_end + 1 : next_key])
+            if (
+                key in arguments
+                or any(token in markers for token in block[at + 1 : key_end])
+                or any(token in markers for token in block[value_at + 1 : value_end])
+                or any(_decode(self._tokenizer, gap).strip() for gap in between)
+            ):
+                return malformed
+            arguments[key] = read_argument(text, schemas.get(key), root=root)
+            at = next_key
+        status = (
+            call.status
+            if call.status == ToolCallParseStatus.UNKNOWN_TOOL
+            else ToolCallParseStatus.OK
+        )
+        return replace(call, arguments=arguments, status=status)
+
+    def prepare_extension(self, previous_messages, new_messages, tools):
+        """Prepare only the new observations, using the preceding assistant turn's calls.
+
+        The previous assistant turn supplies only the call IDs to match, never rendered
+        tokens. Prime's inherited bridge keeps the actual sampled token stream.
         """
         preceding = list(previous_messages[-1:])
         prepared, indices = self._prepare(preceding + list(new_messages), tools)
@@ -325,10 +437,10 @@ class GLM53Renderer(GLM51Renderer):
 
 
 def renderer(tokenizer, chat_template_kwargs, *, processor=None):
-    """Renderer factory for GLM-5.3 and GLM-5.3-Flash, which the cookbook selects for them.
+    """Build the renderer for GLM-5.3 and GLM-5.3-Flash, which the cookbook selects for them.
 
-    Image parts need the model's image processor; it is loaded from
-    ``tokenizer.name_or_path`` on first use unless ``processor`` is given.
+    Image parts need the model's image processor. Unless ``processor`` is given, it is
+    loaded from ``tokenizer.name_or_path`` on first use.
     """
     from loops_cookbook.llm.prime import PrimeRenderer
 

@@ -3,27 +3,28 @@
 
 recipe = "rl"
 
-[runtime]
+[rollout_runtime]
 factory = "loops_cookbook.episodes:create_runtime"
 
-[runtime.config]
+[rollout_runtime.config]
 episode = "sat_episode:SatEpisode"
 agent_timeout_seconds = 3600
 
-[runtime.config.options]
-# Qwen3.6-35B-A3B before training: pass@1 11%, pass@8 67% at 21 variables (36% and
-# 92% at 15, 3% and 17% at 25).
+[rollout_runtime.config.options]
+# Before training, Qwen3.6-35B-A3B scores pass@1 11% and pass@8 67% at 21 variables.
+# It scores 36% and 92% at 15 variables, and 3% and 17% at 25.
 variables = 21
 clause_ratio = 4.26
 
-[runtime.files]
+[rollout_runtime.files]
 tasks = "problems.jsonl"
 
 [model]
 base_model = "Qwen/Qwen3.6-35B-A3B"
 lora_rank = 64
 max_seq_len = 32768
-# Thinking off: it works the problem in its reply, about 12k tokens, and ends on its own.
+# With thinking off, the model works the problem in its reply, in about 12k tokens,
+# and ends on its own.
 # Thinking on runs past 32k, or ends mid-thought, on half its replies.
 renderer_chat_template_kwargs = { enable_thinking = false }
 
@@ -31,7 +32,7 @@ renderer_chat_template_kwargs = { enable_thinking = false }
 max_generation_tokens = 24576
 
 [training]
-# Async: replies vary in length, so no update waits for the slowest.
+# Replies vary in length, so async mode keeps each update from waiting for the slowest.
 mode = "async"
 group_size = 8
 groups_per_step = 8
@@ -44,7 +45,8 @@ max_policy_delta_in_trajectory = 1
 admission_steps_ahead = 2
 
 [rollout]
-max_concurrent_rollouts = 256   # three batches in flight, and room for replacements
+# This allows three batches in flight, with room for replacements.
+max_concurrent_rollouts = 256
 max_concurrent_verifiers = 64
 setup_timeout_seconds = 60
 
@@ -52,14 +54,16 @@ setup_timeout_seconds = 60
 timeout_seconds = 10
 
 [eval]
-every_steps = 5   # and before the first update and after the last
+# The eval also runs before the first update and after the last.
+every_steps = 5
 
 [eval.sets.val]
 samples_per_task = 2
 max_concurrent_rollouts = 128
 
-[eval.sets.val.runtime.files]
-tasks = "problems_val.jsonl"   # seeds training never draws
+[eval.sets.val.rollout_runtime.files]
+# These problems come from seeds that training never draws.
+tasks = "problems_val.jsonl"
 
 [compute]
 scope = "serverless"

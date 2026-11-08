@@ -109,14 +109,18 @@ def test_a_generation_cut_by_its_limit_or_inside_reasoning_is_length():
     ids=["unclosed", "cut_by_limit"],
 )
 def test_a_tool_call_cut_short_is_invalid_output_that_says_so(status, stop):
-    done = _complete(_reply(calls=[_call(status=status)], native=False, stop=stop))
+    # The call was read only in part, so no message renders it back.
+    cut = _call(status=status, arguments='{"q": ')
+    done = _complete(_reply(calls=[cut], native=False, stop=stop))
     assert isinstance(done, InvalidOutput) and done.code == "tool_call_truncated"
 
 
 def test_invalid_output_carries_the_generations_usage():
     """An agent tracking its context counts the call that ran out of room."""
     cut = _reply(
-        calls=[_call(status=ToolCallParseStatus.INVALID_JSON)], native=False, stop="length"
+        calls=[_call(status=ToolCallParseStatus.INVALID_JSON, arguments='{"q": ')],
+        native=False,
+        stop="length",
     )
     done = _complete(cut)
     assert isinstance(done, InvalidOutput)
@@ -129,7 +133,11 @@ def test_usage_counts_the_reasoning_tokens_a_renderer_found():
     body = json.loads(completion(reply, model="m", created=1, tools_offered=True).body())
     assert body["usage"]["completion_tokens_details"]["reasoning_tokens"] == 1
     cut = replace(
-        _reply(calls=[_call(status=ToolCallParseStatus.INVALID_JSON)], native=False, stop="length"),
+        _reply(
+            calls=[_call(status=ToolCallParseStatus.INVALID_JSON, arguments='{"q": ')],
+            native=False,
+            stop="length",
+        ),
         reasoning_tokens=2,
     )
     done = completion(cut, model="m", created=1, tools_offered=True)

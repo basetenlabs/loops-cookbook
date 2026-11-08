@@ -5,7 +5,9 @@ from dataclasses import asdict
 import pytest
 from renderers.base import ParsedToolCall, ToolCallParseStatus
 
-PARAMS = {"bash": {"command": {"type": "string"}, "options": {"type": "object"}}}
+from loops_cookbook.llm.renderer_extensions.arguments import _xml_call
+
+PARAMS = {"bash": ({"command": {"type": "string"}, "options": {"type": "object"}}, {})}
 
 
 def call(key="command", value="echo ok"):
@@ -20,9 +22,7 @@ def call(key="command", value="echo ok"):
 
 
 def parse(candidate):
-    from loops_cookbook.llm.renderer_extensions.qwen35 import _parse_call
-
-    return _parse_call(candidate, PARAMS)
+    return _xml_call(candidate, PARAMS)
 
 
 @pytest.mark.parametrize("key", ["command", "\ncommand", " \tcommand", "\r\ncommand"])
@@ -61,9 +61,55 @@ def test_original_unclosed_status_is_not_recovered():
     assert parse(candidate) is candidate
 
 
-def test_declared_invalid_json_stays_invalid():
-    candidate = call("options", "{broken")
-    assert parse(candidate).status == "invalid_json"
+def test_text_a_declared_type_cannot_read_reaches_the_tool():
+    result = parse(call("options", "{broken"))
+    assert result.status == "ok"
+    assert result.arguments == {"options": "{broken"}
+
+
+TYPED = {
+    "s": {"type": "string"},
+    "i": {"type": "integer"},
+    "b": {"type": "boolean"},
+    "n": {"type": ["integer", "null"]},
+    "o": {"type": "object"},
+    "a": {"type": "array"},
+    "u": {"anyOf": [{"type": "integer"}, {"type": "string"}]},
+    "untyped": {"description": "says nothing of its type"},
+}
+
+
+@pytest.mark.parametrize(
+    "key,text,value",
+    [
+        # A string comes back as written, whitespace and all.
+        ("s", "  x = 1 \n", "  x = 1 \n"),
+        ("s", "None", "None"),
+        ("s", '"quoted"', '"quoted"'),
+        # Another declared type is read as JSON, or as Jinja's string of a boolean or null.
+        ("i", " 3 ", 3),
+        ("b", "True", True),
+        ("b", "false", False),
+        ("n", "None", None),
+        ("n", "null", None),
+        ("o", '{"a": [1]}', {"a": [1]}),
+        ("a", "[1, 20]", [1, 20]),
+        ("u", "7", 7),
+        ("u", "  later\n", "  later\n"),
+        # Text that its type can't read, or that no type tells apart, stays the text.
+        ("i", "30s", "30s"),
+        ("a", "1, 20", "1, 20"),
+        ("untyped", " 600 ", " 600 "),
+        ("untyped", "None", "None"),
+        ("undeclared", "600", "600"),
+    ],
+)
+def test_each_value_reads_back_as_the_template_wrote_it(key, text, value):
+    candidate = call(key, text)
+    result = _xml_call(candidate, {"bash": (TYPED, {})})
+    assert result.status == "ok"
+    assert result.arguments == {key: value}
+    assert type(result.arguments[key]) is type(value)
 
 
 def test_valid_typed_arguments_keep_prime_coercion():
@@ -76,6 +122,24 @@ def test_unknown_argument_name_is_preserved_for_tool_validation(key):
     assert result.status == "ok"
     assert result.arguments == {key: "echo never repair this"}
     assert "command" not in result.arguments
+
+
+def test_a_call_to_an_undeclared_tool_is_reported_with_its_arguments():
+    candidate = call()
+    candidate.name = "bsah"
+    candidate.raw = candidate.raw.replace("function=bash", "function=bsah")
+    result = parse(candidate)
+    assert result.status == "unknown_tool"
+    assert result.arguments == {"command": "echo ok"}
+    # With no tools declared, any name is accepted.
+    assert _xml_call(candidate, {}).status == "ok"
+
+
+def test_a_function_tag_written_in_a_value_is_just_text():
+    """Only another parameter's opening tag, or a second call's token, is ambiguous."""
+    value = 'grep -n "<function=" agent.py'
+    result = parse(call("command", value))
+    assert result.status == "ok" and result.arguments == {"command": value}
 
 
 def test_no_argument_call_is_representable_not_invented():

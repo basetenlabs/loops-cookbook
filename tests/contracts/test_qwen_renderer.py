@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 from copy import deepcopy
 
+import pytest
 from support.builders import make_rollout
 from support.fakes import ScriptedSampler
 from support.images import png
@@ -13,6 +14,8 @@ from loops_cookbook.llm.factory import create_renderer
 from loops_cookbook.llm.images import image_placeholders
 from loops_cookbook.model_access.lease import DirectModelAccess
 from loops_cookbook.rl.grpo import build_rows
+
+from .conftest import VLM_CONTRACT_MODELS, pinned_tokenizer
 
 
 def template_ids(tokenizer, messages, tools=(), **kwargs):
@@ -76,10 +79,20 @@ def test_actual_qwen_changed_arguments_tools_and_replaced_history(qwen_tokenizer
 
 def test_actual_qwen_parse_retains_native_arguments_reasoning_and_raw_attempt(qwen_tokenizer):
     renderer = create_renderer("Qwen/Qwen3.6-35B-A3B", tokenizer=qwen_tokenizer)
-    prompt = renderer.render([{"role": "user", "content": "Call"}]).ids
+    # The schema says the values are integers. Without it, they would stay their text.
+    tools = [
+        {
+            "name": "f",
+            "parameters": {
+                "type": "object",
+                "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
+            },
+        }
+    ]
+    prompt = renderer.render([{"role": "user", "content": "Call"}], tools).ids
     body = "Thought</think>\n<tool_call>\n<function=f>\n<parameter=b>\n2\n</parameter>\n<parameter=a>\n1\n</parameter>\n</function>\n</tool_call><|im_end|>"
     completion = qwen_tokenizer.encode(body, add_special_tokens=False)
-    parsed = renderer.parse(prompt, completion)
+    parsed = renderer.parse(prompt, completion, tools)
     assert parsed.reasoning_content == "Thought"
     assert parsed.tool_calls[0].status == "ok"
     assert parsed.tool_calls[0].arguments == {"b": 2, "a": 1}
@@ -90,7 +103,7 @@ def test_actual_qwen_parse_retains_native_arguments_reasoning_and_raw_attempt(qw
     malformed = qwen_tokenizer.encode(
         "Thought</think><tool_call>bad<|im_end|>", add_special_tokens=False
     )
-    bad = renderer.parse(prompt, malformed)
+    bad = renderer.parse(prompt, malformed, tools)
     assert bad.tool_calls[0].status == "unclosed_block"
     assert "bad" in bad.tool_calls[0].raw
     assert bad.native_message is None
@@ -198,3 +211,80 @@ async def test_actual_qwen_reasoning_strip_preserves_original_training_evidence(
     assert rows[1].datum.loss_fn_inputs["target_tokens"].data == sampler.prompts[1][1:] + completion
     start = len(sampler.prompts[1]) - 1
     assert rows[1].actions == ((start, start + len(completion)),)
+
+
+# --- Qwen3.8 text against its own template, under every option -----------------------
+
+QWEN38 = "Qwen/Qwen3.8-27B"
+QWEN38_OPTIONS = [
+    {"enable_thinking": thinking, "preserve_thinking": preserve, "reasoning_effort": effort}
+    for thinking in (True, False)
+    for preserve in (True, False)
+    for effort in ("xhigh", "medium", "low")
+]
+CALL = {"id": "c1", "type": "function", "function": {"name": "f", "arguments": {"a": 1}}}
+TOOL = {"name": "f", "parameters": {"type": "object", "properties": {"a": {"type": "integer"}}}}
+QWEN38_HISTORIES = [
+    [{"role": "system", "content": "Help"}, {"role": "user", "content": "Task"}],
+    [
+        {"role": "user", "content": "Task"},
+        {"role": "assistant", "content": "Answer", "reasoning_content": "Thought"},
+        {"role": "user", "content": "Next"},
+    ],
+    [
+        {"role": "user", "content": "Task"},
+        {"role": "assistant", "content": "", "reasoning_content": "Look.", "tool_calls": [CALL]},
+        {"role": "tool", "tool_call_id": "c1", "content": "ok"},
+        {"role": "assistant", "content": "Done.", "reasoning_content": ""},
+        {"role": "user", "content": "Résumé — 合同 ✓"},
+    ],
+]
+
+
+@pytest.fixture(scope="module")
+def qwen38_tokenizer():
+    return pinned_tokenizer(QWEN38, VLM_CONTRACT_MODELS[QWEN38], "LOOPS_QWEN_TOKENIZER_CACHE")
+
+
+def _option_id(options):
+    return "-".join(str(v) for v in options.values())
+
+
+@pytest.mark.parametrize("history", QWEN38_HISTORIES, ids=["task", "answered", "tool cycle"])
+@pytest.mark.parametrize("options", QWEN38_OPTIONS, ids=_option_id)
+def test_qwen38_prompts_are_the_templates_tokens(qwen38_tokenizer, history, options):
+    """Compare Prime's Qwen3.8 renderer, with the cookbook's parse, against the template.
+
+    With thinking disabled and ``preserve_thinking`` off, Prime writes the empty
+    ``<think>\\n\\n</think>\\n\\n`` again on past turns that carry no reasoning. The
+    template strips it. The generation prompt prefilled the block, so every sampled turn
+    holds it, and a history rendered again stays what was sampled. That deviation is
+    Prime's, and ``renderers.qwen35`` documents it. The last test pins it.
+    """
+    renderer = create_renderer(QWEN38, tokenizer=qwen38_tokenizer, chat_template_kwargs=options)
+    reasoningless_past_turn = any(
+        m["role"] == "assistant" and not m.get("reasoning_content") for m in history[:-1]
+    )
+    if (
+        not options["enable_thinking"]
+        and not options["preserve_thinking"]
+        and reasoningless_past_turn
+    ):
+        pytest.skip("Prime's documented no-thinking deviation; pinned below")
+    expected = template_ids(qwen38_tokenizer, deepcopy(history), [TOOL], **options)
+    assert renderer.render(deepcopy(history), [TOOL]).ids == expected
+
+
+def test_qwen38_no_thinking_history_keeps_the_prefilled_empty_block(qwen38_tokenizer):
+    options = {"enable_thinking": False, "preserve_thinking": False}
+    renderer = create_renderer(QWEN38, tokenizer=qwen38_tokenizer, chat_template_kwargs=options)
+    history = [
+        {"role": "user", "content": "Task"},
+        {"role": "assistant", "content": "Answer"},
+        {"role": "user", "content": "Next"},
+    ]
+    rendered = qwen38_tokenizer.decode(renderer.render(deepcopy(history)).ids)
+    template = qwen38_tokenizer.decode(template_ids(qwen38_tokenizer, deepcopy(history), **options))
+    assert "assistant\n<think>\n\n</think>\n\nAnswer" in rendered
+    assert "assistant\nAnswer" in template
+    assert rendered.replace("<think>\n\n</think>\n\n", "", 1) == template

@@ -1,11 +1,11 @@
-"""Where the Harbor runtime reaches Harbor's private members.
+"""The place where the Harbor rollout runtime reaches Harbor's private members.
 
-Every such access the Harbor runtime makes lives here; the cookbook's Blaxel
-environment (``harbor.blaxel``) reaches the members of Harbor's own Blaxel
-environment, which it subclasses, and says so. A Harbor upgrade has those two files
-to review. The package metadata bounds Harbor to the
-minor version these accesses were checked against, and the contract tests pin
-their behaviour.
+Every such access the Harbor rollout runtime makes lives here. The cookbook's Blaxel
+and Daytona environments, ``harbor.blaxel`` and ``harbor.daytona``, also reach the
+members of the Harbor environments they subclass, and each says so. So a Harbor
+upgrade has those three files to review. The package metadata bounds Harbor to the
+minor version these accesses were checked against, and the contract tests pin their
+behaviour.
 """
 
 from __future__ import annotations
@@ -21,9 +21,6 @@ import harbor.trial.trial as trial_module
 from harbor.environments.factory import EnvironmentFactory
 from harbor.job import Job
 from harbor.models.job.config import JobConfig
-from harbor.models.job.lock import (
-    _build_lock_trial_task,  # pyright: ignore[reportPrivateUsage]
-)
 from harbor.models.task.verifier_mode import resolve_effective_verifier_env_config
 from harbor.models.trial.config import TrialConfig
 from harbor.models.verifier.result import VerifierResult
@@ -35,7 +32,7 @@ Publish = Callable[[VerifierResult], Awaitable[None]]
 
 
 async def expand_trials(config: JobConfig) -> list[TrialConfig]:
-    """Harbor's own dataset resolution and task/agent expansion, without running a job."""
+    """Run Harbor's own dataset resolution and task and agent expansion, without running a job."""
     job = await Job.create(config)
     try:
         return [trial.model_copy(deep=True) for trial in job._trial_configs]  # pyright: ignore[reportPrivateUsage]
@@ -44,15 +41,9 @@ async def expand_trials(config: JobConfig) -> list[TrialConfig]:
 
 
 async def task_environment_dir(config: TrialConfig) -> Path:
-    """The directory Harbor builds the task's environment image from."""
+    """Return the directory that Harbor builds the task's environment image from."""
     task, _download = await Trial._load_task(config)  # pyright: ignore[reportPrivateUsage]
     return task.paths.environment_dir
-
-
-async def task_digest(config: TrialConfig) -> str:
-    """The task content digest Harbor records in ``TrialLock.task.digest``."""
-    _task, download = await Trial._load_task(config)  # pyright: ignore[reportPrivateUsage]
-    return _build_lock_trial_task(config.task, download).digest
 
 
 TrialSetup = Callable[[Any], None]
@@ -61,9 +52,9 @@ TrialSetup = Callable[[Any], None]
 class HookedTrialQueue(TrialQueue):
     """Harbor's trial queue, calling ``setup`` for each trial it is about to run.
 
-    ``TrialQueue`` has no public per-trial seam; ``_setup_hooks`` is where it sees a
-    trial after ``Trial.create`` and before ``Trial.run``. ``setup`` runs after the
-    queue's own hooks are registered, so it can bind the trial and add its own.
+    ``TrialQueue`` has no public hook for each trial. ``_setup_hooks`` is where it sees
+    a trial after ``Trial.create`` and before ``Trial.run``. ``setup`` runs after the
+    queue's own hooks are registered, so it can bind the trial and add hooks of its own.
     """
 
     def __init__(self, setup: TrialSetup, **kwargs: Any) -> None:
@@ -75,14 +66,14 @@ class HookedTrialQueue(TrialQueue):
             super()._setup_hooks(trial)
             self._setup(trial)
         except BaseException:
-            # Trial.create opened the trial's logger; Trial.run, which closes it,
+            # Trial.create opened the trial's logger. Trial.run closes it, but Trial.run
             # never starts when setup fails.
             trial._close_logger_handler()
             raise
 
 
 def trial_task_digest(trial: Any) -> str:
-    """The digest of the task this trial actually loaded, as its lock records it."""
+    """Return the digest of the task this trial actually loaded, as its lock records it."""
     return trial._trial_lock.task.digest
 
 
@@ -90,25 +81,50 @@ def trial_task_digest(trial: Any) -> str:
 class Deadlines:
     """The Harbor-configured deadlines that bound one grading call, in seconds."""
 
-    task: Any  # harbor TaskConfig
+    task: Any  # Harbor's TaskConfig.
     environment_build: float | None
     verifier: float | None
     final_step_verifier: float | None
-    # When asked for, each environment the trial declares, constructed and never
-    # started: the agent's under "", and each separate verifier's ("verifier",
-    # "step <name> verifier").
+    # When asked for, this holds each environment the trial declares, constructed and
+    # never started. The agent's is under "". Each separate verifier's is under
+    # "verifier" or "step <name> verifier".
     environments: Mapping[str, Any] = field(default_factory=dict[str, Any])
 
 
-async def deadlines(config: TrialConfig, *, environments: bool = False) -> Deadlines:
-    """Harbor's effective deadlines for a trial, resolved by Harbor itself, and with
-    ``environments``, every environment it declares.
+# This is set while a probe trial is created. A probe trial is read and closed, and
+# never run.
+_probing: ContextVar[bool] = ContextVar("probing", default=False)
+_write_trial_lock = Trial._write_trial_lock  # pyright: ignore[reportPrivateUsage]
 
-    A trial is created, read, and closed without being run; its environments are
-    constructed but never started. A user-agent bridge has no bearing on deadlines,
+
+def _lock_unless_probing(self: Trial) -> Any:
+    # Harbor reads a trial's lock only when the trial runs, and writing a lock hashes
+    # the whole task. A probe never runs, so it writes no lock.
+    if _probing.get():
+        return None
+    return _write_trial_lock(self)
+
+
+def _install_probe_lock() -> None:
+    if Trial._write_trial_lock is not _lock_unless_probing:  # pyright: ignore[reportPrivateUsage]
+        Trial._write_trial_lock = _lock_unless_probing  # pyright: ignore[reportAttributeAccessIssue]
+
+
+async def deadlines(config: TrialConfig, *, environments: bool = False) -> Deadlines:
+    """Return Harbor's effective deadlines for a trial, as Harbor itself resolves them.
+
+    With ``environments``, the result also holds every environment the trial declares.
+    The trial is created, read and closed without being run. Its environments are
+    constructed but never started. Nothing of the task is hashed, because the probe
+    writes no lock and names no image. A user-agent bridge has no bearing on deadlines,
     so none is created.
     """
-    trial = await Trial.create(config.model_copy(update={"user_agent": None}))
+    _install_probe_lock()
+    token = _probing.set(True)
+    try:
+        trial = await Trial.create(config.model_copy(update={"user_agent": None}))
+    finally:
+        _probing.reset(token)
     try:
         steps = trial.task.config.steps or []
         final = trial._step_verifier_timeout_sec(steps[-1]) if steps else None  # pyright: ignore[reportPrivateUsage]
@@ -124,9 +140,11 @@ async def deadlines(config: TrialConfig, *, environments: bool = False) -> Deadl
 
 
 def declared_docker_images(task: Any) -> dict[str, str | None]:
-    """Each environment's ``docker_image`` in Harbor TaskConfig ``task``, keyed as
-    ``Deadlines.environments`` keys them: the agent's under "", then each separate
-    verifier's, resolved as Harbor resolves it."""
+    """Return each environment's ``docker_image`` in the Harbor TaskConfig ``task``.
+
+    The keys match ``Deadlines.environments``. The agent's image is under "", followed
+    by each separate verifier's, resolved as Harbor resolves it.
+    """
     images: dict[str, str | None] = {"": task.environment.docker_image}
     for step in task.steps or [None]:
         config = resolve_effective_verifier_env_config(task, step)
@@ -137,10 +155,13 @@ def declared_docker_images(task: Any) -> dict[str, str | None]:
 
 
 def _declared_environments(trial: Any) -> dict[str, Any]:
-    """The agent's environment, and each separate verifier's built as Harbor's
-    ``_separate_verifier_env`` builds it when it verifies, from the same job
-    environment and the verifier's own config. None is started, and a verifier's is
-    built without its network policy, which has no bearing on its size."""
+    """Return the agent's environment and each separate verifier's environment.
+
+    Each verifier's environment is built the way Harbor's ``_separate_verifier_env``
+    builds it when it verifies, from the same job environment and the verifier's own
+    config. None of them is started. A verifier's environment is built without its
+    network policy, which has no bearing on its size.
+    """
     environments: dict[str, Any] = {"": trial.agent_environment}
     task = trial.task.config
     for step in task.steps or [None]:
@@ -161,7 +182,10 @@ def _declared_environments(trial: Any) -> dict[str, Any]:
 
 
 def blaxel_default_memory_mb() -> int:
-    """The memory Harbor's Blaxel environment gives a task that sets none (private)."""
+    """Return the memory that Harbor's Blaxel environment gives a task that sets none.
+
+    Harbor keeps this value private.
+    """
     from harbor.environments import blaxel
 
     return blaxel._DEFAULT_MEMORY_MB  # pyright: ignore[reportPrivateUsage]
@@ -170,12 +194,13 @@ def blaxel_default_memory_mb() -> int:
 def mark_verification_reached(trial: Any, reached: Callable[[], None]) -> None:
     """Call ``reached`` where a single-step trial would verify, and verify nothing.
 
-    ``SingleStepTrial._run`` calls ``_run_verifier`` only after the agent phase
-    ended in a way Harbor still verifies (``_run_agent`` recorded an agent timeout
-    or non-zero exit, or the agent returned) and its logs and artifacts were saved.
-    Any other exception propagates past it and aborts the trial. ``reached`` is
-    therefore Harbor's own decision that this trial is graded; the verifier runs
-    later, as a regrade from the saved trial directory.
+    ``SingleStepTrial._run`` calls ``_run_verifier`` only after two things. The agent
+    phase ended in a way that Harbor still verifies, and its logs and artifacts were
+    saved. Harbor still verifies when ``_run_agent`` recorded an agent timeout or a
+    non-zero exit, or when the agent returned. Any other exception propagates past
+    ``_run_verifier`` and aborts the trial. So ``reached`` is Harbor's own decision that
+    this trial is graded. The verifier runs later, as a regrade from the saved trial
+    directory.
     """
 
     async def mark() -> None:
@@ -187,9 +212,9 @@ def mark_verification_reached(trial: Any, reached: Callable[[], None]) -> None:
 # --------------------------------------------------------------- reward exposure
 #
 # Harbor 0.23 has no public hook between a verification and the sandbox stop that
-# follows it, and ``verify()`` returning is not authoritative: a later network
-# policy restore can still turn a reward into a failed trial. The exposure points
-# are therefore the places after which Harbor can no longer change the result:
+# follows it. A return from ``verify()`` is not final either, because a later network
+# policy restore can still turn a reward into a failed trial. So the reward is exposed
+# at the points after which Harbor can no longer change the result:
 #
 #   shared single step      the return of ``_run_shared_verifier``, after the restore
 #   multi-step              the return of ``_select_multi_step_reward``
@@ -201,7 +226,7 @@ _original_factory: Any = trial_module.VerifierFactory
 
 
 class _CapturingVerifierFactory:
-    """Harbor's verifier factory, recording each ``verify()`` result where asked."""
+    """Harbor's verifier factory, recording each ``verify()`` result where a caller asks."""
 
     @classmethod
     def create_verifier_from_config(cls, *args: Any, **kwargs: Any) -> Any:
@@ -226,9 +251,9 @@ def _install_capture() -> None:
 def observe_stops(trial: Any, failed: Callable[[BaseException], None]) -> None:
     """Call ``failed`` for every environment stop of ``trial`` that raises.
 
-    Harbor catches a failed stop, logs it, and carries on, for the agent's environment
-    and for each separate verifier's alike, so the cookbook would otherwise never
-    learn that a sandbox may still be running.
+    Harbor catches a failed stop, logs it and carries on. It does this for the agent's
+    environment and for each separate verifier's alike. Without this hook, the cookbook
+    would never learn that a sandbox may still be running.
     """
 
     def watch(environment: Any) -> None:
@@ -278,7 +303,7 @@ def expose_reward(trial: Any, publish: Publish) -> None:
                 if result is not None:
                     await publish(result)
             finally:
-                await stop()  # a publish that raised still stops the sandbox
+                await stop()  # A publish that raised still stops the sandbox.
 
         trial._select_multi_step_reward = select_then_record  # pyright: ignore[reportPrivateUsage]
         trial._stop_agent_environment = publish_then_stop  # pyright: ignore[reportPrivateUsage]

@@ -1,15 +1,16 @@
-# SFT on a unit-conversion assistant that calls a tool. `loops check` on this
-# file renders every conversation and reports what trains; `loops run` trains.
+# SFT on a unit-conversion assistant that calls a tool. `loops check` on this file
+# renders every conversation and reports what trains. `loops run` trains.
 recipe = "sft"
 
 [model]
 base_model = "Qwen/Qwen3.6-35B-A3B"
 lora_rank = 32
-# Required for SFT: a conversation longer than this is refused before training.
+# Required for SFT. A conversation longer than this is refused before training.
 max_seq_len = 4096
 
 [data]
-# Written by make_data.py beside this file; paths are relative to this file.
+# make_data.py writes these files beside this config. The paths are relative to this
+# file.
 train = "train.jsonl"
 validation = "validation.jsonl"
 

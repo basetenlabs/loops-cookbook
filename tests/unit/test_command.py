@@ -237,8 +237,8 @@ def test_help_lists_every_recipes_settings_and_needs_no_config(capsys):
     assert exited.value.code == 0
     output = " ".join(capsys.readouterr().out.split())
     # A setting only one recipe has says so, and a required one says so.
-    assert "--runtime.factory TEXT (RL)" in output and "--data.train TEXT (SFT)" in output
-    assert "Adam learning rate; under SFT's lr_schedule, its peak. Required." in output
+    assert "--rollout_runtime.factory TEXT (RL)" in output and "--data.train TEXT (SFT)" in output
+    assert "Under SFT's lr_schedule, this is the peak learning rate. Required." in output
     assert "(default: auto)" in output  # console: both recipes agree
     # The file's recipe key chooses the recipe, so it is no flag.
     assert "--recipe" not in output
@@ -247,10 +247,11 @@ def test_help_lists_every_recipes_settings_and_needs_no_config(capsys):
 def test_a_flag_for_the_other_recipes_setting_names_its_recipe(tmp_path, capsys):
     path = write_toml(tmp_path / "config.toml", SFT)
     with pytest.raises(SystemExit) as exited:
-        command.main(["check", str(path), "--runtime.factory", "m:create"])
+        command.main(["check", str(path), "--rollout_runtime.factory", "m:create"])
     assert exited.value.code == 2
     assert (
-        f'--runtime.factory is an RL setting; {path} is recipe = "sft"' in capsys.readouterr().err
+        f'--rollout_runtime.factory is an RL setting; {path} is recipe = "sft"'
+        in capsys.readouterr().err
     )
 
 
@@ -373,7 +374,7 @@ def test_resume_and_resume_from_together_are_refused(tmp_path, resumed, capsys):
     with pytest.raises(SystemExit) as exited:
         command.main(["run", str(path), "--resume", "--training.resume_from", "elsewhere"])
     assert exited.value.code == 2
-    assert "give one or the other" in capsys.readouterr().err
+    assert "Give one or the other" in capsys.readouterr().err
     assert resumed == []
 
 
@@ -393,12 +394,14 @@ def evaluated(monkeypatch):
 
 def _rl_with_sets(tmp_path, runs):
     path = tmp_path / "config.toml"
-    sets = {name: {"runtime": {"files": {"tasks": f"{name}.jsonl"}}} for name in ("val", "hard")}
+    sets = {
+        name: {"rollout_runtime": {"files": {"tasks": f"{name}.jsonl"}}} for name in ("val", "hard")
+    }
     write_toml(
         path,
         MINIMAL,
         {
-            "runtime": {"files": {"tasks": "train.jsonl"}},
+            "rollout_runtime": {"files": {"tasks": "train.jsonl"}},
             "output": {"run_name": "a", "output_dir": str(runs)},
             "eval": {"sets": sets},
         },

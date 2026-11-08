@@ -1,23 +1,24 @@
 # Terminal-Bench 2.1 on GLM-5.3-Flash, async, on Blaxel sandboxes.
-# uv run loops check examples/terminal_bench/train.toml   # downloads the dataset
+# The check downloads the dataset.
+# uv run loops check examples/terminal_bench/train.toml
 
 recipe = "rl"
 
-[runtime]
+[rollout_runtime]
 factory = "loops_cookbook.harbor:create_runtime"
 
-[runtime.files]
+[rollout_runtime.files]
 job = "harbor.yaml"
 
-[runtime.config]
+[rollout_runtime.config]
 reward_key = "reward"
 
 [providers.blaxel]
 # Credentials stay in .env as BL_WORKSPACE and BL_API_KEY. Every sandbox is created in
-# this region; the job does not name one. Every deadline has a default: Harbor's start
-# bound, reconcile + image build + create + attach (60 + 420 + 120 + 30 = 630s), fits
-# the task's build timeout (600s, times the job's environment_build_timeout_multiplier
-# of 1.1).
+# this region, because the job doesn't name one. Every deadline has a default.
+# Harbor's start bound adds reconcile, image build, create and attach, which is
+# 60 + 420 + 120 + 30 = 630 s. That fits within the task's build timeout, 600 s times
+# the job's environment_build_timeout_multiplier of 1.1.
 region = "us-was-1"
 
 [model]
@@ -47,24 +48,29 @@ loss_fn = "cispo"
 [rollout]
 max_concurrent_rollouts = 48
 max_concurrent_verifiers = 48
-max_rollout_retries = 2   # a failed sandbox or trial gets a fresh attempt
+# A rollout whose sandbox or trial fails is retried up to this many times.
+max_rollout_retries = 2
 max_consecutive_rollout_failures = 100
-# Every sandbox create (including its deploy wait), image build, and release with its
-# absence check holds one of these; with up to 96 trials churning sandboxes, the default
-# of 8 throttles sandbox starts.
+# Every sandbox create, image build and release holds one of these slots. A create
+# holds it through its deploy wait, and a release through its absence check. With up
+# to 96 trials churning sandboxes, the default of 8 slots throttles sandbox starts.
 max_concurrent_provisioning = 32
 rollout_timeout_seconds = 21600
 setup_timeout_seconds = 7200
-# Sandboxes that may start ahead of a free sampling slot, as a fraction of
-# max_concurrent_rollouts (5 here); they never start a group backpressure holds back.
+# The share of max_concurrent_rollouts that may start a sandbox before a sampling slot
+# is free, which is 5 sandboxes here. They never start a group that backpressure holds
+# back.
 prestart_allowance = 0.1
 
 [rollout.grading]
-timeout_seconds = 21600  # > 5 regrade tries x (build + verifier) + backoff; check names any task over it
+# The grading deadline covers 5 regrade tries, each a build and a verifier run, plus
+# backoff. loops check names any task that would exceed it.
+timeout_seconds = 21600
 
 [compute]
 scope = "serverless"
-# keep_run = false # Deactivates this run on exit.
+# Uncomment to deactivate this run on exit.
+# keep_run = false
 
 [output]
 run_name = "terminal-bench-glm53-flash"

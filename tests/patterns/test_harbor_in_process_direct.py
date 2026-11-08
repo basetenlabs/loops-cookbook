@@ -48,8 +48,8 @@ def test_the_docker_config_has_a_hard_step_limit():
     config = load_training_config(PATTERN / "train.toml")
     assert config.training.max_steps <= 5
     assert config.rollout.max_consecutive_rollout_failures > 1  # one failure never ends a run
-    assert config.runtime.factory == "loops_cookbook.harbor:create_runtime"
-    assert config.runtime.files["job"] == str(PATTERN / "job.yaml")
+    assert config.rollout_runtime.factory == "loops_cookbook.harbor:create_runtime"
+    assert config.rollout_runtime.files["job"] == str(PATTERN / "job.yaml")
 
 
 async def test_the_agent_asks_with_llm_and_writes_the_stripped_answer(tmp_path):

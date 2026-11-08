@@ -1,16 +1,19 @@
-# Standalone HostScoredEpisode: guess A-D and score the hidden target.
+# A standalone HostScoredEpisode. The model guesses a letter from A to D, and the host
+# scores the guess against the hidden target.
 # uv run loops run examples/episode_basics/train_host_scored.toml
 
 recipe = "rl"
 
-[runtime]
+[rollout_runtime]
 factory = "loops_cookbook.episodes:create_runtime"
 
-[runtime.config]
+[rollout_runtime.config]
 episode = "episodes:HostScoredEpisode"
-agent_timeout_seconds = 90   # cut before the reply: unversioned; after it: graded, 0 if no answer was kept
+# The agent's deadline. A rollout cut off before the model replies is discarded.
+# One cut off after the reply is graded, and scores 0 if it kept no answer.
+agent_timeout_seconds = 90
 
-[runtime.files]
+[rollout_runtime.files]
 tasks = "questions.jsonl"
 
 [model]
@@ -28,7 +31,9 @@ group_size = 16
 max_group_losses = 0
 groups_per_step = 1
 max_steps = 5
-max_consecutive_unusable_groups = 20   # stop if every group scores alike
+# Stop after this many groups in a row that can't train, such as groups in which
+# every rollout scores alike.
+max_consecutive_unusable_groups = 20
 learning_rate = 0.0001
 loss_fn = "cispo"
 
@@ -41,14 +46,16 @@ setup_timeout_seconds = 60
 timeout_seconds = 10
 
 [eval]
-every_steps = 2   # and before the first update and after the last
+# The eval also runs before the first update and after the last.
+every_steps = 2
 
 [eval.sets.val]
 samples_per_task = 4
 
-[eval.sets.val.runtime.files]
-tasks = "questions_val.jsonl"   # other letters, the same prompt: it shows the eval
-# mechanics, not generalization, and its score falls as the policy learns "B"
+[eval.sets.val.rollout_runtime.files]
+# These tasks use other letters with the same prompt. They show how the eval
+# works, not generalization, and their score falls as the policy learns "B".
+tasks = "questions_val.jsonl"
 
 [compute]
 scope = "dedicated"

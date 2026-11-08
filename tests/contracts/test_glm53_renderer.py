@@ -256,6 +256,155 @@ def test_inherited_parser_reports_truncated_reasoning_and_tool_calls(glm_tokeniz
     assert action.tool_calls[0].status.value == "unclosed_block"
 
 
+EDIT_TOOL = {
+    "name": "edit",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string"},
+            "old": {"type": "string"},
+            "new": {"type": "string"},
+            "line": {"type": "integer"},
+        },
+    },
+}
+
+
+def _call(arguments: dict[str, str]) -> str:
+    body = "".join(
+        f"<arg_key>{key}</arg_key><arg_value>{value}</arg_value>"
+        for key, value in arguments.items()
+    )
+    return f"<tool_call>edit{body}</tool_call>"
+
+
+def _completion(tokenizer, *calls: str, after_stop: str = "") -> list[int]:
+    text = "plan</think>" + "".join(calls) + "<|observation|>" + after_stop
+    return tokenizer.encode(text, add_special_tokens=False)
+
+
+def test_without_tools_every_value_is_its_text(glm_tokenizer):
+    """Keep every value as its text when no tools are given, where Prime refuses the call.
+
+    Without schemas, nothing says which values were strings.
+    """
+    arguments = {"path": " a.py", "new": "x\n", "count": "3", "flags": "[1, 2]"}
+    completion = _completion(glm_tokenizer, _call(arguments))
+    [call] = GLM53Renderer(glm_tokenizer).parse_response(completion).tool_calls
+    assert call.status.value == "ok"
+    assert call.arguments == arguments
+
+
+def test_parallel_calls_only_change_ok_string_values(glm_tokenizer):
+    """Give each OK call its own values back and leave everything else as Prime parsed it.
+
+    That includes a malformed call and the reply's text.
+    """
+    from renderers.glm5 import GLM51Renderer
+
+    first = {"path": "a.py", "new": "one\n"}
+    third = {"path": "b.py", "new": "    three\n"}
+    malformed = "<tool_call>edit<arg_key>new</arg_key></tool_call>"
+    completion = _completion(
+        glm_tokenizer,
+        _call(first),
+        malformed,
+        _call(third),
+        after_stop="<tool_call>edit<arg_key>new</arg_key><arg_value> x </arg_value></tool_call>",
+    )
+    ours = GLM53Renderer(glm_tokenizer).parse_response(completion, tools=[EDIT_TOOL])
+    prime = GLM51Renderer(glm_tokenizer).parse_response(completion, tools=[EDIT_TOOL])
+    assert [c.status.value for c in ours.tool_calls] == ["ok", "malformed_structure", "ok"]
+    assert [c.arguments for c in ours.tool_calls] == [first, prime.tool_calls[1].arguments, third]
+    assert ours.tool_calls[1] == prime.tool_calls[1]
+    for mine, theirs in zip(ours.tool_calls, prime.tool_calls, strict=True):
+        assert (mine.raw, mine.name, mine.token_span, mine.status, mine.id) == (
+            theirs.raw,
+            theirs.name,
+            theirs.token_span,
+            theirs.status,
+            theirs.id,
+        )
+    assert (ours.content, ours.reasoning_content, ours.reasoning_complete) == (
+        prime.content,
+        prime.reasoning_content,
+        prime.reasoning_complete,
+    )
+
+
+def test_the_cookbook_client_gets_exact_values(glm_tokenizer):
+    """Give exact values in the reply and its history message from the cookbook's renderer."""
+    renderer = create_renderer("zai-org/GLM-5.3", renderer=GLM53, tokenizer=glm_tokenizer)
+    arguments = {"path": "a.py", "new": "    body()\n"}
+    prompt = renderer.render(BASE, [EDIT_TOOL]).ids
+    reply = renderer.parse(prompt, _completion(glm_tokenizer, _call(arguments)), [EDIT_TOOL])
+    [call] = reply.tool_calls
+    assert call.arguments == arguments
+    assert reply.native_message is not None
+    assert reply.native_message["tool_calls"][0]["function"]["arguments"] == arguments
+
+
+@pytest.mark.parametrize(
+    "body,status",
+    [
+        ("<arg_key>path</arg_key><arg_value>a.py</arg_value>", "ok"),
+        # Whitespace between pairs, as a model may write it, reads; anything else does not.
+        ("<arg_key>path</arg_key> <arg_value>a.py</arg_value>\n", "ok"),
+        (
+            "<arg_key>path</arg_key><arg_value>a</arg_value><arg_key>path</arg_key><arg_value>b</arg_value>",
+            "malformed_structure",
+        ),
+        (
+            "<arg_key>path</arg_key><arg_value>a.py</arg_value><arg_value>stray</arg_value>",
+            "malformed_structure",
+        ),
+        (
+            "<arg_key>path</arg_key><arg_value>a.py</arg_value>junk<arg_key>new</arg_key><arg_value>x</arg_value>",
+            "malformed_structure",
+        ),
+        ("<arg_key>path</arg_key>text<arg_value>a.py</arg_value>", "malformed_structure"),
+        ("<arg_key>pa<arg_value>th</arg_key><arg_value>a.py</arg_value>", "malformed_structure"),
+        (
+            "<tool_call>read<arg_key>path</arg_key><arg_value>a.py</arg_value>",
+            "malformed_structure",
+        ),
+    ],
+    ids=[
+        "plain",
+        "whitespace",
+        "duplicate key",
+        "stray value",
+        "text between",
+        "text in pair",
+        "marker in key",
+        "opener in name",
+    ],
+)
+@pytest.mark.parametrize("tool", ["edit", "bsah"], ids=["declared", "unknown"])
+def test_a_block_is_read_whole_or_reported(glm_tokenizer, body, status, tool):
+    """On every status the walk reads, a block that is not name and pairs is malformed,
+    never read in part: Prime's own walk skips what it cannot place."""
+    completion = _completion(glm_tokenizer, f"<tool_call>{tool}{body}</tool_call>")
+    [call] = GLM53Renderer(glm_tokenizer).parse_response(completion, tools=[EDIT_TOOL]).tool_calls
+    expected = "unknown_tool" if status == "ok" and tool == "bsah" else status
+    assert call.status.value == expected
+    if status == "ok":
+        assert call.arguments == {"path": "a.py"}
+
+
+def test_prime_still_strips_argument_values(glm_tokenizer):
+    """Check that Prime still strips argument values.
+
+    When this fails, Prime keeps string values as the template wrote them, so revisit
+    ``GLM53Renderer.parse_response``.
+    """
+    from renderers.glm5 import GLM51Renderer
+
+    completion = _completion(glm_tokenizer, _call({"new": "  x\n"}))
+    [call] = GLM51Renderer(glm_tokenizer).parse_response(completion, tools=[EDIT_TOOL]).tool_calls
+    assert call.arguments == {"new": "x"}
+
+
 @pytest.mark.parametrize(
     "ids,expected",
     [

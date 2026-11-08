@@ -1,18 +1,17 @@
 """An in-process agent built on LiteLLM, streaming every reply, as an ``Episode``.
 
 The ``AnswerEpisode`` of ``patterns/custom_runtime/in_process_openai_http`` with only
-the client changed: ``run()`` reaches the attempt's OpenAI-compatible endpoint through
-LiteLLM's ``acompletion`` with ``stream=True``, as an agent built on LiteLLM would,
-with the endpoint given as an OpenAI-compatible ``api_base``. The run's gateway samples
-the whole reply, records its exact tokens, and then streams it back as server-sent
-events, so the chunks arrive together at the end rather than token by token; the agent
+the client changed. ``run()`` reaches the attempt's OpenAI-compatible endpoint through
+LiteLLM's ``acompletion`` with ``stream=True``, as an agent built on LiteLLM would. It
+passes the endpoint as an OpenAI-compatible ``api_base``. The run's gateway samples the
+whole reply, records its exact tokens, and then streams it back as server-sent events.
+So the chunks arrive together at the end rather than token by token. The agent
 assembles them as it would any stream.
 
 Each task is an ``AnswerTask``, an instruction with one expected answer, from the
-dataset that ``[runtime.files] tasks`` names; ``loops check`` refuses a line that is
-not one. The episode keeps the answer, and ``grade()`` scores it. Grading is pure, so
-it is declared safe to retry.
-"""
+dataset that ``[rollout_runtime.files] tasks`` names. ``loops check`` refuses a line
+that is not one. The episode keeps the answer, and ``grade()`` scores it. Grading is
+pure, so it is declared safe to retry."""
 
 from __future__ import annotations
 
@@ -28,7 +27,8 @@ class AnswerTask(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str  # for people reading the dataset; the episode does not use it
+    # The name is for people reading the dataset. The episode doesn't use it.
+    name: str
     instruction: str
     answer: str
 
@@ -41,7 +41,8 @@ class AnswerEpisode(Episode[AnswerTask, None]):
 
     def __init__(self, task: Task[AnswerTask], options: None) -> None:
         super().__init__(task, options)
-        self.answer: str | None = None  # None until the model replies; scored as wrong
+        # The answer stays None until the model replies, and None scores as wrong.
+        self.answer: str | None = None
 
     async def run(self, sample: Sampling) -> None:
         model = sample.model

@@ -1,9 +1,9 @@
-"""The built-in Blaxel provider: `[providers.blaxel]` and its adapter.
+"""The built-in Blaxel provider, which is `[providers.blaxel]` and its adapter.
 
-Blaxel status, exception matching, SDK workarounds, ownership labels, and discovery
-rules live in this package; Harbor's private hooks stay in ``harbor/blaxel.py``.
-Credentials are ``BL_WORKSPACE`` and ``BL_API_KEY``: the SDK reads them from the
-environment, loaded from ``.env``.
+This package holds Blaxel's status rules, exception matching, SDK workarounds,
+ownership labels and discovery rules. Harbor's private hooks stay in
+``harbor/blaxel.py``. The credentials are ``BL_WORKSPACE`` and ``BL_API_KEY``. The SDK
+reads them from the environment, loaded from ``.env``.
 """
 
 from __future__ import annotations
@@ -26,47 +26,59 @@ if TYPE_CHECKING:
 __all__ = ["Blaxel", "BlaxelSandbox", "create_adapter"]
 
 
-# A sandbox's ttl as Blaxel's SandboxRuntime documents it: "Units s, m, h, d, w (e.g.
-# '30m', '24h', '7d', '2w')"; a zero would have it deleted as it is created.
+# A sandbox's ttl, in the form Blaxel's SandboxRuntime documents: "Units s, m, h, d, w
+# (e.g. '30m', '24h', '7d', '2w')". A zero is refused, because Blaxel would delete the
+# sandbox as it is created.
 TTL = r"^[1-9][0-9]*[smhdw]$"
 
 
 class BlaxelSandbox(SandboxSpec):
-    """``[runtime.config.sandbox]`` for a Blaxel sandbox, beside ``provider = "blaxel"``."""
+    """The ``[rollout_runtime.config.sandbox]`` table for a Blaxel sandbox.
 
-    image: str = Field(min_length=1, description="The image it runs.")
-    memory_mb: int = Field(gt=0, description="Its memory, as Harbor's memory_mb.")
+    The table sits beside ``provider = "blaxel"``.
+    """
+
+    image: str = Field(min_length=1, description="The image the sandbox runs.")
+    memory_mb: int = Field(
+        gt=0, description="The sandbox's memory, in MB, like Harbor's memory_mb."
+    )
     ttl: str = Field(
         min_length=1,
         pattern=TTL,
-        description="How long Blaxel keeps it, such as 1h, required as Harbor's Blaxel ttl is: "
-        "a backstop, as the run releases it. A whole number and one unit: s, m, h, d or w.",
+        description="How long Blaxel keeps the sandbox, such as 1h. It is a backstop, "
+        "because the run releases the sandbox itself. It is required, as Harbor's Blaxel ttl "
+        "is. Write a whole number followed by one unit, which is s, m, h, d or w.",
     )
 
     def specification(self) -> dict[str, JsonValue]:
+        """Return the Blaxel adapter's sandbox request, which names ``memory_mb`` as ``memory``."""
         return {"sandbox": {"image": self.image, "memory": self.memory_mb, "ttl": self.ttl}}
 
 
 class Blaxel(SandboxKind["SandboxInstance"]):
-    """An Episode's concrete Blaxel sandbox kind; its client is ``SandboxInstance``.
+    """The Blaxel sandbox kind that an Episode declares. Its client is ``SandboxInstance``.
 
-    Named without importing the SDK, which only a run that uses it needs.
+    The class names the client type without importing the SDK, because only a run that
+    uses Blaxel needs the SDK.
     """
 
     provider = "blaxel"
     spec = BlaxelSandbox
 
     async def write_file(self, path: str, content: str) -> None:
-        """Write text through the attached client; SDK failures propagate to the caller."""
+        """Write text to ``path`` through the attached client.
+
+        SDK failures propagate to the caller.
+        """
         box = await self.client()
         await box.fs.write(path, content)
 
     async def read_file(self, path: str) -> str | None:
-        """The text of the file at ``path``, or ``None`` when the sandbox is alive without it.
+        """Return the text of the file at ``path``, or ``None`` when the file is missing.
 
-        Blaxel's 404 does not say whether the file or the sandbox is missing, so the
-        sandbox's liveness, asked after the read, tells them apart: one that is gone
-        raises ``SandboxGone``. Any other failed read raises as the SDK raised it.
+        Blaxel's 404 does not say whether the file or the sandbox is missing. A liveness
+        check after the read tells them apart, and raises ``SandboxGone`` when the sandbox
+        is gone. Any other failed read raises the SDK's own exception.
         """
         from blaxel.core.sandbox.types import ResponseError
 
@@ -86,8 +98,10 @@ _CREDENTIALS = ("BL_WORKSPACE", "BL_API_KEY")
 def create_adapter(
     settings: Mapping[str, JsonValue], *, environ: Mapping[str, str] | None = None
 ) -> BlaxelAdapter:
-    """The `[providers.blaxel]` factory; fails before any Blaxel call when a setting,
-    a deadline, or a credential is missing."""
+    """Build the `[providers.blaxel]` adapter.
+
+    It fails before any Blaxel call when a setting, a deadline or a credential is missing.
+    """
     environ = os.environ if environ is None else environ
     missing = [name for name in _CREDENTIALS if not environ.get(name)]
     if missing:

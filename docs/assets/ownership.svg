@@ -20,7 +20,7 @@
 <text x="84" y="510.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#6b7280">exact IDs, freshness, delivery</text>
 <rect x="64" y="542" width="532" height="70" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="1"/>
 <text x="84" y="571.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#1e1e1e">Sealing the rollout</text>
-<text x="84" y="596.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#6b7280">the runtime never hands it over</text>
+<text x="84" y="596.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#6b7280">the rollout runtime never hands it over</text>
 <rect x="64" y="628" width="532" height="70" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="1"/>
 <text x="84" y="657.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#1e1e1e">Training</text>
 <text x="84" y="682.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#6b7280">advantage, loss, publish, checkpoint</text>
@@ -48,7 +48,7 @@
 <text x="734" y="596.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#6b7280">agent_timeout_seconds</text>
 <rect x="714" y="628" width="532" height="70" rx="12" fill="#b2f2bb" fill-opacity="1.0" stroke="#2f9e44" stroke-width="1"/>
 <text x="734" y="657.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#1e1e1e">How it reaches the model</text>
-<text x="734" y="682.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#6b7280">declared once, by the runtime</text>
+<text x="734" y="682.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#6b7280">declared once, by the rollout runtime</text>
 <rect x="714" y="714" width="532" height="70" rx="12" fill="#b2f2bb" fill-opacity="1.0" stroke="#2f9e44" stroke-width="1"/>
 <text x="734" y="743.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#1e1e1e">Credentials</text>
 <text x="734" y="768.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#6b7280">environment / .env, never config</text>
@@ -75,7 +75,7 @@
 <text x="1384" y="743.0" font-family="Helvetica, Arial" font-size="17" font-weight="bold" fill="#1e1e1e">Hyperparameters</text>
 <text x="1384" y="768.0" font-family="Menlo, monospace" font-size="14" font-weight="normal" fill="#6b7280">learning rate, clip, epsilon</text>
 <rect x="40" y="930" width="1880" height="110" rx="12" fill="#d3f9d8" fill-opacity="1.0" stroke="#2f9e44" stroke-width="2"/>
-<text x="64" y="968.0" font-family="Helvetica, Arial" font-size="20" font-weight="bold" fill="#1e1e1e">The boundary: the runtime contract</text>
+<text x="64" y="968.0" font-family="Helvetica, Arial" font-size="20" font-weight="bold" fill="#1e1e1e">The boundary: the rollout runtime contract</text>
 <text x="64" y="1000.0" font-family="Helvetica, Arial" font-size="16" font-weight="normal" fill="#1e1e1e">prepare · sample · grade · finish · abort · close  (runtime/api.py). Across it the engine reads only explicit signals:</text>
 <text x="64" y="1020.0" font-family="Helvetica, Arial" font-size="16" font-weight="normal" fill="#1e1e1e">a reward · an exception (retry, then discard) · Permanent*Failure (don&#x27;t retry) · the generations the agent actually received.</text>
 </svg>

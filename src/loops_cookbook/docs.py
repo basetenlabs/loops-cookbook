@@ -1,12 +1,12 @@
-"""Render the knob reference from the settings themselves.
+"""Render the knob reference from the settings models.
 
-One declaration feeds three readers: ``--help`` (through ``cli``), the hint for a
-misspelt command-line flag, and this table. A hand-written copy of the same list is
-how the one in the Harbor runtime's guide came to be missing two whole sections, so this
-one is generated and a test fails when the file on disk disagrees.
+One declaration feeds three readers: ``--help`` through ``cli``, the hint for a
+misspelt command-line flag, and this table. A hand-written copy of the list drifts
+from the settings, so this one is generated, and a test fails when the file on disk
+disagrees.
 
-Only the reference belongs here. What a setting *means together with another one*
-is prose, lives in a guide, and would be a framework if it were metadata.
+Only the reference belongs here. What a setting means together with another setting
+is prose, and it belongs in a guide. As metadata it would turn into a framework.
 """
 
 from __future__ import annotations
@@ -32,85 +32,101 @@ GENERATED_BEGIN = (
 GENERATED_END = "<!-- /generated -->"
 
 SECTION_BLURBS = {
-    "runtime": "Where episodes come from: the runtime factory and what it may resolve.",
-    "compute": "Where the run executes. Nothing here changes what is learned.",
-    "model": "The policy being trained and the compute it is configured for.",
-    "sampling": "Defaults for what the policy produces. Agents inherit these and state "
-    "only what they need to differ on.",
-    "training": "The optimizer, the batch, and what data is acceptable to train on.",
-    "rollout": "How much runs at once, how long each episode may take, and when to give up.",
-    "rollout.grading": "Each grade() try's deadline; how many tries a failure earns is the "
-    "runtime's.",
-    "rollout.cleanup": "Deadlines for the runtime's cleanup hooks.",
-    "output": "What the run leaves behind.",
-    "runtime.openai": "The Chat Completions gateway, with model_access = openai_http.",
-    "rollout.producers.<name>": "One producer a runtime may name, keyed by that name.",
-    "eval": "Held-out evals during training, each on a sampler pinned to one step's "
-    "weights. Nothing they sample trains.",
-    "eval.sets.<name>": "One held-out task set: training's runtime with these files. A key "
-    "at the path of a training setting overrides that setting for this set.",
-    "eval.sets.<name>.runtime": "Overrides [runtime] for this set.",
-    "eval.sets.<name>.sampling": "Overrides [sampling] for this set.",
+    "rollout_runtime": "These settings say where episodes come from. They name the rollout "
+    "runtime factory and what it may resolve.",
+    "compute": "These settings say where the run executes. Nothing here changes what is learned.",
+    "model": "These settings name the policy being trained and the compute it is configured for.",
+    "sampling": "These settings are the defaults for what the policy produces. Agents "
+    "inherit them and state only what they need to change.",
+    "training": "These settings configure the optimizer, the batch, and what data is "
+    "acceptable to train on.",
+    "rollout": "These settings say how much runs at once, how long each episode may take, "
+    "and when to give up.",
+    "rollout.grading": "This setting is the deadline for each try of grade(). The rollout "
+    "runtime decides how many tries a failure earns.",
+    "rollout.cleanup": "These settings are the deadlines for the rollout runtime's cleanup hooks.",
+    "output": "These settings say what the run leaves behind.",
+    "rollout_runtime.openai": "These settings configure the Chat Completions gateway, which "
+    "the run serves when model_access = openai_http.",
+    "rollout.producers.<name>": "Each table configures one producer that a rollout runtime "
+    "may name, keyed by that name.",
+    "eval": "These settings run held-out evals during training. Each eval runs on a "
+    "sampler pinned to one step's weights. Nothing an eval samples trains.",
+    "eval.sets.<name>": "Each table is one held-out task set, which runs training's "
+    "rollout runtime with these files. A key at the path of a training setting overrides "
+    "that setting for this set.",
+    "eval.sets.<name>.rollout_runtime": "This table overrides [rollout_runtime] for this set.",
+    "eval.sets.<name>.sampling": "This table overrides [sampling] for this set.",
 }
 
-# The built-in runtimes' and providers' own tables, as (heading, model, blurb): opaque
-# to the training config, read by the factory that owns them, and declared as settings
-# models all the same. Harbor's `reward_key` is checked by hand, so it is prose above.
+# The built-in rollout runtimes' and providers' own tables, as (heading, model, blurb).
+# The training config treats them as opaque, and the factory that owns each one reads
+# it, but each is still declared as a settings model. Harbor's `reward_key` is checked
+# by hand, so the glossary's introduction describes it in prose.
 BUILT_IN_SECTIONS: tuple[tuple[str, type[BaseModel], str], ...] = (
     (
-        "`[runtime.config]` for Episodes",
+        "`[rollout_runtime.config]` for Episodes",
         EpisodeSettings,
         (
-            'With factory = "loops_cookbook.episodes:create_runtime". Its tasks file is the '
-            "`tasks` alias under `[runtime.files]`."
+            'These settings apply with factory = "loops_cookbook.episodes:create_runtime". '
+            "The tasks file is the `tasks` alias under `[rollout_runtime.files]`."
         ),
     ),
     (
-        "`[runtime.config.sandbox]` for Episodes",
+        "`[rollout_runtime.config.sandbox]` for Episodes",
         SandboxSettings,
         (
-            "An Episode's sandbox. The keys beside `provider` are the provider's sandbox "
-            "spec, below for Blaxel and Daytona."
+            "This table configures an Episode's sandbox. The keys beside `provider` are "
+            "the provider's sandbox spec, which the next tables list for Blaxel and Daytona."
         ),
     ),
     (
-        "`[runtime.config.sandbox]` on Blaxel",
+        "`[rollout_runtime.config.sandbox]` on Blaxel",
         BlaxelSandbox,
-        'Beside provider = "blaxel".',
+        'These keys sit beside provider = "blaxel".',
     ),
     (
-        "`[runtime.config.sandbox]` on Daytona",
+        "`[rollout_runtime.config.sandbox]` on Daytona",
         DaytonaSandbox,
-        'Beside provider = "daytona". Its lifecycle is `[providers.daytona]`\'s.',
-    ),
-    (
-        "`[runtime.config.grading_sandbox]` for Episodes",
-        SandboxSettings,
         (
-            "An Episode's optional separate verifier sandbox, provisioned only on grading "
-            "admission. The keys beside `provider` are the provider's sandbox spec."
+            'These keys sit beside provider = "daytona". `[providers.daytona]` sets the '
+            "sandbox's lifecycle."
         ),
     ),
     (
-        "`[runtime.config.grading_sandbox]` on Blaxel",
+        "`[rollout_runtime.config.grading_sandbox]` for Episodes",
+        SandboxSettings,
+        (
+            "This table configures an Episode's optional separate verifier sandbox, which "
+            "is provisioned only when grading admits the rollout. The keys beside "
+            "`provider` are the provider's sandbox spec."
+        ),
+    ),
+    (
+        "`[rollout_runtime.config.grading_sandbox]` on Blaxel",
         BlaxelSandbox,
-        'Beside provider = "blaxel"; independent of the execution sandbox spec.',
+        (
+            'These keys sit beside provider = "blaxel". They are independent of the '
+            "execution sandbox's spec."
+        ),
     ),
     (
         "`[providers.blaxel]`",
         BlaxelSettings,
         (
-            "The built-in Blaxel provider. Its credentials, BL_WORKSPACE and BL_API_KEY, "
-            "come from the environment or a .env beside the config, never from this table."
+            "This table configures the built-in Blaxel provider. Its credentials, "
+            "BL_WORKSPACE and BL_API_KEY, come from the environment or a .env beside the "
+            "config, never from this table."
         ),
     ),
     (
         "`[providers.daytona]`",
         DaytonaSettings,
         (
-            "The built-in Daytona provider; see [daytona.md](daytona.md). Its credential, "
-            "DAYTONA_API_KEY (and DAYTONA_API_URL for a self-hosted Daytona), comes from the "
-            "environment or a .env beside the config, never from this table."
+            "This table configures the built-in Daytona provider, which "
+            "[daytona.md](daytona.md) describes. Its credential, DAYTONA_API_KEY, comes "
+            "from the environment or a .env beside the config, never from this table. A "
+            "self-hosted Daytona also needs DAYTONA_API_URL from the same place."
         ),
     ),
 )
@@ -127,12 +143,12 @@ NAMES = {
 
 
 def _describe(prop: dict[str, Any]) -> str:
-    """Type and bounds, from pydantic's own schema rather than the annotation.
+    """Describe a setting's type and bounds from pydantic's schema, not the annotation.
 
     The schema has already resolved a ``Literal`` to ``enum``, an optional to
-    ``anyOf``, and every ``Field`` constraint to a bound -- which the annotation
-    alone does not carry. A pipe would close the table cell, so an enum joins with
-    an escaped one.
+    ``anyOf``, and every ``Field`` constraint to a bound. The annotation alone does not
+    carry the bounds. A pipe would close the table cell, so an enum's values are
+    joined with an escaped pipe.
     """
     if enum := prop.get("enum"):
         return " \\| ".join(f"`{value}`" for value in enum)
@@ -173,11 +189,11 @@ def _model(annotation: Any) -> type[BaseModel] | None:
 
 
 def _table(annotation: Any) -> tuple[str, type[BaseModel]] | None:
-    """The settings model a field's TOML table is validated with, and the key it sits
-    under: the field itself, or ``.<name>`` for a table of named tables.
+    """Return the settings model that validates a field's TOML table, and the key suffix.
 
-    A table that may be absent is still a table, and a table of named tables is one
-    table per name with the same keys.
+    The suffix is empty for the field's own table, or ``.<name>`` for a table of named
+    tables. A table that may be absent is still a table. A table of named tables is one
+    table per name, each with the same keys.
     """
     if model := _model(annotation):
         return "", model
@@ -194,7 +210,7 @@ def _table(annotation: Any) -> tuple[str, type[BaseModel]] | None:
 def sections(
     model: type[BaseModel] = Config, prefix: str = ""
 ) -> Iterator[tuple[str, type[BaseModel]]]:
-    """Every TOML table the settings declare, as ``(dotted name, model)``."""
+    """Yield every TOML table the settings declare, as ``(dotted name, model)``."""
     for name, info in model.model_fields.items():
         if table := _table(info.annotation):
             suffix, nested = table
@@ -204,9 +220,11 @@ def sections(
 
 
 def _leaves(model: type[BaseModel]) -> list[str]:
-    """The keys a table's own rows list: a nested table always given in full has its
-    own section instead; one that may be absent, or holds named tables, keeps its row
-    too, for its default."""
+    """Return the keys that get a row in a table's own block.
+
+    A nested table that is always present gets its own section instead. A table that
+    may be absent, or that holds named tables, also keeps its row, to show its default.
+    """
     return [name for name, info in model.model_fields.items() if not _model(info.annotation)]
 
 
@@ -234,7 +252,7 @@ def _block(heading: str, model: type[BaseModel], blurb: str | None) -> str:
 
 
 def render_knob_tables() -> str:
-    """The reference tables, one per TOML section, in declaration order."""
+    """Render the reference tables, one per TOML section, in declaration order."""
     return "\n\n".join(
         _block(f"`[{section}]`", model, SECTION_BLURBS.get(section))
         for section, model in sections()
@@ -242,19 +260,19 @@ def render_knob_tables() -> str:
 
 
 def render_built_in_tables() -> str:
-    """The built-in runtimes' and providers' own tables."""
+    """Render the built-in rollout runtimes' and providers' own tables."""
     return "\n\n".join(_block(*entry) for entry in BUILT_IN_SECTIONS)
 
 
 def render_sft_tables() -> str:
-    """The SFT recipe's tables, under headings of their own."""
+    """Render the SFT recipe's tables, under headings of their own."""
     return "\n\n".join(
         _block(f"SFT `[{section}]`", model, None) for section, model in sections(SftConfig)
     )
 
 
 def render_knob_glossary() -> str:
-    """The whole file, generated markers included."""
+    """Render the whole glossary file, including the generated markers."""
     return f"""\
 # Knob glossary
 
@@ -262,21 +280,22 @@ Every setting the cookbook reads. Settings live in `train.toml` under the sectio
 shown, and the CLI exposes each key of a table that is always present by its dotted
 path, such as `--rollout.max_concurrent_rollouts`.
 
-A runtime's own settings are opaque to the training config and live in
-`[runtime.config]`; the built-in runtimes' and providers' tables are listed after
-the training config's. For Harbor, `[runtime.config]` is only `reward_key`, and
-agent behaviour and environment configuration belong to the Harbor job. A custom
-provider defines its own `[providers.<name>]`. For the settings that only make sense
-together, see [`settings-that-interact.md`](settings-that-interact.md).
+A rollout runtime's own settings live in `[rollout_runtime.config]`, and the training
+config treats them as opaque. The tables of the built-in rollout runtimes and providers
+are listed after the training config's. For the Harbor rollout runtime,
+`[rollout_runtime.config]` holds only `reward_key`. Agent behaviour and environment
+configuration belong to the Harbor job. A custom provider defines its own
+`[providers.<name>]`. For the settings that only make sense together, see
+[`settings-that-interact.md`](settings-that-interact.md).
 
 **Defaults or required.** A setting that changes what trains or what a run costs is
 required, such as `learning_rate`, `group_size` or a sandbox's size. A setting has a
-default only when it is purely operational: a wrong value fails loudly and nothing
-about training depends on it, such as the `[rollout.cleanup]` graces. A setting the
-platform has its own default for, such as `adam_beta2`, is optional with no value of
-ours: unset, the request carries the Loops SDK's default, which a `baseten-loops`
-release may change. An opt-in feature, such as `router_replay`, is off unless set. A
-new setting follows the same rule.
+default only when it is purely operational, which means a wrong value fails loudly
+and nothing about training depends on it. The `[rollout.cleanup]` graces are an
+example. A setting that the platform has its own default for, such as `adam_beta2`, is
+optional and has no value of ours. When it is unset, the request carries the Loops
+SDK's default, which a `baseten-loops` release may change. An opt-in feature, such as
+`router_replay`, is off unless it is set. A new setting follows the same rule.
 
 {GENERATED_BEGIN}
 
@@ -286,8 +305,8 @@ new setting follows the same rule.
 
 # SFT settings
 
-An SFT config, `recipe = "sft"`, has its own TOML; `[model]`, `[compute]` and
-`[output]` are the RL recipe's, spelled the same, except that SFT requires
+An SFT config, `recipe = "sft"`, has its own TOML. Its `[model]`, `[compute]` and
+`[output]` tables are the RL recipe's, spelled the same, except that SFT requires
 `max_seq_len`.
 
 {render_sft_tables()}

@@ -1,8 +1,8 @@
-"""The core contracts, held by a Harbor runtime and a non-Harbor runtime alike.
+"""The core contracts, held by a Harbor rollout runtime and a non-Harbor rollout runtime alike.
 
 Each test runs against both real runtimes through the same driver: Harbor's, with a
 real Harbor trial, and the custom-runtime patterns'. What they assert is what the
-driver and its evidence show, never either runtime's internals.
+driver and its evidence show, never either rollout runtime's internals.
 """
 
 from __future__ import annotations
@@ -104,7 +104,7 @@ async def test_cancelling_a_sample_ends_the_attempt_and_frees_its_capacity(runti
 
 @pytest.mark.parametrize("kind", ["harbor", "hello", "episode"])
 def test_a_runtime_instance_exposes_nothing_public_but_the_contract(tmp_path, monkeypatch, kind):
-    """What a runtime keeps for itself stays private: only the hooks and capabilities."""
+    """What a rollout runtime keeps for itself stays private: only the hooks and capabilities."""
 
     if kind == "harbor":
         runtime = runtime_for(job(tmp_path, HILL_CLIMB, "AnswerAgent"), tmp_path / "work")

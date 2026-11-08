@@ -629,34 +629,115 @@ async def test_run_with_images_records_digests_and_passes_the_audit(config, tmp_
 # --- check ------------------------------------------------------------------------
 
 
-class _NeedsTorch:
-    supports_images = True
+class _Stub:
+    """A renderer that says whether it takes images and renders with ``render``."""
+
+    stop_sequences = ()
+
+    def __init__(self, supports_images, render=None):
+        self.supports_images = supports_images
+        self._render = render
+        self.rendered = 0
 
     def render(self, messages, tools):
-        raise ImportError("Qwen3VLVideoProcessor requires the PyTorch library")
+        self.rendered += 1
+        return self._render(messages, tools)
+
+    def parse(self, prompt_ids, completion_ids, tools):
+        return ParsedReply("ok", None, (), None, {"role": "assistant", "content": "ok"})
+
+
+def _needs_torch(messages, tools):
+    raise ImportError("Qwen3VLVideoProcessor requires the PyTorch library")
 
 
 @pytest.mark.parametrize(
-    ("renderer", "line"),
+    ("has_images", "renderer", "outcome"),
     [
-        (PrimeRenderer(FakePrime()), "supported (3 tokens for a 32x32 probe)"),
+        (True, PrimeRenderer(FakePrime()), "declared (3 tokens for a 32x32 probe)"),
+        (True, _Stub(True, lambda m, t: (1, 2, 3)), "declared (0 tokens for a 32x32 probe)"),
+        (True, _Stub(False), ValueError(r"has_images = true, but _Stub takes no images")),
         (
-            SimpleNamespace(supports_images=True, render=lambda messages, tools: (1, 2, 3)),
-            "supported (0 tokens for a 32x32 probe)",
+            True,
+            _Stub(True, _needs_torch),
+            ValueError(
+                r"has_images = true, but the renderer can't render an image \(ImportError: "
+                r"Qwen3VLVideoProcessor requires the PyTorch library\)\. If the vision extra "
+                r"is missing, run `uv sync --extra vision`\."
+            ),
         ),
-        (SimpleNamespace(supports_images=False), "not supported by this renderer (text only)"),
         (
-            _NeedsTorch(),
+            False,
+            _Stub(True, _needs_torch),
             (
-                "unavailable (ImportError: Qwen3VLVideoProcessor requires the PyTorch library); "
-                "text-only training works, run `uv sync --extra vision` for image inputs"
+                "not declared, because [rollout_runtime] has_images = false. "
+                "A request with images is refused."
             ),
         ),
     ],
-    ids=["placeholders", "legacy ids", "text only", "processor missing"],
+    ids=["placeholders", "legacy ids", "text only", "processor missing", "not declared"],
 )
-def test_check_says_how_many_tokens_an_image_probe_renders_to_or_why_not(renderer, line):
-    """The ``Images:`` line of ``loops check``."""
-    from loops_cookbook.rl.recipe import _image_support
+async def test_preflight_probes_images_only_when_the_config_declares_them(
+    config, has_images, renderer, outcome
+):
+    """Preflight probes images only when the config declares them, and reports the result."""
+    from loops_cookbook.rl.recipe import ImageSupport
 
-    assert _image_support(renderer).describe() == line
+    run = Run(
+        config(max_steps=1, has_images=has_images, router_replay=False),
+        MemoryTrainer(),
+        runtime_factory=lambda _config, context: ImageRuntime(),
+        renderer_factory=lambda _config: renderer,
+    )
+    if isinstance(outcome, ValueError):
+        with pytest.raises(ValueError, match=outcome.args[0]):
+            await run.preflight()
+        return
+    _runtime, _tasks, renderers = await run.preflight()
+    assert renderers.images is has_images
+    assert ImageSupport(run.image_tokens).describe() == outcome
+    if not has_images:
+        assert renderer.rendered == 0  # never probed
+
+
+@pytest.mark.parametrize("declared", [True, False])
+async def test_a_request_with_images_is_refused_unless_the_run_declares_them(declared):
+    from loops_cookbook.llm.client import Renderers
+    from loops_cookbook.llm.rendering import UnsupportedContextError
+    from loops_cookbook.model_access.lease import DirectModelAccess
+
+    renderer = _Stub(True, lambda m, t: RenderedPrompt.text([1, 2, 3]))
+    access = DirectModelAccess(lease(EchoSampler()), Renderers(renderer, images=declared))
+    conversation = access.llm().conversation()
+    history = [{"role": "user", "content": [{"type": "image", "image": png()}]}]
+    if declared:
+        await conversation.generate(messages=history, max_tokens=2)
+        assert renderer.rendered == 1
+    else:
+        with pytest.raises(
+            UnsupportedContextError, match=r"\[rollout_runtime\] has_images = false"
+        ):
+            await conversation.generate(messages=history, max_tokens=2)
+        assert renderer.rendered == 0
+
+
+@pytest.mark.parametrize(
+    "part",
+    [
+        {"type": "image", "path": "/no/such/image.png"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,not base64!"}},
+        {"type": "tool_result", "output": [{"type": "image", "image": b"not loaded"}]},
+    ],
+    ids=["missing path", "malformed data URI", "inside a tool's output"],
+)
+async def test_an_undeclared_image_is_refused_before_it_is_loaded(part):
+    from loops_cookbook.llm.client import Renderers
+    from loops_cookbook.llm.rendering import UnsupportedContextError
+    from loops_cookbook.model_access.lease import DirectModelAccess
+
+    renderer = _Stub(True, lambda m, t: RenderedPrompt.text([1, 2, 3]))
+    access = DirectModelAccess(lease(EchoSampler()), Renderers(renderer, images=False))
+    conversation = access.llm().conversation()
+    history = [{"role": "user", "content": [part]}]
+    with pytest.raises(UnsupportedContextError, match=r"\[rollout_runtime\] has_images = false"):
+        await conversation.generate(messages=history, max_tokens=2)

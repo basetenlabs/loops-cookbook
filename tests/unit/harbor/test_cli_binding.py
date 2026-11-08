@@ -24,7 +24,7 @@ def test_check_refuses_a_job_whose_agent_cannot_be_bound(loops_check, tmp_path):
         tmp_path / "train.toml",
         MINIMAL,
         {
-            "runtime": {
+            "rollout_runtime": {
                 "factory": "loops_cookbook.harbor:create_runtime",
                 "files": {"job": job},
             },

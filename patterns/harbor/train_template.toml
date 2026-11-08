@@ -1,46 +1,58 @@
-# Training config template for the Harbor runtime. Copy next to your Harbor job and
-# agent, edit, then: uv run loops check train.toml
-# [runtime.files] and resume_from are relative to this file; output_dir is relative to
-# where you run. `loops run --help` documents every setting.
+# A training config template for the Harbor rollout runtime. Copy it next to your
+# Harbor job and agent, edit it, and then run `uv run loops check train.toml`.
+# Paths in [rollout_runtime.files] and resume_from are relative to this file. output_dir
+# is relative to the directory you run from. `loops run --help` documents every setting.
 
 recipe = "rl"
 
-[runtime]
+[rollout_runtime]
 factory = "loops_cookbook.harbor:create_runtime"
 
-[runtime.files]
-job = "job.yaml"        # your Harbor JobConfig (JSON or YAML)
+[rollout_runtime.files]
+# Your Harbor JobConfig, in JSON or YAML.
+job = "job.yaml"
 
-[runtime.config]
-# reward_key = "reward"           # only if your verifier emits several rewards
+[rollout_runtime.config]
+# Set this only if your verifier emits several rewards.
+# reward_key = "reward"
 
 [model]
 base_model = "Qwen/Qwen3.6-35B-A3B"
-max_seq_len = 32768               # per-sequence token budget for the trainer
+# Each sequence may hold at most this many tokens.
+max_seq_len = 32768
 lora_rank = 32
-# renderer_chat_template_kwargs = { enable_thinking = false }   # model-specific; see the model's chat template
+# These options depend on the model. See its chat template.
+# renderer_chat_template_kwargs = { enable_thinking = false }
 
 [sampling]
 max_generation_tokens = 4096
 
 [training]
-mode = "sync"                     # "async" overlaps collection and training
-max_steps = 5                     # optimizer updates
+# "async" samples the next step's rollouts while the current step trains.
+mode = "sync"
+# Each step is one optimizer update.
+max_steps = 5
 learning_rate = 0.00001
-group_size = 8                    # rollouts per task
-max_group_losses = 2              # rollouts a group may lose and still train
-groups_per_step = 8               # groups per update
-max_consecutive_unusable_groups = 20   # abort after this many untrainable groups in a row (uniform rewards, or too few rollouts)
+group_size = 8
+# A group may lose this many rollouts and still train.
+max_group_losses = 2
+groups_per_step = 8
+# Stop after this many groups in a row that can't train, such as groups in which
+# every rollout scores alike.
+max_consecutive_unusable_groups = 20
 loss_fn = "cispo"
 
 [rollout]
-max_concurrent_rollouts = 64               # concurrent agents
-max_concurrent_verifiers = 16                # concurrent verifiers
-rollout_timeout_seconds = 3600           # time holding sampling capacity
-setup_timeout_seconds = 1800             # pre-seal time outside capacity holds
+max_concurrent_rollouts = 64
+max_concurrent_verifiers = 16
+# A rollout may hold sampling capacity for this long.
+rollout_timeout_seconds = 3600
+# Setup may take this long. It holds no sampling capacity while it runs.
+setup_timeout_seconds = 1800
 
 [rollout.grading]
-timeout_seconds = 3600  # must exceed Harbor's bound; loops check computes it
+# This must exceed Harbor's own bound, which loops check computes.
+timeout_seconds = 3600
 
 [compute]
 scope = "serverless"
@@ -48,7 +60,9 @@ scope = "serverless"
 [output]
 run_name = "my-run"
 output_dir = "runs"
-trainer_checkpoint_every = 5                    # checkpoint every N updates; 0 disables
+# Save a checkpoint every this many updates. 0 turns checkpoints off.
+trainer_checkpoint_every = 5
 sampler_checkpoint_every = 5
 checkpoint_ttl_seconds = 0
-# wandb_project = "my-project"    # needs the wandb extra
+# This needs the wandb extra.
+# wandb_project = "my-project"

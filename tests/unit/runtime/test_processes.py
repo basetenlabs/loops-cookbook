@@ -442,7 +442,7 @@ async def test_a_process_spawning_as_the_rollout_seals_is_ended_before_grade(tmp
 
 
 async def test_nothing_starts_once_the_attempts_last_hook_has_returned(tmp_path):
-    """A task of the runtime that starts a process late cannot outlive the attempt."""
+    """A task of the rollout runtime that starts a process late cannot outlive the attempt."""
     token = f"after-finish-{os.getpid()}"
     late = []
 

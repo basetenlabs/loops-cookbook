@@ -62,7 +62,7 @@ LINEAGE = [
             # A cloud sandbox can fail: its rollout gets fresh attempts and its group still trains.
             "rollout.max_rollout_retries": 2,
             "training.max_group_losses": 1,
-            "runtime.files.job": job(f"{HARBOR_DIRECT}/job_blaxel.yaml"),
+            "rollout_runtime.files.job": job(f"{HARBOR_DIRECT}/job_blaxel.yaml"),
         },
         id="harbor_direct_on_blaxel",
     ),
@@ -70,7 +70,11 @@ LINEAGE = [
         pytest.param(
             f"{HARBOR_DIRECT}/train{suffix}.toml",
             f"patterns/harbor/in_process_openai_http/train{suffix}.toml",
-            {"runtime.files.job": job(f"patterns/harbor/in_process_openai_http/job{suffix}.yaml")},
+            {
+                "rollout_runtime.files.job": job(
+                    f"patterns/harbor/in_process_openai_http/job{suffix}.yaml"
+                )
+            },
             id=f"harbor_http{suffix}",
         )
         for suffix in ("", "_blaxel")
@@ -80,8 +84,8 @@ LINEAGE = [
         f"{CUSTOM_DIRECT}/train_blaxel.toml",
         {
             "providers.blaxel": BLAXEL,
-            "runtime.config.episode": "direct_episode:SandboxAnswerEpisode",
-            "runtime.config.sandbox": SANDBOX,
+            "rollout_runtime.config.episode": "direct_episode:SandboxAnswerEpisode",
+            "rollout_runtime.config.sandbox": SANDBOX,
             "rollout.grading.timeout_seconds": 30.0,
             "rollout.max_concurrent_rollouts": 8,
             "rollout.max_concurrent_verifiers": 8,
@@ -92,13 +96,13 @@ LINEAGE = [
     pytest.param(
         f"{CUSTOM_DIRECT}/train.toml",
         f"{CUSTOM_HTTP}/train.toml",
-        {"runtime.config.episode": "http_episode:AnswerEpisode"},
+        {"rollout_runtime.config.episode": "http_episode:AnswerEpisode"},
         id="custom_http",
     ),
     pytest.param(
         f"{CUSTOM_DIRECT}/train_blaxel.toml",
         f"{CUSTOM_HTTP}/train_blaxel.toml",
-        {"runtime.config.episode": "http_episode:SandboxAnswerEpisode"},
+        {"rollout_runtime.config.episode": "http_episode:SandboxAnswerEpisode"},
         id="custom_http_blaxel",
     ),
     pytest.param(
@@ -107,13 +111,13 @@ LINEAGE = [
         {
             "providers.local_sandbox": ABSENT,
             "providers.blaxel": BLAXEL,
-            "runtime.config.episode": "local_episode:BlaxelAgentEpisode",
-            "runtime.config.options.grade_against": "sandbox",
+            "rollout_runtime.config.episode": "local_episode:BlaxelAgentEpisode",
+            "rollout_runtime.config.options.grade_against": "sandbox",
             # No sandbox name: the run names each sandbox.
-            "runtime.config.sandbox.provider": "blaxel",
-            "runtime.config.sandbox.image": "blaxel/base-image:latest",
-            "runtime.config.sandbox.memory_mb": 2048,
-            "runtime.config.sandbox.ttl": "1h",
+            "rollout_runtime.config.sandbox.provider": "blaxel",
+            "rollout_runtime.config.sandbox.image": "blaxel/base-image:latest",
+            "rollout_runtime.config.sandbox.memory_mb": 2048,
+            "rollout_runtime.config.sandbox.ttl": "1h",
         },
         id="custom_local_on_blaxel",
     ),
@@ -122,14 +126,14 @@ LINEAGE = [
         "examples/critic/train_blaxel.toml",
         {
             "rollout.producers.critic": {"trainable": True},
-            "runtime.files.job": job("examples/critic/job_blaxel.yaml"),
+            "rollout_runtime.files.job": job("examples/critic/job_blaxel.yaml"),
         },
         id="critic",
     ),
     pytest.param(
         f"{HARBOR_DIRECT}/train_blaxel.toml",
         "examples/multi_step/train_blaxel.toml",
-        {"runtime.files.job": job("examples/multi_step/job_blaxel.yaml")},
+        {"rollout_runtime.files.job": job("examples/multi_step/job_blaxel.yaml")},
         id="multi_step",
     ),
     pytest.param(
@@ -137,7 +141,7 @@ LINEAGE = [
         "examples/async_scheduling/train.toml",
         {
             **ASYNC,
-            "runtime.config.episode": "answer_episode:AnswerEpisode",
+            "rollout_runtime.config.episode": "answer_episode:AnswerEpisode",
             # The smoke is short: every step is checkpointed.
             "output.trainer_checkpoint_every": 1,
             "output.sampler_checkpoint_every": 1,
@@ -147,13 +151,13 @@ LINEAGE = [
     pytest.param(
         f"{CUSTOM_DIRECT}/train_blaxel.toml",
         "examples/async_scheduling/train_blaxel.toml",
-        {**ASYNC, "runtime.config.episode": "answer_episode:SandboxAnswerEpisode"},
+        {**ASYNC, "rollout_runtime.config.episode": "answer_episode:SandboxAnswerEpisode"},
         id="async_scheduling_blaxel",
     ),
     pytest.param(
         f"{CUSTOM_HTTP}/train.toml",
         "examples/litellm_streaming/train.toml",
-        {"runtime.config.episode": "litellm_episode:AnswerEpisode"},
+        {"rollout_runtime.config.episode": "litellm_episode:AnswerEpisode"},
         id="litellm_streaming",
     ),
     pytest.param(
@@ -161,8 +165,8 @@ LINEAGE = [
         "examples/llm_judge/train_blaxel.toml",
         {
             "providers.blaxel": BLAXEL,
-            "runtime.config.episode": "judge_episode:SandboxedRankedEpisode",
-            "runtime.config.sandbox": SANDBOX,
+            "rollout_runtime.config.episode": "judge_episode:SandboxedRankedEpisode",
+            "rollout_runtime.config.sandbox": SANDBOX,
             "rollout.max_concurrent_rollouts": 8,
             "rollout.max_rollout_retries": 2,
             "rollout.setup_timeout_seconds": 90.0,

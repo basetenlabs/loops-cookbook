@@ -39,7 +39,7 @@ from loops_cookbook.runtime.api import (
 )
 from loops_cookbook.runtime.driver import RuntimeExecutionFailure
 
-from .conftest import TASK, KeepingTrainer, MemoryRuntime, records, unused
+from .conftest import TASK, TASK_DIGEST, KeepingTrainer, MemoryRuntime, records, unused
 
 
 async def test_the_snapshot_is_one_merged_view_while_running_and_silent_after(rl_run):
@@ -51,10 +51,10 @@ async def test_the_snapshot_is_one_merged_view_while_running_and_silent_after(rl
 
     (during,) = seen
     assert during["progress/groups_needed"] == float(run.config.training.groups_per_step)
-    # The pipeline, the runtime and this run's own discard counters, in one dict.
+    # The pipeline, the rollout runtime and this run's own discard counters, in one dict.
     assert {"pipeline/sampled", "discard/generations"} <= during.keys()
     # Every count the progress display reads is one this run actually produces
-    # (Harbor's own row is checked against the Harbor runtime's metrics).
+    # (Harbor's own row is checked against the Harbor rollout runtime's metrics).
     from loops_cookbook.console import STAGES, WORKER_SLOTS
 
     read = {key for key, _ in STAGES} | {k for key, _, cap in WORKER_SLOTS for k in (key, cap)}
@@ -849,7 +849,7 @@ async def test_a_checkpoint_records_where_to_resume_and_what_a_resume_must_match
     state = json.loads((await first_manifest()).read_text())
     assert state["next_step"] == 1 and state["next_group_index"] == 1
     contract = state["contract"]
-    assert contract["tasks"] == [[TASK.id, TASK.digest]]
+    assert contract["tasks"] == [TASK.id]
     assert contract["runtime_config_digest"].startswith("sha256:")
     assert contract["runtime_file_digests"] == {}
     assert contract["producers"] == {"main": True}
@@ -869,6 +869,32 @@ async def test_a_resume_continues_the_task_order_or_restarts_one_that_changed(
     manifest = await first_manifest()
     # max_steps counts the run's updates, the one before the resume included.
     resumed, _, runtime = rl_run(resuming(), max_steps=2, resume_from=str(manifest), **changed)
+    outcome = await resumed.execute()
+    assert outcome.ok and (outcome.steps, outcome.next_step) == (1, 2)
+    assert all(r.identity.group_id.startswith(first_group) for r in runtime.samples)
+
+
+@pytest.mark.parametrize(
+    ("stored", "first_group"),
+    [
+        ([[TASK.id, "sha256:" + "f" * 64]], "g0000001-"),
+        ([["another-task", "sha256:" + "f" * 64]], "g0000000-"),
+    ],
+    ids=["same ids, other digests", "other ids"],
+)
+async def test_a_manifest_that_recorded_tasks_with_digests_resumes_by_their_ids(
+    rl_run, first_manifest, stored, first_group
+):
+    """A manifest from an older version of the cookbook holds ``[id, digest]`` pairs.
+
+    The same IDs in the same order keep the cursor, whatever the digests. Other IDs
+    restart the task order.
+    """
+    manifest = await first_manifest()
+    state = json.loads(manifest.read_text())
+    state["contract"]["tasks"] = stored
+    manifest.write_text(json.dumps(state))
+    resumed, _, runtime = rl_run(resuming(), max_steps=2, resume_from=str(manifest))
     outcome = await resumed.execute()
     assert outcome.ok and (outcome.steps, outcome.next_step) == (1, 2)
     assert all(r.identity.group_id.startswith(first_group) for r in runtime.samples)
@@ -1084,7 +1110,10 @@ async def test_runtime_file_digests_cover_directories_and_resolve_against_the_co
     (tmp_path / "tasks").mkdir()
     (tmp_path / "tasks" / "a.json").write_text("{}")
     run, _, _ = rl_run(
-        KeepingTrainer(), config_dir=tmp_path, max_steps=1, **{"runtime.files": {"tasks": "tasks"}}
+        KeepingTrainer(),
+        config_dir=tmp_path,
+        max_steps=1,
+        **{"rollout_runtime.files": {"tasks": "tasks"}},
     )
     assert (await asyncio.wait_for(run.execute(), timeout=5)).ok
     contract = json.loads(manifest_path(run.out, 0).read_text())["contract"]
@@ -1138,19 +1167,23 @@ async def test_shutdown_cancels_outstanding_attempts_cleans_them_up_then_closes(
     assert closing["slots/sampling"] == 0 and closing["slots/verification"] == 0
 
 
-async def test_each_declared_reasoning_effort_gets_its_own_renderer_from_the_factory(
-    config, monkeypatch
-):
-    from loops_cookbook.rl import run as run_module
+async def test_each_declared_reasoning_effort_gets_its_own_renderer_from_the_factory(config):
+    built, renderers_built = [], []
 
-    built, probed = [], []
+    class ImageRenderer(Renderer):
+        supports_images = True
+        rendered = 0
+
+        def render(self, messages, tools):
+            self.rendered += 1
+            return super().render(messages, tools)
 
     def factory(settings):
         built.append(dict(settings.model.renderer_chat_template_kwargs))
-        return Renderer()
+        renderers_built.append(ImageRenderer())
+        return renderers_built[-1]
 
-    monkeypatch.setattr(run_module, "_warn_without_images", probed.append)
-    settings = config(max_steps=1)
+    settings = config(max_steps=1, has_images=True, router_replay=False)
     settings = settings.model_copy(
         update={
             "model": settings.model.model_copy(
@@ -1174,7 +1207,8 @@ async def test_each_declared_reasoning_effort_gets_its_own_renderer_from_the_fac
         {"enable_thinking": False, "x": 1},  # none
     ]
     assert sorted(renderers.by_effort) == ["high", "none"]
-    assert len(probed) == 3  # every renderer is probed for images at preflight
+    # With images declared, every renderer renders the image probe once at preflight.
+    assert [r.rendered for r in renderers_built] == [1, 1, 1]
     assert renderers.pool is not None  # conversations render off the event loop
 
 
@@ -1736,7 +1770,7 @@ async def test_a_runtime_that_derives_no_rollout_clock_is_refused_one_before_any
     run, trainer, runtime = rl_run(rollout_timeout_seconds=None)
     with pytest.raises(
         RuntimeConfigurationError,
-        match=r"\[rollout\] rollout_timeout_seconds is required: this runtime derives no",
+        match=r"\[rollout\] rollout_timeout_seconds is required: this rollout runtime derives no",
     ):
         await asyncio.wait_for(run.execute(), timeout=5)
     assert runtime.samples == [] and runtime.closed and trainer.closed
@@ -1842,7 +1876,8 @@ async def test_every_rollouts_record_has_the_same_fields_meaning_the_same_thing(
         None,
     )
     assert (trained["policy_version"], trained["step"]) == (0, 0)
-    assert never["task_digest"] == ungraded["task_digest"] == trained["task_digest"] == TASK.digest
+    assert never["task_digest"] is None  # it ran nothing
+    assert ungraded["task_digest"] == trained["task_digest"] == TASK_DIGEST
 
 
 @pytest.mark.parametrize(("limit", "dropped"), [(None, True), (64, False)])
@@ -1985,10 +2020,12 @@ def test_eval_rollouts_count_toward_the_open_file_limit(config):
     from loops_cookbook.rl.run import check_open_file_limit
     from loops_cookbook.runtime.context import RuntimeConfigurationError
 
-    sets = {"val": {"runtime": {"files": {"tasks": "val.jsonl"}}, "max_concurrent_rollouts": 64}}
+    sets = {
+        "val": {"rollout_runtime": {"files": {"tasks": "val.jsonl"}}, "max_concurrent_rollouts": 64}
+    }
     with pytest.raises(RuntimeConfigurationError, match="eval rollouts"):
         check_open_file_limit(
-            config(**{"runtime.files": {"tasks": "t.jsonl"}, "eval.sets": sets}),
+            config(**{"rollout_runtime.files": {"tasks": "t.jsonl"}, "eval.sets": sets}),
             limits=(256, 4096),
         )
 
@@ -2000,10 +2037,12 @@ def test_an_eval_sets_group_graders_count_toward_the_open_file_limit(config, ver
     from loops_cookbook.rl.run import check_open_file_limit
     from loops_cookbook.runtime.context import RuntimeConfigurationError
 
-    sets = {"val": {"runtime": {"files": {"tasks": "val.jsonl"}}, "max_concurrent_rollouts": 5}}
+    sets = {
+        "val": {"rollout_runtime": {"files": {"tasks": "val.jsonl"}}, "max_concurrent_rollouts": 5}
+    }
     evals_only = config(
         **{
-            "runtime.files": {"tasks": "t.jsonl"},
+            "rollout_runtime.files": {"tasks": "t.jsonl"},
             "eval.sets": sets,
             "rollout.max_concurrent_verifiers": verifiers,
         }

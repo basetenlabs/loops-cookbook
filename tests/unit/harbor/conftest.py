@@ -1,4 +1,4 @@
-"""The Harbor runtime tests: the agents and environments Harbor imports by path."""
+"""The Harbor rollout runtime tests: the agents and environments Harbor imports by path."""
 
 import sys
 from pathlib import Path

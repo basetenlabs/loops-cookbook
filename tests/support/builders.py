@@ -10,9 +10,9 @@ from baseten.loops.models import ModelInput
 from loops_cookbook.evidence import AttemptIdentity, PromptChunks, Rollout, Sample, TaskRef
 
 # The smallest configuration the model accepts: every mandatory setting, and the rollout
-# clock a runtime that derives none needs.
+# clock a rollout runtime that derives none needs.
 REQUIRED: dict[str, Any] = {
-    "runtime.factory": "tests:unused",
+    "rollout_runtime.factory": "tests:unused",
     "model.base_model": "m",
     "model.lora_rank": 32,
     "sampling.max_generation_tokens": 4096,
@@ -93,7 +93,7 @@ def digest(text: str) -> str:
 
 
 def task(task_id: str = "task") -> TaskRef:
-    return TaskRef(task_id, digest(task_id))
+    return TaskRef(task_id)
 
 
 def identity(
@@ -177,7 +177,7 @@ def write_jsonl(path, rows):
 
 
 def task_file(directory, tasks):
-    """A custom runtime's dataset: ``tasks`` written one JSON task per line."""
+    """A custom rollout runtime's dataset: ``tasks`` written one JSON task per line."""
     from pathlib import Path
 
     return write_jsonl(Path(directory) / "tasks.jsonl", tasks)

@@ -22,8 +22,8 @@ from loops_cookbook.rl import recipe
 from loops_cookbook.rl.run import Run
 from loops_cookbook.runtime.api import EpisodeResult, GradeResult, RuntimeCapabilities
 
-TRAIN_TASK = TaskRef("train-0", "sha256:" + "0" * 64)
-EVAL_TASKS = [TaskRef("e0", "sha256:" + "1" * 64), TaskRef("e1", "sha256:" + "2" * 64)]
+TRAIN_TASK = TaskRef("train-0")
+EVAL_TASKS = [TaskRef("e0"), TaskRef("e1")]
 
 
 class EpisodeRuntime:
@@ -106,7 +106,7 @@ def build_sets(
     config, *, sets, mode=ModelAccessMode.DIRECT, renderer=Renderer, paced=True, **overrides
 ):
     """A run with an eval set per name in ``sets``, each its own runtime over the same
-    tasks; the runtimes by name, training's as ``train``. ``paced``: each update waits
+    tasks; the rollout runtimes by name, training's as ``train``. ``paced``: each update waits
     for the evals before it."""
     # Training rewards alternate, so every group has variance and is usable.
     flips = itertools.cycle([0.0, 1.0])
@@ -117,9 +117,11 @@ def build_sets(
         )
     settings = {
         "max_steps": 5,
-        "runtime.files": {"tasks": "train.jsonl"},
+        "rollout_runtime.files": {"tasks": "train.jsonl"},
         "eval.every_steps": 2,
-        "eval.sets": {name: {"runtime": {"files": {"tasks": f"{name}.jsonl"}}} for name in sets},
+        "eval.sets": {
+            name: {"rollout_runtime": {"files": {"tasks": f"{name}.jsonl"}}} for name in sets
+        },
         **overrides,
     }
     trainer = PacedTrainer() if paced else MemoryTrainer()
@@ -261,7 +263,11 @@ async def test_an_eval_set_sends_image_prompts_as_training_does(config, monkeypa
 
     monkeypatch.setattr(fakes, "EvalSampler", ImageEvalSampler)
     run, trainer, _, evaluation = build(
-        config, max_steps=1, renderer=lambda: PrimeRenderer(FakePrime())
+        config,
+        max_steps=1,
+        renderer=lambda: PrimeRenderer(FakePrime()),
+        has_images=True,
+        router_replay=False,
     )
     evaluation.content = [{"type": "image", "image": png()}]
     assert (await asyncio.wait_for(run.execute(), 10)).ok
@@ -369,7 +375,10 @@ async def test_on_serverless_a_sets_evals_overlap_none_skipped_each_with_its_own
         paced=False,
         **{
             "eval.sets": {
-                "val": {"runtime": {"files": {"tasks": "val.jsonl"}}, "max_concurrent_rollouts": 2}
+                "val": {
+                    "rollout_runtime": {"files": {"tasks": "val.jsonl"}},
+                    "max_concurrent_rollouts": 2,
+                }
             }
         },
     )
@@ -445,8 +454,8 @@ async def test_an_eval_that_fails_systemically_is_logged_and_training_completes(
     evaluation.on_sample = broken_eval_sandbox
     assert (await asyncio.wait_for(run.execute(), 10)).ok
     assert eval_files(run) == []
-    assert "eval 'val' before training failed; training continues" in caplog.text
-    assert "eval 'val' at step 1 failed; training continues" in caplog.text
+    assert "eval 'val' before training failed. Training continues" in caplog.text
+    assert "eval 'val' at step 1 failed. Training continues" in caplog.text
 
 
 async def test_an_eval_whose_episode_ignores_cancellation_leaves_the_run_unclean(config):
@@ -476,7 +485,10 @@ async def test_an_eval_whose_sets_slots_kept_hooks_all_hold_is_skipped_before_it
         **{
             "rollout.rollout_timeout_seconds": 0.3,
             "eval.sets": {
-                "val": {"runtime": {"files": {"tasks": "val.jsonl"}}, "max_concurrent_rollouts": 1}
+                "val": {
+                    "rollout_runtime": {"files": {"tasks": "val.jsonl"}},
+                    "max_concurrent_rollouts": 1,
+                }
             },
         },
     )
@@ -489,9 +501,9 @@ async def test_an_eval_whose_sets_slots_kept_hooks_all_hold_is_skipped_before_it
 
     evaluation.on_sample = will_not_stop
     await asyncio.wait_for(run.execute(), 20)
-    assert "eval 'val' before training failed; training continues" in caplog.text
+    assert "eval 'val' before training failed. Training continues" in caplog.text
     assert (
-        "eval 'val' at step 1 skipped: hooks of its earlier evals ignored cancellation"
+        "eval 'val' at step 1 skipped. Hooks of its earlier evals ignored cancellation"
         in caplog.text
     )
     assert len(trainer.eval_samplers) == 1
@@ -510,7 +522,7 @@ async def test_an_eval_of_weights_a_sampler_cannot_serve_is_skipped(config, capl
     trainer.checkpoint = local_weight_sync
     assert (await asyncio.wait_for(run.execute(), 10)).ok
     assert eval_files(run) == ["base.jsonl"]
-    assert "eval at step 1 skipped: the trainer returned '/tmp/weights" in caplog.text
+    assert "eval at step 1 skipped. The trainer returned '/tmp/weights" in caplog.text
 
 
 async def test_a_stopped_run_lets_every_eval_sampler_go_and_names_the_evals_left(config, caplog):
@@ -634,7 +646,10 @@ async def test_a_sets_rollout_cap_holds_in_each_of_its_evals(config):
         sets=("val",),
         **{
             "eval.sets": {
-                "val": {"runtime": {"files": {"tasks": "val.jsonl"}}, "max_concurrent_rollouts": 1}
+                "val": {
+                    "rollout_runtime": {"files": {"tasks": "val.jsonl"}},
+                    "max_concurrent_rollouts": 1,
+                }
             }
         },
     )
@@ -757,15 +772,17 @@ async def test_a_stopped_run_closes_only_after_every_sets_eval_has_cleaned_up(co
 
 async def evaluate_later(config, directory, step, *, sets=("val",), only=(), **overrides):
     """``loops eval`` of ``step`` in run ``directory``, on fresh fakes: what it returned,
-    the trainer and the runtimes by name."""
+    the trainer and the rollout runtimes by name."""
     runtimes = {
         name: EpisodeRuntime(EVAL_TASKS, reward=lambda task: float(task.id == "e0"))
         for name in ("train", *sets)
     }
     trainer = MemoryTrainer()
     settings = {
-        "runtime.files": {"tasks": "train.jsonl"},
-        "eval.sets": {name: {"runtime": {"files": {"tasks": f"{name}.jsonl"}}} for name in sets},
+        "rollout_runtime.files": {"tasks": "train.jsonl"},
+        "eval.sets": {
+            name: {"rollout_runtime": {"files": {"tasks": f"{name}.jsonl"}}} for name in sets
+        },
         **overrides,
     }
     evaluated = await recipe.evaluate(
@@ -869,8 +886,14 @@ async def test_an_eval_after_the_fact_needs_open_files_for_its_eval_rollouts_alo
         "rollout.max_concurrent_rollouts": 48,
         "rollout.max_concurrent_verifiers": 64,
         "eval.sets": {
-            "val": {"runtime": {"files": {"tasks": "val.jsonl"}}, "max_concurrent_rollouts": 4},
-            "hard": {"runtime": {"files": {"tasks": "hard.jsonl"}}, "max_concurrent_rollouts": 64},
+            "val": {
+                "rollout_runtime": {"files": {"tasks": "val.jsonl"}},
+                "max_concurrent_rollouts": 4,
+            },
+            "hard": {
+                "rollout_runtime": {"files": {"tasks": "hard.jsonl"}},
+                "max_concurrent_rollouts": 64,
+            },
         },
     }
     evaluated, _, _ = await evaluate_later(
@@ -960,8 +983,8 @@ async def test_an_eval_after_the_fact_writes_into_the_run_named_not_the_one_resu
 @pytest.mark.parametrize(
     ("step", "only", "refusal"),
     [
-        (5, (), "kept no weights for step 5; it can evaluate 2, 9"),
-        (-1, ("nope",), "no eval set 'nope'; the config's are 'val'"),
+        (5, (), "kept no weights for step 5. It can evaluate 2, 9"),
+        (-1, ("nope",), "no eval set 'nope'. The config's eval sets are 'val'"),
     ],
     ids=["no weights", "unknown set"],
 )
