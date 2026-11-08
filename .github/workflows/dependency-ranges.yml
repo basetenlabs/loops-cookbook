@@ -3,7 +3,7 @@ name: dependency-ranges
 # lock instead, so this checks both ends of the ranges: the newest versions they allow
 # (highest), and the floor of each direct dependency (lowest-direct). It runs nightly,
 # so a new upstream release that breaks us shows here before a user reports it, and
-# before each release (release.yml), which attaches the versions it checked. Like the
+# with each release (release.yml), which attaches the versions it checked. Like the
 # lock, it skips releases younger than 7 days ([tool.uv] exclude-newer), except
 # Baseten's own packages.
 on:
