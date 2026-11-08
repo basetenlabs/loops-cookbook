@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Security fixes go into the latest release of the Loops cookbook. Pre-releases
+Security fixes go into the latest release of the Loops Cookbook. Pre-releases
 and older versions can help to reproduce a report, but they get no fixes.
 
 ## Reporting a vulnerability

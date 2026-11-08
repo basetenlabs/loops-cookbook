@@ -309,7 +309,7 @@ rediscover them.
 - Trace importers for LangSmith and Langfuse aren't built. The `chat` contract is the
   seam they would write to.
 - Direct preference optimization (DPO), in the SFT recipe beside SFT, isn't started.
-- Evaluating an SFT checkpoint on real rollouts is on the roadmap. Until then,
+- Evaluating an SFT checkpoint on real rollouts isn't built yet. Until then,
   `examples/sft_toucan/evaluate.py` scores how well first turns agree with the data.
 - Templates that render tool call IDs, such as Kimi K2's, are refused. The cookbook
   doesn't rewrite the dataset's IDs into the model's format.
@@ -322,4 +322,3 @@ rediscover them.
 - [reference/sft.md](reference/sft.md) describes the SFT contracts, metrics and resume.
 - [The knob glossary](reference/KNOB_GLOSSARY.md#sft-settings) lists every SFT setting.
 - [1 · The training engine](1-engine.md) describes the RL core.
-- [The roadmap](../ROADMAP.md) lists the large items that are planned.
