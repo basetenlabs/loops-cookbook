@@ -1,15 +1,19 @@
 name: release
 # Two ways in:
-# - a release PR ("Release vX.Y.Z") merged into main: the push to main tags its merge
-#   commit and publishes it;
-# - a vX.Y.Z-alpha.N tag on a commit on main or develop: publish a pre-release.
+# - a maintainer runs this workflow on main with a version X.Y.Z: it tags the head of
+#   main and publishes it;
+# - a vX.Y.Z-alpha.N tag on a commit on main: publish a pre-release.
 # A tag pushed with the workflow token starts no other workflow, so tagging and
 # publishing happen in this one workflow. The build job builds, pypi uploads through
 # trusted publishing, and github-release pushes the tag and attaches the build. Only
 # pypi can get a PyPI token, and it runs no project code.
 on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The version to release, X.Y.Z"
+        required: true
   push:
-    branches: [main]
     tags: ["v*"]
 
 permissions:
@@ -31,7 +35,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read  # to find the release PR that made a commit on main
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
       previous: ${{ steps.tag.outputs.previous }}
@@ -44,24 +47,16 @@ jobs:
       - name: Name the release
         id: tag
         env:
-          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
         run: |
-          if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
-            # Every commit on main is the merge commit of a release PR. GitHub can take
-            # a few seconds to link a new merge commit to its PR, so ask again before
-            # giving up.
-            TITLE=""
-            for attempt in 1 2 3 4 5 6; do
-              TITLE=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq \
-                "[.[] | select(.merged_at != null and .base.ref == \"main\" and .merge_commit_sha == \"$GITHUB_SHA\")][0].title // empty")
-              [[ -n "$TITLE" ]] && break
-              sleep 10
-            done
-            if [[ -z "$TITLE" ]]; then
-              echo "::error::$GITHUB_SHA on main is not the merge commit of a PR into main; a release is made by merging a \"Release vX.Y.Z\" PR"
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            # Only reviewed code is released. Every commit on main came through a PR
+            # with the required checks.
+            if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+              echo "::error::run the release on main, not on $GITHUB_REF_NAME"
               exit 1
             fi
-            VERSION=$(python3 scripts/release_version.py title "$TITLE")
+            VERSION=$(python3 scripts/release_version.py "$VERSION")
             TAG="v$VERSION"
             # Tagged here so the build reads its version from it; github-release pushes it.
             git tag "$TAG"
@@ -69,15 +64,14 @@ jobs:
           elif [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]; then
             TAG="$GITHUB_REF_NAME"
             # A tag can name any commit, and a PyPI upload is permanent: publish only
-            # reviewed code, that is, a commit on main or develop.
-            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main &&
-               ! git merge-base --is-ancestor "$GITHUB_SHA" origin/develop; then
-              echo "::error::$TAG names $GITHUB_SHA, which is not on main or develop; tag a commit on one of them"
+            # reviewed code, that is, a commit on main.
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              echo "::error::$TAG names $GITHUB_SHA, which is not on main; tag a commit on main"
               exit 1
             fi
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::error::$GITHUB_REF_NAME: a release vX.Y.Z is made by merging a \"Release vX.Y.Z\" PR into main, not by pushing its tag; pushed tags are vX.Y.Z-alpha.N"
+            echo "::error::$GITHUB_REF_NAME: a release vX.Y.Z is made by running this workflow, not by pushing its tag; pushed tags are vX.Y.Z-alpha.N"
             exit 1
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -90,15 +84,25 @@ jobs:
           enable-cache: true
 
       - run: uv sync --locked --extra harbor-blaxel --extra harbor-daytona --extra wandb
-      # A release PR's required checks already ran these on the merge commit's tree, and
-      # main changes only through release PRs. A pre-release tag has no PR, so it runs
-      # them here.
-      - if: steps.tag.outputs.prerelease == 'true'
-        run: uv run --locked ruff check src tests patterns examples tasks scripts
-      - if: steps.tag.outputs.prerelease == 'true'
-        run: uv run --locked pyright
-      - if: steps.tag.outputs.prerelease == 'true'
-        run: uv run --locked pytest -q
+      - run: uv run --locked ruff check src tests patterns examples tasks scripts
+      - run: uv run --locked pyright
+      - run: uv run --locked pytest -q
+
+      # PyPI shows the README without the repository around it, so pyproject.toml turns
+      # its relative links into links to main. Point them at the tag instead, so they
+      # show the released files. The edit leaves the checkout dirty, and hatch-vcs would
+      # then build a .dev version, so the build takes the version from the tag.
+      - name: Point the PyPI README's links at the tag
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          sed -i -e "s#/loops-cookbook/main/#/loops-cookbook/$TAG/#g" \
+                 -e "s#/loops-cookbook/blob/main/#/loops-cookbook/blob/$TAG/#g" pyproject.toml
+          if grep -q "loops-cookbook/\(blob/\)\?main/" pyproject.toml; then
+            echo "::error::pyproject.toml still links the PyPI README to main"
+            exit 1
+          fi
+          echo "SETUPTOOLS_SCM_PRETEND_VERSION=${TAG#v}" >> "$GITHUB_ENV"
       - run: uv build
 
       # The release states the versions it was tested with. This is the lock; the two
@@ -108,8 +112,8 @@ jobs:
           --extra harbor-blaxel --extra harbor-daytona --extra wandb
           --output-file tested/dependencies-lock.txt
 
-      # The version comes from the tag (hatch-vcs); a dirty or mis-fetched checkout
-      # would build a .dev version instead.
+      # The build reads its version from the tag. Check that the tag's version is the
+      # one in the files that PyPI gets.
       - name: Built version must match the tag
         env:
           TAG: ${{ steps.tag.outputs.tag }}
@@ -187,7 +191,7 @@ jobs:
           PREVIOUS: ${{ needs.build.outputs.previous }}
           PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |
-          if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
             # A rerun after the push and before the release finds the tag already
             # fetched: reuse it if it names this commit, so the release can still be made.
             if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then

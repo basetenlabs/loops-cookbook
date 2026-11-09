@@ -1,7 +1,6 @@
 """Check the version a release is about to tag, against the repository's tags.
 
-    release_version.py title "Release v0.2.0"   # a release PR's title
-    release_version.py version 0.2.0            # the version typed into "Prepare release"
+    release_version.py 0.2.0    # the version typed into the release workflow
 
 Prints the version on success; exits 1 with the reason otherwise. A release is
 ``X.Y.Z``, has no tag yet, and is above every earlier release (pre-releases, the
@@ -15,18 +14,8 @@ import re
 import subprocess
 import sys
 
-_TITLE = re.compile(r"Release v(\d+\.\d+\.\d+)")
 _RELEASE = re.compile(r"\d+\.\d+\.\d+")
 _TAG = re.compile(r"v(\d+)\.(\d+)\.(\d+)(-alpha\.\d+)?")
-
-
-def version_from_title(title: str) -> str:
-    match = _TITLE.fullmatch(title.strip())
-    if match is None:
-        raise ValueError(
-            f'a PR into main is a release and is titled "Release vX.Y.Z", not {title!r}'
-        )
-    return match.group(1)
 
 
 def check(version: str, tags: list[str]) -> None:
@@ -44,15 +33,14 @@ def check(version: str, tags: list[str]) -> None:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2 or argv[0] not in ("title", "version"):
+    if len(argv) != 1:
         print(__doc__, file=sys.stderr)
         return 2
-    kind, value = argv
+    version = argv[0].strip().removeprefix("v")
     tags = subprocess.run(
         ["git", "tag", "--list", "v*"], capture_output=True, text=True, check=True
     ).stdout.split()
     try:
-        version = version_from_title(value) if kind == "title" else value.strip().removeprefix("v")
         check(version, tags)
     except ValueError as error:
         print(f"::error::{error}", file=sys.stderr)

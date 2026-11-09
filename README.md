@@ -4,7 +4,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/baseten-loops-cookbook)](https://pypi.org/project/baseten-loops-cookbook/)
 [![Python](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fbasetenlabs%2Floops-cookbook%2Fmain%2Fpyproject.toml)](https://pypi.org/project/baseten-loops-cookbook/)
-[![CI](https://github.com/basetenlabs/loops-cookbook/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/basetenlabs/loops-cookbook/actions/workflows/ci.yml?query=branch%3Adevelop)
+[![CI](https://github.com/basetenlabs/loops-cookbook/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/basetenlabs/loops-cookbook/actions/workflows/ci.yml?query=branch%3Amain)
 [![License](https://img.shields.io/pypi/l/baseten-loops-cookbook)](LICENSE)
 
 [Quickstart](#run-your-first-rl-job) ·
