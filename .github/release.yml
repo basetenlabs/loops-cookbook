@@ -1,7 +1,6 @@
 # Groups GitHub's generated release notes by label. The pr-labels workflow sets the
 # labels from each PR's title. A PR goes under the first category whose label it has.
-# The release PR itself is opened by prepare-release as github-actions, and is left
-# out.
+# PRs that bots open as github-actions are left out.
 changelog:
   exclude:
     authors: [github-actions, "github-actions[bot]"]

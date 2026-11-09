@@ -3,8 +3,7 @@ name: pr-labels
 # (.github/release.yml). feat is enhancement, fix is bug, docs is documentation, and
 # every other type is maintenance. A "!" adds breaking. When the title changes, the
 # old type labels go. Area labels are set by hand and left alone. A PR in a stack
-# targets the branch below it, so this runs on PRs into any branch but main, whose
-# release PRs need no label.
+# targets the branch below it, so this runs on PRs into any branch.
 #
 # pull_request_target gives the token write access on PRs from forks too. The job
 # never checks out or runs the PR's code, and reads the title only through an
@@ -12,7 +11,6 @@ name: pr-labels
 on:
   pull_request_target:
     types: [opened, edited, reopened]
-    branches-ignore: [main]
 
 permissions:
   pull-requests: write
