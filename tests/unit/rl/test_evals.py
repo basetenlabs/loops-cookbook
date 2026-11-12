@@ -103,7 +103,9 @@ def build(
             runtime.capabilities,
             settings,
             capacity=capacity,
-            leases=lambda identity: AttemptLease(identity, wiring, affinity_key=None),
+            leases=lambda identity: AttemptLease(
+                identity, wiring, affinity_key=None, rollout_id=identity.attempt_id
+            ),
             access=lambda lease: DirectModelAccess(lease, Renderers(Renderer())),  # pyright: ignore[reportArgumentType]
             resources=no_resources,
             metrics=MetricsSink(),

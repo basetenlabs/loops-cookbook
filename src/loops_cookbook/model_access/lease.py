@@ -99,6 +99,17 @@ def affinity_key(namespace: str, identity: AttemptIdentity) -> str:
     return f"{namespace}:{hashlib.sha256(identity.rollout_id.encode()).hexdigest()[:32]}"
 
 
+def traced_rollout_id(namespace: str, rollout_id: str) -> str:
+    """Return the ID that Loops traces each sampling request of the rollout ``rollout_id`` under.
+
+    Every attempt at the rollout gets the same ID, so Loops sees a retried rollout as
+    one rollout. The ID is a digest of ``namespace``, which is one per run, and the
+    rollout ID. Two runs therefore never share an ID, even when they use the same run
+    name.
+    """
+    return hashlib.sha256(f"{namespace}:{rollout_id}".encode()).hexdigest()[:32]
+
+
 class RequestState(str, Enum):
     ADMITTED = "admitted"
     SAMPLED = "sampled"
@@ -207,13 +218,21 @@ def _echo_matches(returned: Sequence[int], ids: TokenSpan, has_images: bool) -> 
 
 class AttemptLease:
     def __init__(
-        self, identity: AttemptIdentity, wiring: LeaseWiring, *, affinity_key: str | None
+        self,
+        identity: AttemptIdentity,
+        wiring: LeaseWiring,
+        *,
+        affinity_key: str | None,
+        rollout_id: str,
     ) -> None:
         if affinity_key == "":
             raise ValueError("affinity_key must not be empty")
+        if not rollout_id:
+            raise ValueError("rollout_id must not be empty")
         self.identity = identity
         self._wiring = wiring
         self._affinity_key = affinity_key
+        self._rollout_id = rollout_id
         self._sampler: SamplingClient | None = None
         self._sampler_version: int | None = None
         self._requests: dict[str, _Request] = {}
@@ -455,9 +474,9 @@ class AttemptLease:
                 num_samples=1,
                 sampling_params=sampling_params,
                 affinity_key=self._affinity_key,
-                # Loops traces the request by this ID, and the run files its samples
-                # and transcript under it.
-                rollout_id=self.identity.attempt_id,
+                # Loops traces the request by this ID. It is the same for every
+                # attempt at the rollout, so a retry does not count as a new rollout.
+                rollout_id=self._rollout_id,
                 # A recorded generation carries its routes for router replay. Every
                 # other generation tells the sampler not to capture them.
                 include_routed_experts=self._wiring.records_generations,

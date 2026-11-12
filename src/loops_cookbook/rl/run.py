@@ -53,6 +53,7 @@ from loops_cookbook.model_access.lease import (
     Freshness,
     LeaseWiring,
     affinity_key,
+    traced_rollout_id,
 )
 from loops_cookbook.model_access.openai.access import HttpModelAccess
 from loops_cookbook.model_access.openai.gateway import Gateway, GatewaySettings
@@ -836,7 +837,9 @@ class Run:
         self._registry: ResourceRegistry | None = None
         self._run_resources: RunResourceService | None = None
         self._unclean = False
-        self._affinity_namespace = uuid4().hex
+        # One per run. It keeps a rollout's affinity key and traced ID apart from those
+        # of every other run, including runs that reuse this run's name.
+        self._rollout_namespace = uuid4().hex
         self._step_sinks: list[StepSink] = []
         self._notice: str | None = None
         self._training = False
@@ -1101,8 +1104,9 @@ class Run:
         affinity = self.config.compute.sampler_replica_affinity
 
         def lease(identity: AttemptIdentity) -> AttemptLease:
-            key = affinity_key(self._affinity_namespace, identity) if affinity else None
-            return AttemptLease(identity, wiring, affinity_key=key)
+            key = affinity_key(self._rollout_namespace, identity) if affinity else None
+            traced = traced_rollout_id(self._rollout_namespace, identity.rollout_id)
+            return AttemptLease(identity, wiring, affinity_key=key, rollout_id=traced)
 
         return lease
 
@@ -1492,7 +1496,11 @@ class Run:
         }
 
     def _rollout_record(self, record: dict[str, Any]) -> dict[str, Any]:
-        """Return a rollouts.jsonl record, with what its attempt sampled outside its evidence.
+        """Return a rollouts.jsonl record, with its Loops rollout ID and what its attempt
+        sampled outside its evidence.
+
+        The Loops rollout ID is the one that every sampling request of the rollout sent,
+        so a reader can match a Loops trace to the record.
 
         The counts are the recorded attempt's. They count generations that sealing
         dropped because they were never delivered, and generations the agent discarded.
@@ -1502,6 +1510,7 @@ class Run:
         undelivered, discarded = attempts.get(record["attempt_id"], (0, 0))
         return {
             **record,
+            "loops_rollout_id": traced_rollout_id(self._rollout_namespace, record["rollout_id"]),
             "generations_undelivered": undelivered,
             "generations_discarded_by_agent": discarded,
         }
@@ -2098,7 +2107,12 @@ class Run:
                 capacity=capacity,
                 # No affinity key, because replica affinity serves the paired sampler's
                 # prefix cache.
-                leases=lambda identity: AttemptLease(identity, wiring, affinity_key=None),
+                leases=lambda identity: AttemptLease(
+                    identity,
+                    wiring,
+                    affinity_key=None,
+                    rollout_id=traced_rollout_id(self._rollout_namespace, identity.rollout_id),
+                ),
                 access=access,
                 resources=lambda identity, phases: EpisodeResourceService(
                     self._resources(), identity.attempt_id, phases.resource_operation

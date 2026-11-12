@@ -270,6 +270,12 @@ async def test_composed_run(rl_run, mode, aggregation):
     record = json.loads(captures[0].read_text().splitlines()[0])
     assert record["completion_ids"] == [3, 4]
     assert record["group_id"] and record["rollout_id"] and record["attempt_id"]
+    # Each record names the ID that its rollout's requests sent to Loops, one per rollout.
+    recorded = records(run)
+    traced = {r["rollout_id"]: r["loops_rollout_id"] for r in recorded}
+    assert len(set(traced.values())) == len(traced)
+    trained = {r["loops_rollout_id"] for r in recorded if r["disposition"] == "trained"}
+    assert trained and trained <= set(trainer.rollout_ids)
     audit = audit_run(run.out)
     assert audit.steps == 3 and audit.rollouts == 12 and audit.datums == 12
     steps = records(run, "steps")

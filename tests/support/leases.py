@@ -73,7 +73,7 @@ def lease(
         records_transcripts=(keeps if records_transcripts is None else records_transcripts),
         on_transcript=keep if keeps else None,
     )
-    return AttemptLease(identity, wiring, affinity_key=affinity_key)
+    return AttemptLease(identity, wiring, affinity_key=affinity_key, rollout_id=identity.attempt_id)
 
 
 def direct_llm(

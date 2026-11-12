@@ -757,6 +757,9 @@ has the same fields, and each field means the same thing in every record:
 - `sample_ids` names what the rollout sampled. It is empty when the rollout sealed no
   attempt.
 - `step` is the update that trained the rollout. It is `null` for a discarded rollout.
+- `loops_rollout_id` is the ID that Loops traced each of the rollout's sampling
+  requests under. Every attempt at the rollout sent it. Use it to find the record of a
+  rollout that you saw in a Loops trace.
 - `generations_undelivered` and `generations_discarded_by_agent` describe the attempt
   that the record names. The first counts the generations the cookbook dropped at
   sealing because the agent never received them, and the second counts the ones the
