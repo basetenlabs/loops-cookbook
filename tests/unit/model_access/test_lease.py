@@ -340,6 +340,14 @@ async def test_every_attempt_at_a_rollout_is_traced_under_one_id_that_is_unique_
     assert all(len(i) == 32 and "t" * 8 not in i and "caf" not in i for i in ids)
 
 
+@pytest.mark.parametrize("rollout_id", ["", "r" * 81, "g0000001-café-r1", "has space"])
+def test_a_lease_refuses_a_rollout_id_that_loops_would_not_trace(rollout_id):
+    """The SDK refuses such an ID only at the first request, as if transport had failed."""
+    built, _, _ = wiring(Sampler())
+    with pytest.raises(ValueError, match="1 to 80 visible ASCII"):
+        AttemptLease(identity(), built, affinity_key=None, rollout_id=rollout_id)
+
+
 async def test_a_rollouts_affinity_key_holds_across_its_attempts_and_carries_nothing_of_its_task(
     monkeypatch,
 ):

@@ -55,6 +55,8 @@ Each `generate(messages=..., tools=..., ...)` call does four things:
    rollout sends the same ID, so Loops counts a retried rollout once. The ID is a
    digest of the rollout and of a random value that the run picks when it starts.
    Two runs therefore never share an ID, even when they have the same name. The run
+   saves that value in its checkpoint manifests, so a resumed run sends the same ID
+   when it replays a rollout. The run
    files each attempt's samples and transcript under the attempt's own ID. With
    `[compute].sampler_replica_affinity` on, which is the default, each request also
    carries an affinity key. The key is the same for every attempt of a rollout, so

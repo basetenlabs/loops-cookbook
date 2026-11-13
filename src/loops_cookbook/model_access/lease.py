@@ -227,8 +227,10 @@ class AttemptLease:
     ) -> None:
         if affinity_key == "":
             raise ValueError("affinity_key must not be empty")
-        if not rollout_id:
-            raise ValueError("rollout_id must not be empty")
+        # Loops takes 1 to 80 visible ASCII characters. Refuse anything else here, because
+        # the SDK refuses it only at the first request, as what looks like a transport failure.
+        if not 1 <= len(rollout_id) <= 80 or not all("!" <= c <= "~" for c in rollout_id):
+            raise ValueError(f"rollout_id must be 1 to 80 visible ASCII characters: {rollout_id!r}")
         self.identity = identity
         self._wiring = wiring
         self._affinity_key = affinity_key

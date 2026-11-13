@@ -5,6 +5,7 @@ import contextlib
 import dataclasses
 import json
 import logging
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -27,6 +28,7 @@ from support.harness import Renderer
 
 from loops_cookbook.evidence import AttemptIdentity
 from loops_cookbook.llm.rendering import RenderedPrompt
+from loops_cookbook.model_access.lease import traced_rollout_id
 from loops_cookbook.rl import recipe
 from loops_cookbook.rl.run import Manifest, Run, finished_hint, row_record
 from loops_cookbook.run_record import finished_message, manifest_path
@@ -246,6 +248,44 @@ async def test_uniform_reward_run_aborts_without_training(rl_run, mode):
     # What async mode had in flight when the run aborted is recorded as cancelled.
     assert {r["reason"] for r in recorded} <= {"no_variance", "cancelled"}
     assert len({r["rollout_id"] for r in recorded}) == len(recorded)
+
+
+async def test_every_attempt_at_a_rollout_sends_the_loops_rollout_id_its_record_names(rl_run):
+    """A retry keeps its rollout's Loops rollout ID, whether the rollout trains or not."""
+
+    class Flaky(MemoryRuntime):
+        """Each attempt samples once. In the first group, r0's first attempt fails and
+        every attempt of r2 fails."""
+
+        def __init__(self):
+            super().__init__()
+            self.failed = set()
+
+        async def sample(self, attempt):
+            result = await super().sample(attempt)
+            identity = attempt.spec.identity
+            first_group = identity.group_id.startswith("g0000000-")
+            if first_group and identity.rollout_id.endswith("-r2"):
+                raise RuntimeError("this rollout never works")
+            if first_group and identity.rollout_id.endswith("-r0") and not self.failed:
+                self.failed.add(identity.rollout_id)
+                raise RuntimeError("the first attempt fails")
+            return result
+
+    run, trainer, _ = rl_run(runtime=Flaky(), max_steps=1, max_rollout_retries=1)
+    assert (await asyncio.wait_for(run.execute(), timeout=5)).ok
+    recorded = records(run)
+    first = {
+        r["rollout_id"].rsplit("-", 1)[-1]: r
+        for r in recorded
+        if r["rollout_id"].startswith("g0000000-")
+    }
+    assert first["r0"]["disposition"] == "trained"
+    assert first["r2"]["disposition"] == "discarded"
+    # Each attempt sampled once, so a retried rollout sent its ID twice.
+    expected = Counter(r["loops_rollout_id"] for r in recorded)
+    expected.update([first["r0"]["loops_rollout_id"], first["r2"]["loops_rollout_id"]])
+    assert Counter(trainer.rollout_ids) == expected
 
 
 @pytest.mark.parametrize("mode", ["sync", "async"])
@@ -847,6 +887,20 @@ def test_assemble_uses_a_trainer_it_is_given_as_is(config, monkeypatch):
     monkeypatch.setattr(recipe, "import_factory", lambda path: unused)
     trainer = MemoryTrainer()
     assert recipe.assemble(config(), trainer=trainer).trainer is trainer
+
+
+async def test_a_resume_replays_a_rollout_under_the_loops_rollout_id_it_had(rl_run, first_manifest):
+    """A replayed rollout keeps its ID, so Loops still counts it as one rollout."""
+    manifest = await first_manifest()
+    namespace = json.loads(manifest.read_text())["rollout_namespace"]
+    resumed, trainer, _ = rl_run(resuming(), max_steps=2, resume_from=str(manifest))
+    assert (await resumed.execute()).ok
+    assert resumed._rollout_namespace == namespace
+    replayed = [r for r in records(resumed) if r["step"] == 1]
+    assert replayed and all(
+        r["loops_rollout_id"] == traced_rollout_id(namespace, r["rollout_id"]) for r in replayed
+    )
+    assert set(trainer.rollout_ids) == {r["loops_rollout_id"] for r in replayed}
 
 
 async def test_a_checkpoint_records_where_to_resume_and_what_a_resume_must_match(
