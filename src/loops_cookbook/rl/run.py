@@ -53,6 +53,7 @@ from loops_cookbook.model_access.lease import (
     Freshness,
     LeaseWiring,
     affinity_key,
+    traced_rollout_id,
 )
 from loops_cookbook.model_access.openai.access import HttpModelAccess
 from loops_cookbook.model_access.openai.gateway import Gateway, GatewaySettings
@@ -763,6 +764,12 @@ class Manifest(run_record.Manifest):
     policy_version: int = Field(ge=0)
     shuffle_seed: int
     contract: dict[str, Any]
+    rollout_namespace: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    """The run's rollout namespace, so a resume traces a replayed rollout under its first ID.
+
+    It is ``None`` in a manifest written before this field existed. A resume from such a
+    manifest picks a new namespace.
+    """
 
     @model_validator(mode="after")
     def _pending_before_next(self) -> Self:
@@ -836,7 +843,10 @@ class Run:
         self._registry: ResourceRegistry | None = None
         self._run_resources: RunResourceService | None = None
         self._unclean = False
-        self._affinity_namespace = uuid4().hex
+        # One per run, and kept across a resume. It keeps a rollout's affinity key and
+        # Loops rollout ID apart from those of every other run, including runs that reuse
+        # this run's name.
+        self._rollout_namespace = (resume and resume.rollout_namespace) or uuid4().hex
         self._step_sinks: list[StepSink] = []
         self._notice: str | None = None
         self._training = False
@@ -1101,8 +1111,9 @@ class Run:
         affinity = self.config.compute.sampler_replica_affinity
 
         def lease(identity: AttemptIdentity) -> AttemptLease:
-            key = affinity_key(self._affinity_namespace, identity) if affinity else None
-            return AttemptLease(identity, wiring, affinity_key=key)
+            key = affinity_key(self._rollout_namespace, identity) if affinity else None
+            traced = self._loops_rollout_id(identity.rollout_id)
+            return AttemptLease(identity, wiring, affinity_key=key, rollout_id=traced)
 
         return lease
 
@@ -1491,8 +1502,20 @@ class Run:
             "trace/unwritten_transcripts": float(self._unwritten["transcripts"]),
         }
 
+    def _loops_rollout_id(self, rollout_id: str) -> str:
+        """Return the ID that every sampling request of the rollout ``rollout_id`` sends to Loops.
+
+        Every lease and every record gets the ID here, so a Loops trace always matches
+        its record.
+        """
+        return traced_rollout_id(self._rollout_namespace, rollout_id)
+
     def _rollout_record(self, record: dict[str, Any]) -> dict[str, Any]:
-        """Return a rollouts.jsonl record, with what its attempt sampled outside its evidence.
+        """Return a rollouts.jsonl record, with its Loops rollout ID and what its attempt
+        sampled outside its evidence.
+
+        The Loops rollout ID is the one that every sampling request of the rollout sent,
+        so a reader can match a Loops trace to the record.
 
         The counts are the recorded attempt's. They count generations that sealing
         dropped because they were never delivered, and generations the agent discarded.
@@ -1502,6 +1525,7 @@ class Run:
         undelivered, discarded = attempts.get(record["attempt_id"], (0, 0))
         return {
             **record,
+            "loops_rollout_id": self._loops_rollout_id(record["rollout_id"]),
             "generations_undelivered": undelivered,
             "generations_discarded_by_agent": discarded,
         }
@@ -1520,6 +1544,7 @@ class Run:
             policy_version=report.policy_version_after,
             shuffle_seed=self.config.rollout.shuffle_seed,
             contract=self._resume_contract,
+            rollout_namespace=self._rollout_namespace,
             run_id=self.run_id,
             run_directory=str(self.out),
             seq=self._manifest_order.next(),
@@ -2013,9 +2038,11 @@ class Run:
             await see_through(asyncio.ensure_future(self.trainer.deactivate_sampler(sampler)))
         try:
             stem = "base" if step < 0 else f"step-{step}"
-            await _in_thread(
-                _write_eval, self.out / "eval" / name, stem, result.rows, result.transcripts
-            )
+            rows = [
+                {**row, "loops_rollout_id": self._loops_rollout_id(str(row["rollout_id"]))}
+                for row in result.rows
+            ]
+            await _in_thread(_write_eval, self.out / "eval" / name, stem, rows, result.transcripts)
             self._record_eval(eval_set, step, result, metrics, ready, monotonic() - started)
             self._evals_written.add(name)
         except Exception:  # Recording one eval never ends the others.
@@ -2098,7 +2125,12 @@ class Run:
                 capacity=capacity,
                 # No affinity key, because replica affinity serves the paired sampler's
                 # prefix cache.
-                leases=lambda identity: AttemptLease(identity, wiring, affinity_key=None),
+                leases=lambda identity: AttemptLease(
+                    identity,
+                    wiring,
+                    affinity_key=None,
+                    rollout_id=self._loops_rollout_id(identity.rollout_id),
+                ),
                 access=access,
                 resources=lambda identity, phases: EpisodeResourceService(
                     self._resources(), identity.attempt_id, phases.resource_operation

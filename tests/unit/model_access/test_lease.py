@@ -38,6 +38,7 @@ from loops_cookbook.model_access.lease import (
     LeaseState,
     LeaseWiring,
     affinity_key,
+    traced_rollout_id,
 )
 from loops_cookbook.model_access.producers import ProducerSettings
 from loops_cookbook.trainer import Capacity
@@ -109,7 +110,11 @@ def wiring(client: object, **overrides: object):
 
 def lease(sampler=None, *, affinity=None, **overrides):
     built, captured, discarded = wiring(sampler or Sampler(), **overrides)
-    return AttemptLease(identity(), built, affinity_key=affinity), captured, discarded
+    return (
+        AttemptLease(identity(), built, affinity_key=affinity, rollout_id="r"),
+        captured,
+        discarded,
+    )
 
 
 def prompt(*ids):
@@ -182,8 +187,8 @@ async def test_simultaneous_identical_requests_attribute_by_identity_only():
     """Two attempts send byte-identical prompts and get identical completions."""
     sampler = Sampler()
     built, captured, _ = wiring(sampler)
-    first = AttemptLease(identity("a1", "r1"), built, affinity_key=None)
-    second = AttemptLease(identity("a2", "r2"), built, affinity_key=None)
+    first = AttemptLease(identity("a1", "r1"), built, affinity_key=None, rollout_id="r1")
+    second = AttemptLease(identity("a2", "r2"), built, affinity_key=None, rollout_id="r2")
     one, two = await asyncio.gather(
         first.generate("main", prompt(5, 6), PARAMS, conversation_id="same"),
         second.generate("main", prompt(5, 6), PARAMS, conversation_id="same"),
@@ -308,19 +313,39 @@ def sdk_sampler(monkeypatch, requests):
     return sampler
 
 
-async def test_each_request_names_its_attempt_for_loops_tracing(monkeypatch):
-    """The attempt's ID, which always fits Loops' rule and names the attempt's own
-    samples and transcript in the run record."""
+async def test_every_attempt_at_a_rollout_is_traced_under_one_id_that_is_unique_to_its_run(
+    monkeypatch,
+):
+    """Loops sees a retried rollout as one rollout, and never joins two runs' rollouts.
+    The ID carries nothing of the task, whose ID can be past what Loops traces."""
     requests = []
     built, _, _ = wiring(sdk_sampler(monkeypatch, requests))
-    # A task ID can be anything, so a rollout ID can be past what Loops traces.
-    for attempt_id, rollout_id in (("a1", "g0000001-task-r0"), ("a2", "g0000002-" + "t" * 90)):
-        attempt = AttemptLease(identity(attempt_id, rollout_id), built, affinity_key=None)
+    long_task = "g0000001-" + "t" * 90 + "-r0"
+    for namespace, attempt_id, rollout_id in (
+        ("run-1", "a1", long_task),
+        ("run-1", "a2", long_task),  # a retry of that rollout
+        ("run-1", "a3", "g0000001-café-r1"),
+        ("run-2", "a4", long_task),  # another run with the same rollout ID
+    ):
+        who = identity(attempt_id, rollout_id)
+        traced = traced_rollout_id(namespace, rollout_id)
+        attempt = AttemptLease(who, built, affinity_key=None, rollout_id=traced)
         for _ in range(2):
             await attempt.generate(
                 "main", prompt(), SamplingParams(max_tokens=1), conversation_id="c"
             )
-    assert [request.headers["x-rollout-id"] for request in requests] == ["a1", "a1", "a2", "a2"]
+    ids = [request.headers["x-rollout-id"] for request in requests][::2]
+    assert ids[0] == ids[1]
+    assert len({ids[0], ids[2], ids[3]}) == 3
+    assert all(len(i) == 32 and "t" * 8 not in i and "caf" not in i for i in ids)
+
+
+@pytest.mark.parametrize("rollout_id", ["", "r" * 81, "g0000001-café-r1", "has space"])
+def test_a_lease_refuses_a_rollout_id_that_loops_would_not_trace(rollout_id):
+    """The SDK refuses such an ID only at the first request, as if transport had failed."""
+    built, _, _ = wiring(Sampler())
+    with pytest.raises(ValueError, match="1 to 80 visible ASCII"):
+        AttemptLease(identity(), built, affinity_key=None, rollout_id=rollout_id)
 
 
 async def test_a_rollouts_affinity_key_holds_across_its_attempts_and_carries_nothing_of_its_task(
@@ -336,7 +361,7 @@ async def test_a_rollouts_affinity_key_holds_across_its_attempts_and_carries_not
         ("a3", "g0000001-café-1-r1"),
     ):
         who = identity(attempt_id, rollout_id)
-        attempt = AttemptLease(who, built, affinity_key=affinity_key("run-ns", who))
+        attempt = AttemptLease(who, built, affinity_key=affinity_key("run-ns", who), rollout_id="r")
         await attempt.generate("main", prompt(), SamplingParams(max_tokens=1), conversation_id="c")
     keys = [request.headers["x-baseten-session-id"] for request in requests]
     assert keys[0] == keys[1] != keys[2]
@@ -364,7 +389,7 @@ async def test_a_dedicated_attempt_keeps_the_handle_it_first_sampled_with():
     paired sampler hot-swaps behind the handle the attempt already holds."""
     first, published = Sampler(), Sampler()
     built, _, publish = publishing_wiring(Capacity.DEDICATED, first, published)
-    attempt = AttemptLease(identity(), built, affinity_key=None)
+    attempt = AttemptLease(identity(), built, affinity_key=None, rollout_id="r")
     await attempt.generate("main", prompt(), PARAMS, conversation_id="c")
     publish()
     await attempt.generate("main", prompt(2), PARAMS, conversation_id="c")
@@ -376,7 +401,7 @@ async def test_a_serverless_attempt_moves_to_each_new_publication():
     generation to the new handle, at the version it was published at."""
     first, published = Sampler(version=None), Sampler(version=None)
     built, captured, publish = publishing_wiring(Capacity.SERVERLESS, first, published)
-    attempt = AttemptLease(identity(), built, affinity_key=None)
+    attempt = AttemptLease(identity(), built, affinity_key=None, rollout_id="r")
     await attempt.generate("main", prompt(), PARAMS, conversation_id="c")
     publish()
     await attempt.generate("main", prompt(2), PARAMS, conversation_id="c")
@@ -400,7 +425,7 @@ async def test_a_publish_during_a_generation_keeps_the_version_of_the_handle_tha
     built, captured, publish = publishing_wiring(
         capacity, Publishing(version=None), Sampler(version=None)
     )
-    attempt = AttemptLease(identity(), built, affinity_key=None)
+    attempt = AttemptLease(identity(), built, affinity_key=None, rollout_id="r")
     await attempt.generate("main", prompt(), PARAMS, conversation_id="c")
     assert [sample.policy_version for _, sample in captured] == [1]
 
