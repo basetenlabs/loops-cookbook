@@ -16,7 +16,7 @@ jobs:
     steps:
       - id: title
         continue-on-error: true
-        uses: amannn/action-semantic-pull-request@v6
+        uses: chainguard-actions/amannn-action-semantic-pull-request@962c7a5002e0d6d62fe73fe0d155ce3c6c1b2ed1 # v6.1.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

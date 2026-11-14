@@ -17,8 +17,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+      - uses: chainguard-actions/actions-checkout@37298d8de412b35988dd165ffae45f45b329d365 # v7.0.1
+      - uses: chainguard-actions/astral-sh-setup-uv@ea3c922ff6ab7051ba1a202db24215b7536b429e # v7.6.0
         with:
           enable-cache: true
       - run: uv sync --locked --extra harbor-blaxel --extra harbor-daytona --extra wandb
@@ -33,10 +33,10 @@ jobs:
     # What PyPI would receive: hatch refuses a git dependency, and twine checks the metadata.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: chainguard-actions/actions-checkout@37298d8de412b35988dd165ffae45f45b329d365 # v7.0.1
         with:
           fetch-depth: 0  # hatch-vcs reads the version from the tags
-      - uses: astral-sh/setup-uv@v7
+      - uses: chainguard-actions/astral-sh-setup-uv@ea3c922ff6ab7051ba1a202db24215b7536b429e # v7.6.0
         with:
           enable-cache: true
       - run: uv build
@@ -54,8 +54,8 @@ jobs:
     # The core, the Blaxel and Daytona providers, and the custom-runtime patterns: no Harbor.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+      - uses: chainguard-actions/actions-checkout@37298d8de412b35988dd165ffae45f45b329d365 # v7.0.1
+      - uses: chainguard-actions/astral-sh-setup-uv@ea3c922ff6ab7051ba1a202db24215b7536b429e # v7.6.0
         with:
           enable-cache: true
       # custom-loss brings torch, which the custom loss and aggregation tests need.
@@ -68,11 +68,11 @@ jobs:
     # Real tokenizers and image processors for the supported vision models.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+      - uses: chainguard-actions/actions-checkout@37298d8de412b35988dd165ffae45f45b329d365 # v7.0.1
+      - uses: chainguard-actions/astral-sh-setup-uv@ea3c922ff6ab7051ba1a202db24215b7536b429e # v7.6.0
         with:
           enable-cache: true
-      - uses: actions/cache@v6
+      - uses: chainguard-actions/actions-cache@46c2783c2418d3de33490be27a0d86c6268bc4fd # v6.1.0
         with:
           path: ~/.cache/huggingface
           key: hf-contracts-${{ hashFiles('tests/contracts/conftest.py') }}

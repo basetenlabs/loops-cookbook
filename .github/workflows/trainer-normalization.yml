@@ -16,8 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+      - uses: chainguard-actions/actions-checkout@37298d8de412b35988dd165ffae45f45b329d365 # v7.0.1
+      - uses: chainguard-actions/astral-sh-setup-uv@ea3c922ff6ab7051ba1a202db24215b7536b429e # v7.6.0
         with:
           enable-cache: true
       - name: Check live credentials
@@ -36,7 +36,7 @@ jobs:
         run: >-
           uv run --locked --extra custom-loss pytest -q -s
           tests/live/test_trainer_normalization.py --basetemp=trainer-contract-results
-      - uses: actions/upload-artifact@v7
+      - uses: chainguard-actions/actions-upload-artifact@c91615377dcc230c6b156542d25044f9b8d80dd8 # v7.0.2
         if: always()
         with:
           name: trainer-normalization-receipt
