@@ -156,7 +156,7 @@ jobs:
         with:
           name: dist
           path: dist/
-      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # v1.14.3
+      - uses: chainguard-actions/pypa-gh-action-pypi-publish@3281eae6a06d4b96e24616f7821380f05fa50296  # v1.14.3
         with:
           # Only a rerun uploads the same dist artifact again. On a first attempt, a
           # version that PyPI already has came from another build, so the upload fails.
