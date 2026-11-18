@@ -442,8 +442,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.14.4" },
-    { name = "baseten-loops", specifier = ">=0.36.0,<0.37" },
-    { name = "baseten-loops", extras = ["torch"], marker = "extra == 'custom-loss'", specifier = ">=0.36.0,<0.37" },
+    { name = "baseten-loops", specifier = ">=0.34.0,<0.37" },
+    { name = "baseten-loops", extras = ["torch"], marker = "extra == 'custom-loss'", specifier = ">=0.34.0,<0.37" },
     { name = "blaxel", marker = "extra == 'blaxel'", specifier = ">=0.4.20,<0.5" },
     { name = "blaxel", marker = "extra == 'harbor-blaxel'", specifier = ">=0.4.20,<0.5" },
     { name = "daytona", marker = "extra == 'daytona'", specifier = ">=0.220.0,<0.227" },
