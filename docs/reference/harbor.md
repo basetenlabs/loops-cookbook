@@ -16,7 +16,7 @@ the run itself creates and owns every sandbox that Harbor starts, as
 Harbor is an optional extra. Its version is bounded to `harbor>=0.23,<0.24`, because
 the cookbook overrides some of Harbor's private members. The Harbor rollout runtime
 was last run end to end with Harbor 0.23.0 on baseten-loops 0.28.0. The cookbook now
-requires baseten-loops 0.34. Install the extra for the place your sandboxes will run:
+requires baseten-loops 0.36. Install the extra for the place your sandboxes will run:
 
 ```sh
 uv sync --extra harbor      # Harbor on Docker
