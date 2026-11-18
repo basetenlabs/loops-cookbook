@@ -12,6 +12,8 @@ from loops_cookbook.llm.factory import create_renderer
 from loops_cookbook.sft.data import ChatExample, Row
 from loops_cookbook.sft.sequences import IGNORE_INDEX, Refused, supervise
 
+from .conftest import DEEPSEEK_V41_MODELS, pinned_tokenizer
+
 GLM_RENDERER = "loops_cookbook.llm.renderer_extensions.glm53:renderer"
 
 TOOLS = [
@@ -84,6 +86,16 @@ def build(request, name, **chat_template_kwargs):
     elif name == "glm":
         tokenizer = request.getfixturevalue("glm53_tokenizer")
         model, extension = "zai-org/GLM-5.3", GLM_RENDERER
+    elif name.startswith("deepseek"):
+        model = {
+            "deepseek-v4.1": "DeepSeek-V4.1-Flash",
+            "deepseek-1017": "DeepSeek-V4.1-Flash-1017",
+        }[name]
+        revision = DEEPSEEK_V41_MODELS[model][1]
+        tokenizer = pinned_tokenizer(
+            f"deepseek-ai/{model}", revision, "LOOPS_DEEPSEEK_TOKENIZER_CACHE"
+        )
+        model, extension = tokenizer.name_or_path, None
     else:
         tokenizer = request.getfixturevalue("nemotron_tokenizer")
         model, extension = tokenizer.name_or_path, None
@@ -93,7 +105,7 @@ def build(request, name, **chat_template_kwargs):
     return name, renderer, tokenizer
 
 
-@pytest.fixture(params=["qwen", "glm", "nemotron"])
+@pytest.fixture(params=["qwen", "glm", "nemotron", "deepseek-v4.1", "deepseek-1017"])
 def family(request):
     """``(name, renderer, tokenizer)`` for each supported model family."""
     return build(request, request.param)
@@ -170,12 +182,14 @@ def test_a_context_only_turn_trains_nothing(family):
 
 
 def test_history_rendering_decides_whether_turns_train_together(family):
-    """GLM-5.3 keeps reasoning in history; Qwen3.6 and Nemotron drop it before the
-    latest user message, so their earlier turns each train as their own sequence."""
+    """GLM-5.3 keeps reasoning in history, and DeepSeek-V4.1 keeps it when tools are
+    declared, as here; Qwen3.6 and Nemotron drop it before the latest user message, so
+    their earlier turns each train as their own sequence."""
     name, renderer, _ = family
     supervised = supervise(row(FOLLOW_UP), renderer, max_seq_len=8192)
-    assert supervised.per_turn is (name != "glm")
-    assert len(supervised.sequences) == (1 if name == "glm" else 3)
+    together = name == "glm" or name.startswith("deepseek")
+    assert supervised.per_turn is not together
+    assert len(supervised.sequences) == (1 if together else 3)
 
 
 @pytest.mark.parametrize("messages", CONVERSATIONS.values(), ids=CONVERSATIONS.keys())
@@ -217,6 +231,10 @@ WITHOUT_REASONING = [
         # <think>\n: no sequence is what the model wrote, so only thinking-off trains it.
         ("nemotron", {}, False),
         ("nemotron", {"enable_thinking": False}, True),
+        ("deepseek-v4.1", {}, True),
+        ("deepseek-v4.1", {"enable_thinking": False}, True),
+        ("deepseek-1017", {}, True),
+        ("deepseek-1017", {"enable_thinking": False}, True),
     ],
 )
 def test_turns_without_reasoning_train_as_the_model_writes_them(request, name, options, trains):

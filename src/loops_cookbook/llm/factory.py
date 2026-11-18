@@ -30,6 +30,8 @@ _SUPER_VL = f"{_EXTENSIONS}.nemotron:super_vl"
 _MUSE_SPARK = f"{_EXTENSIONS}.muse_spark:renderer"
 _QWEN36 = f"{_EXTENSIONS}.qwen36:qwen36"
 _QWEN38 = f"{_EXTENSIONS}.qwen36:qwen38"
+_DEEPSEEK_V41 = f"{_EXTENSIONS}.deepseek_v41:v41"
+_DEEPSEEK_V41_1017 = f"{_EXTENSIONS}.deepseek_v41:v41_1017"
 
 # The cookbook's renderer for each of these models, keyed by tokenizer name as Prime
 # matches them. It is selected when [model] renderer is not set. Each renderer is
@@ -50,6 +52,8 @@ COOKBOOK_RENDERERS: dict[str, str] = {
     "Qwen/Qwen3.6-27B": _QWEN36,
     "Qwen/Qwen3.6-35B-A3B": _QWEN36,
     "Qwen/Qwen3.8-27B": _QWEN38,
+    "deepseek-ai/DeepSeek-V4.1-Flash": _DEEPSEEK_V41,
+    "deepseek-ai/DeepSeek-V4.1-Flash-1017": _DEEPSEEK_V41_1017,
 }
 
 _BY_FOLDED_NAME = {name.casefold(): path for name, path in COOKBOOK_RENDERERS.items()}
