@@ -18,6 +18,7 @@ from support.harness import Renderer
 
 from loops_cookbook.evidence import TaskRef
 from loops_cookbook.model_access.api import ModelAccessMode
+from loops_cookbook.model_access.lease import affinity_key
 from loops_cookbook.rl import recipe
 from loops_cookbook.rl.run import Run
 from loops_cookbook.runtime.api import EpisodeResult, GradeResult, RuntimeCapabilities
@@ -186,6 +187,37 @@ async def test_evals_run_before_training_on_the_cadence_and_after_the_last_updat
     (at_three,) = [e for e in events if e.step == 3 and "eval/val/reward_mean" in e.gauges]
     assert at_three.gauges["eval/val/reward_mean"] == 0.5
     assert training.closed and evaluation.closed
+
+
+async def test_every_attempt_at_an_eval_rollout_sends_the_loops_rollout_id_its_row_names(config):
+    """A retried eval rollout keeps its Loops rollout ID, as a training rollout does."""
+    run, trainer, _, evaluation = build(config, max_steps=1, max_rollout_retries=1)
+    failed = set()
+
+    async def first_attempt_at_e0_fails(attempt):
+        identity = attempt.spec.identity
+        if attempt.spec.task.id == "e0" and identity.rollout_id not in failed:
+            failed.add(identity.rollout_id)
+            conversation = attempt.services.model_access.llm().conversation()
+            await conversation.generate(messages=[{"role": "user", "content": "x"}])
+            raise RuntimeError("the first attempt fails")
+
+    evaluation.on_sample = first_attempt_at_e0_fails
+    assert (await asyncio.wait_for(run.execute(), 10)).ok
+    for sampler, stem in zip(trainer.eval_samplers, ("base", "step-0"), strict=True):
+        rows = [
+            json.loads(line)
+            for line in (run.out / "eval" / "val" / f"{stem}.jsonl").read_text().splitlines()
+        ]
+        for row in rows:
+            assert row["loops_rollout_id"] == affinity_key(
+                run._affinity_namespace, row["rollout_id"]
+            )
+        # e0's first attempt and its retry each sampled once, under one ID.
+        expected = [
+            row["loops_rollout_id"] for row in rows for _ in range(1 + (row["task_id"] == "e0"))
+        ]
+        assert sorted(sampler.rollout_ids) == sorted(expected)
 
 
 async def test_a_dedicated_eval_sampler_reporting_its_own_version_is_still_graded(config):

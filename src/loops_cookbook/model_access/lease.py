@@ -89,14 +89,15 @@ from loops_cookbook.trainer import Capacity
 logger = logging.getLogger(__name__)
 
 
-def affinity_key(namespace: str, identity: AttemptIdentity) -> str:
-    """Return the sampler affinity key of ``identity``'s rollout.
+def affinity_key(namespace: str, rollout_id: str) -> str:
+    """Return the sampler affinity key of the rollout ``rollout_id``.
 
     Every attempt at the rollout gets the same key. It is ``namespace``, which is one
     per run, and a digest of the rollout ID. The digest is used because the rollout ID
     carries the task's ID, which the user chooses and which may not fit in a header.
+    Each request also sends the key to Loops as its rollout ID.
     """
-    return f"{namespace}:{hashlib.sha256(identity.rollout_id.encode()).hexdigest()[:32]}"
+    return f"{namespace}:{hashlib.sha256(rollout_id.encode()).hexdigest()[:32]}"
 
 
 class RequestState(str, Enum):
@@ -207,13 +208,23 @@ def _echo_matches(returned: Sequence[int], ids: TokenSpan, has_images: bool) -> 
 
 class AttemptLease:
     def __init__(
-        self, identity: AttemptIdentity, wiring: LeaseWiring, *, affinity_key: str | None
+        self,
+        identity: AttemptIdentity,
+        wiring: LeaseWiring,
+        *,
+        affinity_key: str | None,
+        rollout_id: str,
     ) -> None:
         if affinity_key == "":
             raise ValueError("affinity_key must not be empty")
+        # Loops takes 1 to 80 visible ASCII characters. Refuse anything else here, because
+        # the SDK refuses it only at the first request, as what looks like a transport failure.
+        if not 1 <= len(rollout_id) <= 80 or not all("!" <= c <= "~" for c in rollout_id):
+            raise ValueError(f"rollout_id must be 1 to 80 visible ASCII characters: {rollout_id!r}")
         self.identity = identity
         self._wiring = wiring
         self._affinity_key = affinity_key
+        self._rollout_id = rollout_id
         self._sampler: SamplingClient | None = None
         self._sampler_version: int | None = None
         self._requests: dict[str, _Request] = {}
@@ -455,9 +466,9 @@ class AttemptLease:
                 num_samples=1,
                 sampling_params=sampling_params,
                 affinity_key=self._affinity_key,
-                # Loops traces the request by this ID, and the run files its samples
-                # and transcript under it.
-                rollout_id=self.identity.attempt_id,
+                # Loops traces the request by this ID. It is the same for every
+                # attempt at the rollout, so a retry does not count as a new rollout.
+                rollout_id=self._rollout_id,
                 # A recorded generation carries its routes for router replay. Every
                 # other generation tells the sampler not to capture them.
                 include_routed_experts=self._wiring.records_generations,

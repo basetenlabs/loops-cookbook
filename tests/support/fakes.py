@@ -195,11 +195,14 @@ class MemoryTrainer:
         self.serverless = False
         self.connected = self.run_active = False
         self.loaded = []
+        # The rollout ID that each sampling request sent for Loops to trace.
+        self.rollout_ids = []
 
     async def start(self):
         return self
 
     async def sample_async(self, prompt, **kwargs):
+        self.rollout_ids.append(kwargs.get("rollout_id"))
         version = self.policy_version
         await asyncio.sleep(0)
         return SimpleNamespace(
@@ -284,9 +287,12 @@ class EvalSampler:
         self.reports = reports
         self.deactivated = False
         self.calls = 0
+        # The rollout ID that each sampling request sent for Loops to trace.
+        self.rollout_ids = []
 
     async def sample_async(self, prompt, **kwargs):
         self.calls += 1
+        self.rollout_ids.append(kwargs.get("rollout_id"))
         await asyncio.sleep(0)
         return SimpleNamespace(
             prompt_token_ids=None,
