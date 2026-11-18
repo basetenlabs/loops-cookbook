@@ -280,7 +280,9 @@ def rig(
         runtime.capabilities,
         DriverSettings(**values),
         capacity=capacity,
-        leases=lambda identity: AttemptLease(identity, wiring, affinity_key=None),
+        leases=lambda identity: AttemptLease(
+            identity, wiring, affinity_key=None, rollout_id=identity.attempt_id
+        ),
         access=access or (lambda lease: DirectModelAccess(lease, Renderers(Renderer()))),  # pyright: ignore[reportArgumentType]
         resources=resources or no_resources,
         metrics=metrics,
