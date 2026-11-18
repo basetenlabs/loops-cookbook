@@ -28,7 +28,7 @@ from support.harness import Renderer
 
 from loops_cookbook.evidence import AttemptIdentity
 from loops_cookbook.llm.rendering import RenderedPrompt
-from loops_cookbook.model_access.lease import loops_rollout_id
+from loops_cookbook.model_access.lease import affinity_key
 from loops_cookbook.rl import recipe
 from loops_cookbook.rl.run import Manifest, Run, finished_hint, row_record
 from loops_cookbook.run_record import finished_message, manifest_path
@@ -894,13 +894,13 @@ def test_assemble_uses_a_trainer_it_is_given_as_is(config, monkeypatch):
 async def test_a_resume_replays_a_rollout_under_the_loops_rollout_id_it_had(rl_run, first_manifest):
     """A replayed rollout keeps its ID, so Loops still counts it as one rollout."""
     manifest = await first_manifest()
-    namespace = json.loads(manifest.read_text())["rollout_namespace"]
+    namespace = json.loads(manifest.read_text())["affinity_namespace"]
     resumed, trainer, _ = rl_run(resuming(), max_steps=2, resume_from=str(manifest))
     assert (await resumed.execute()).ok
-    assert resumed._rollout_namespace == namespace
+    assert resumed._affinity_namespace == namespace
     replayed = [r for r in records(resumed) if r["step"] == 1]
     assert replayed and all(
-        r["loops_rollout_id"] == loops_rollout_id(namespace, r["rollout_id"]) for r in replayed
+        r["loops_rollout_id"] == affinity_key(namespace, r["rollout_id"]) for r in replayed
     )
     assert set(trainer.rollout_ids) == {r["loops_rollout_id"] for r in replayed}
 

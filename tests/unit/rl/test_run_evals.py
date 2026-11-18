@@ -18,6 +18,7 @@ from support.harness import Renderer
 
 from loops_cookbook.evidence import TaskRef
 from loops_cookbook.model_access.api import ModelAccessMode
+from loops_cookbook.model_access.lease import affinity_key
 from loops_cookbook.rl import recipe
 from loops_cookbook.rl.run import Run
 from loops_cookbook.runtime.api import EpisodeResult, GradeResult, RuntimeCapabilities
@@ -209,7 +210,9 @@ async def test_every_attempt_at_an_eval_rollout_sends_the_loops_rollout_id_its_r
             for line in (run.out / "eval" / "val" / f"{stem}.jsonl").read_text().splitlines()
         ]
         for row in rows:
-            assert row["loops_rollout_id"] == run._loops_rollout_id(row["rollout_id"])
+            assert row["loops_rollout_id"] == affinity_key(
+                run._affinity_namespace, row["rollout_id"]
+            )
         # e0's first attempt and its retry each sampled once, under one ID.
         expected = [
             row["loops_rollout_id"] for row in rows for _ in range(1 + (row["task_id"] == "e0"))

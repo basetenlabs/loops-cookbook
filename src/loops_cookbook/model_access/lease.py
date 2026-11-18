@@ -89,15 +89,13 @@ from loops_cookbook.trainer import Capacity
 logger = logging.getLogger(__name__)
 
 
-def loops_rollout_id(namespace: str, rollout_id: str) -> str:
-    """Return the one ID that Loops knows the rollout ``rollout_id`` by.
+def affinity_key(namespace: str, rollout_id: str) -> str:
+    """Return the sampler affinity key of the rollout ``rollout_id``.
 
-    Every sampling request of the rollout sends it for tracing. When replica affinity is
-    on, the request also sends it as the affinity key. Every attempt at the rollout gets
-    the same ID, so Loops sees a retried rollout as one rollout and routes it to one
-    replica. The ID is ``namespace``, which is one per run, and a digest of the rollout
-    ID. The digest is used because the rollout ID carries the task's ID, which the user
-    chooses and which may not fit in a header.
+    Every attempt at the rollout gets the same key. It is ``namespace``, which is one
+    per run, and a digest of the rollout ID. The digest is used because the rollout ID
+    carries the task's ID, which the user chooses and which may not fit in a header.
+    Each request also sends the key to Loops as its rollout ID.
     """
     return f"{namespace}:{hashlib.sha256(rollout_id.encode()).hexdigest()[:32]}"
 
