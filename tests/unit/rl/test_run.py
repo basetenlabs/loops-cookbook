@@ -28,7 +28,7 @@ from support.harness import Renderer
 
 from loops_cookbook.evidence import AttemptIdentity
 from loops_cookbook.llm.rendering import RenderedPrompt
-from loops_cookbook.model_access.lease import traced_rollout_id
+from loops_cookbook.model_access.lease import loops_rollout_id
 from loops_cookbook.rl import recipe
 from loops_cookbook.rl.run import Manifest, Run, finished_hint, row_record
 from loops_cookbook.run_record import finished_message, manifest_path
@@ -210,6 +210,8 @@ async def test_affinity_unique_per_run_rollout_but_stable_across_retries_and_for
     if sticky:
         assert keys[0] == keys[1] == keys[2]
         assert len({keys[0], keys[3], keys[4]}) == 3
+        # The affinity key is the rollout's Loops rollout ID.
+        assert keys == trainer.rollout_ids
     else:
         assert keys == [None] * 5
 
@@ -898,7 +900,7 @@ async def test_a_resume_replays_a_rollout_under_the_loops_rollout_id_it_had(rl_r
     assert resumed._rollout_namespace == namespace
     replayed = [r for r in records(resumed) if r["step"] == 1]
     assert replayed and all(
-        r["loops_rollout_id"] == traced_rollout_id(namespace, r["rollout_id"]) for r in replayed
+        r["loops_rollout_id"] == loops_rollout_id(namespace, r["rollout_id"]) for r in replayed
     )
     assert set(trainer.rollout_ids) == {r["loops_rollout_id"] for r in replayed}
 

@@ -37,8 +37,7 @@ from loops_cookbook.model_access.lease import (
     Freshness,
     LeaseState,
     LeaseWiring,
-    affinity_key,
-    traced_rollout_id,
+    loops_rollout_id,
 )
 from loops_cookbook.model_access.producers import ProducerSettings
 from loops_cookbook.trainer import Capacity
@@ -328,7 +327,7 @@ async def test_every_attempt_at_a_rollout_is_traced_under_one_id_that_is_unique_
         ("run-2", "a4", long_task),  # another run with the same rollout ID
     ):
         who = identity(attempt_id, rollout_id)
-        traced = traced_rollout_id(namespace, rollout_id)
+        traced = loops_rollout_id(namespace, rollout_id)
         attempt = AttemptLease(who, built, affinity_key=None, rollout_id=traced)
         for _ in range(2):
             await attempt.generate(
@@ -337,7 +336,7 @@ async def test_every_attempt_at_a_rollout_is_traced_under_one_id_that_is_unique_
     ids = [request.headers["x-rollout-id"] for request in requests][::2]
     assert ids[0] == ids[1]
     assert len({ids[0], ids[2], ids[3]}) == 3
-    assert all(len(i) == 32 and "t" * 8 not in i and "caf" not in i for i in ids)
+    assert all(len(i) <= 80 and "t" * 8 not in i and "caf" not in i for i in ids)
 
 
 @pytest.mark.parametrize("rollout_id", ["", "r" * 81, "g0000001-café-r1", "has space"])
@@ -361,11 +360,14 @@ async def test_a_rollouts_affinity_key_holds_across_its_attempts_and_carries_not
         ("a3", "g0000001-café-1-r1"),
     ):
         who = identity(attempt_id, rollout_id)
-        attempt = AttemptLease(who, built, affinity_key=affinity_key("run-ns", who), rollout_id="r")
+        key = loops_rollout_id("run-ns", rollout_id)
+        attempt = AttemptLease(who, built, affinity_key=key, rollout_id=key)
         await attempt.generate("main", prompt(), SamplingParams(max_tokens=1), conversation_id="c")
     keys = [request.headers["x-baseten-session-id"] for request in requests]
     assert keys[0] == keys[1] != keys[2]
     assert all(key.startswith("run-ns:") and "caf" not in key for key in keys)
+    # Affinity and tracing name the rollout by one ID.
+    assert keys == [request.headers["x-rollout-id"] for request in requests]
 
 
 def publishing_wiring(capacity, first, published):

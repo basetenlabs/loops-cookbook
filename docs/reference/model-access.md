@@ -53,16 +53,18 @@ Each `generate(messages=..., tools=..., ...)` call does four things:
 
    Each request names the rollout ID that Loops traces it under. Every attempt at a
    rollout sends the same ID, so Loops counts a retried rollout once. The ID is a
-   digest of the rollout and of a random value that the run picks when it starts.
-   Two runs therefore never share an ID, even when they have the same name. The run
-   saves that value in its checkpoint manifests, so a resumed run sends the same ID
-   when it replays a rollout. The run
-   files each attempt's samples and transcript under the attempt's own ID. With
-   `[compute].sampler_replica_affinity` on, which is the default, each request also
-   carries an affinity key. The key is the same for every attempt of a rollout, so
-   Loops sends all of the rollout's requests to one sampler replica, whose prefix cache
-   already holds the growing prompt. Affinity is a routing hint. When Loops can't pin
-   a request, it serves the request without affinity.
+   random value that the run picks when it starts, followed by a digest of the
+   rollout. Two runs therefore never share an ID, even when they have the same name.
+   The run saves that value in its checkpoint manifests, so a resumed run sends the
+   same ID when it replays a rollout. The run files each attempt's samples and
+   transcript under the attempt's own ID.
+
+   With `[compute].sampler_replica_affinity` on, which is the default, each request
+   also sends the rollout ID as its affinity key. Loops then sends all of the
+   rollout's requests to one sampler replica, whose prefix cache already holds the
+   growing prompt. Affinity is a routing hint. When Loops can't pin a request, it
+   serves the request without affinity. Eval requests carry no affinity key, but they
+   still name their rollout ID.
 3. **Record.** The client stores a `Sample`. A `Sample` holds the prompt IDs, the
    completion IDs, the logprobs, the policy version, the stop reason, the `max_tokens`
    it was sampled with, and the conversation and producer it came from. When the budget

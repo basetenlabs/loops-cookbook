@@ -52,8 +52,7 @@ from loops_cookbook.model_access.lease import (
     DirectModelAccess,
     Freshness,
     LeaseWiring,
-    affinity_key,
-    traced_rollout_id,
+    loops_rollout_id,
 )
 from loops_cookbook.model_access.openai.access import HttpModelAccess
 from loops_cookbook.model_access.openai.gateway import Gateway, GatewaySettings
@@ -1111,9 +1110,9 @@ class Run:
         affinity = self.config.compute.sampler_replica_affinity
 
         def lease(identity: AttemptIdentity) -> AttemptLease:
-            key = affinity_key(self._rollout_namespace, identity) if affinity else None
-            traced = self._loops_rollout_id(identity.rollout_id)
-            return AttemptLease(identity, wiring, affinity_key=key, rollout_id=traced)
+            rollout_id = self._loops_rollout_id(identity.rollout_id)
+            key = rollout_id if affinity else None
+            return AttemptLease(identity, wiring, affinity_key=key, rollout_id=rollout_id)
 
         return lease
 
@@ -1506,9 +1505,9 @@ class Run:
         """Return the ID that every sampling request of the rollout ``rollout_id`` sends to Loops.
 
         Every lease and every record gets the ID here, so a Loops trace always matches
-        its record.
+        its record. A lease with replica affinity also sends it as the affinity key.
         """
-        return traced_rollout_id(self._rollout_namespace, rollout_id)
+        return loops_rollout_id(self._rollout_namespace, rollout_id)
 
     def _rollout_record(self, record: dict[str, Any]) -> dict[str, Any]:
         """Return a rollouts.jsonl record, with its Loops rollout ID and what its attempt

@@ -89,25 +89,17 @@ from loops_cookbook.trainer import Capacity
 logger = logging.getLogger(__name__)
 
 
-def affinity_key(namespace: str, identity: AttemptIdentity) -> str:
-    """Return the sampler affinity key of ``identity``'s rollout.
+def loops_rollout_id(namespace: str, rollout_id: str) -> str:
+    """Return the one ID that Loops knows the rollout ``rollout_id`` by.
 
-    Every attempt at the rollout gets the same key. It is ``namespace``, which is one
-    per run, and a digest of the rollout ID. The digest is used because the rollout ID
-    carries the task's ID, which the user chooses and which may not fit in a header.
+    Every sampling request of the rollout sends it for tracing. When replica affinity is
+    on, the request also sends it as the affinity key. Every attempt at the rollout gets
+    the same ID, so Loops sees a retried rollout as one rollout and routes it to one
+    replica. The ID is ``namespace``, which is one per run, and a digest of the rollout
+    ID. The digest is used because the rollout ID carries the task's ID, which the user
+    chooses and which may not fit in a header.
     """
-    return f"{namespace}:{hashlib.sha256(identity.rollout_id.encode()).hexdigest()[:32]}"
-
-
-def traced_rollout_id(namespace: str, rollout_id: str) -> str:
-    """Return the ID that Loops traces each sampling request of the rollout ``rollout_id`` under.
-
-    Every attempt at the rollout gets the same ID, so Loops sees a retried rollout as
-    one rollout. The ID is a digest of ``namespace``, which is one per run, and the
-    rollout ID. Two runs therefore never share an ID, even when they use the same run
-    name.
-    """
-    return hashlib.sha256(f"{namespace}:{rollout_id}".encode()).hexdigest()[:32]
+    return f"{namespace}:{hashlib.sha256(rollout_id.encode()).hexdigest()[:32]}"
 
 
 class RequestState(str, Enum):
