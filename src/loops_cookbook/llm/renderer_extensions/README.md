@@ -96,11 +96,23 @@ change the tokens:
 - The prompt opens with `<｜System｜>` in thinking mode, or when the first message is a
   system message.
 - The reasoning effort is a number from 1 to 100, written as `Reasoning Effort: 75 (...)`.
-- Images render in system, user and tool messages.
+- Images render as `<｜deepseek_image｜>`.
 
 So the extension doesn't subclass Prime's V4 renderer. It renders the template's text
 itself and tokenizes that text in one pass, as `apply_chat_template` does. It uses
 Prime only for the result types, `trim_to_turn_close` and `scan_tagged_response`.
+
+The extension renders what agents send, and it refuses the rest instead of copying
+every quirk of the template. It refuses these inputs:
+
+- a system message after the first one, which Prime's V4.1 work also refuses;
+- an image in a system or assistant message, which the Qwen renderers also refuse;
+- tool-call arguments given as a JSON string, which the 1017 template also refuses;
+- a tool message without content, and the template's own message keys, such as `task`.
+
+Its options are one pydantic config, as GLM-5.3's are. They are `enable_thinking`,
+`drop_thinking` and `reasoning_effort`. Both templates read these names, and both give
+`low`, `high` and `max` the same budgets.
 Prime's open PR for V4.1 (PrimeIntellect-ai/renderers#192) has no tool calls, no images
 and no bridge. When a Prime release has a V4.1 renderer that matches the template,
 compare it with this extension.

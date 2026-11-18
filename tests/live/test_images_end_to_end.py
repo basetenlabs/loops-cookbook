@@ -1,5 +1,7 @@
-"""Images reach the policy and train exactly: one GLM-5.3-Flash step on Loops, on Blaxel.
+"""Images reach the policy and train exactly: one step on Loops, on Blaxel, per model.
 
+``train.toml`` trains GLM-5.3-Flash on serverless capacity, and
+``train_deepseek_v41.toml`` trains DeepSeek-V4.1-Flash-1017 on dedicated capacity.
 ``loops run`` trains the job in ``vision_job/``: the agent's ``look`` tool returns
 each card's PNG as an image part, over several turns, and the verifier scores the
 answer. Loops cannot record an image prompt, so the job declares its images and trains
@@ -22,14 +24,15 @@ pytestmark = pytest.mark.live_loops
 JOB = Path(__file__).parent / "vision_job"
 
 
-def test_a_step_trains_on_images_returned_by_tools(tmp_path):
+@pytest.mark.parametrize("config", ["train.toml", "train_deepseek_v41.toml"])
+def test_a_step_trains_on_images_returned_by_tools(tmp_path, config):
     log = tmp_path / "run.log"
     with log.open("w") as out:
         finished = subprocess.run(
             [
                 LOOPSRL,
                 "run",
-                str(JOB / "train.toml"),
+                str(JOB / config),
                 "--output.output_dir",
                 str(tmp_path),
             ],
@@ -47,7 +50,7 @@ def test_a_step_trains_on_images_returned_by_tools(tmp_path):
         [
             LOOPSRL,
             "cleanup",
-            str(JOB / "train.toml"),
+            str(JOB / config),
             "--state-dir",
             str(run / "state"),
         ],

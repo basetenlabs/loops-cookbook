@@ -8,7 +8,11 @@ import pytest
 
 from loops_cookbook.llm.factory import create_renderer
 from loops_cookbook.llm.renderer_extensions import deepseek_v41 as extension
-from loops_cookbook.llm.renderer_extensions.deepseek_v41 import DeepSeekV41Renderer, image_tokens
+from loops_cookbook.llm.renderer_extensions.deepseek_v41 import (
+    DeepSeekV41Renderer,
+    DeepSeekV41RendererConfig,
+    image_tokens,
+)
 from loops_cookbook.llm.rendering import RenderingError
 
 TOOLS = [
@@ -70,7 +74,6 @@ HISTORIES = [
         {"role": "user", "content": [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]},
         {"role": "user", "content": "c"},
         {"role": "assistant", "content": "x"},
-        {"role": "system", "content": "mid"},
         {"role": "user", "content": "d"},
     ],
     [
@@ -80,7 +83,7 @@ HISTORIES = [
 ]
 OPTIONS = [
     {},
-    {"thinking_mode": "chat"},
+    {"enable_thinking": False},
     {"reasoning_effort": "max", "drop_thinking": False},
     {"reasoning_effort": 30},
 ]
@@ -104,7 +107,7 @@ def template_ids(tokenizer, messages, tools=None, *, add_generation_prompt=True,
 def test_prompts_are_the_templates_tokens(deepseek_v41, history, tools, options, generation):
     variant, tokenizer, _ = deepseek_v41
     original = deepcopy(history)
-    rendered = DeepSeekV41Renderer(tokenizer, variant, options).render(
+    rendered = DeepSeekV41Renderer(tokenizer, variant, DeepSeekV41RendererConfig(**options)).render(
         history, tools=tools, add_generation_prompt=generation
     )
     expected = template_ids(tokenizer, history, tools, add_generation_prompt=generation, **options)
@@ -154,7 +157,8 @@ def image(width, height):
 IMAGE_HISTORIES = [
     [{"role": "user", "content": [image(640, 480), {"type": "text", "text": "What is this?"}]}],
     [
-        {"role": "system", "content": [{"type": "text", "text": "Look:"}, image(100, 100)]},
+        {"role": "system", "content": "Look closely."},
+        {"role": "user", "content": [image(100, 100)]},
         {"role": "user", "content": [image(64, 900), image(4000, 3000)]},
     ],
     [
@@ -251,7 +255,7 @@ BRIDGES = [
     pytest.param(
         {"drop_thinking": False}, (), [{"role": "user", "content": "more"}], True, id="kept"
     ),
-    pytest.param({"thinking_mode": "chat"}, (), [{"role": "user", "content": "more"}], True),
+    pytest.param({"enable_thinking": False}, (), [{"role": "user", "content": "more"}], True),
     pytest.param({}, TOOLS, [IMAGE_HISTORIES[0][0]], True, id="image"),
 ]
 
@@ -347,3 +351,33 @@ def test_the_parser_reports_a_call_it_cannot_read_whole(deepseek_v41):
     parsed = renderer.parse(prompt.ids, cut, TOOLS)
     assert [call.status for call in parsed.tool_calls] == ["unclosed_block"]
     assert parsed.native_message is None
+
+
+REFUSED = [
+    pytest.param(
+        [{"role": "user", "content": "q"}, {"role": "system", "content": "mid"}], id="late system"
+    ),
+    pytest.param(
+        [{"role": "system", "content": [image(10, 10)]}, {"role": "user", "content": "q"}],
+        id="system image",
+    ),
+    pytest.param(
+        [
+            {"role": "user", "content": "q"},
+            {"role": "assistant", "content": "", "tool_calls": [call("a", "bash", '{"cmd": "x"}')]},
+        ],
+        id="string arguments",
+    ),
+    pytest.param(
+        [{"role": "user", "content": "q"}, {"role": "tool", "tool_call_id": "a", "content": None}],
+        id="no tool content",
+    ),
+]
+
+
+@pytest.mark.parametrize("history", REFUSED)
+def test_what_agents_do_not_send_is_refused(deepseek_v41, history):
+    _, tokenizer, _ = deepseek_v41
+    renderer = create_renderer(tokenizer.name_or_path, tokenizer=tokenizer)
+    with pytest.raises(RenderingError):
+        renderer.render(history)

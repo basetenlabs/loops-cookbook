@@ -4,15 +4,19 @@ It follows each checkpoint's ``chat_template.jinja``: DeepSeek-V4.1-Flash at rev
 314113f8a7dadb388215396ba5fbee2c610a04d6, and DeepSeek-V4.1-Flash-1017 at revision
 08c8657f02291e11b6f6b63e0e16014f8e748518. Prime 0.2.0 has a renderer for V4 only. V4.1
 renamed the tool-call tags, opens the prompt with ``<｜System｜>``, writes the reasoning
-effort as a number and takes images. So this module renders the template itself, and it
-uses Prime only for the result types, the turn-close helper and the response scanner.
+effort as a number and takes images. So this module writes the template's text itself,
+and it uses Prime only for the result types, the turn-close helper and the scanner.
+
+It renders what agents send, and it refuses the rest instead of copying every template
+quirk. It refuses a system message after the first one, as Prime's V4.1 work does. It
+takes images in user and tool messages, as the Qwen renderers do.
 
 The template writes one ``<｜deepseek_image｜>`` per image, and the inference engine
 expands it. The trainer needs the expanded form, so this renderer writes the token once
 for each image token. The checkpoints ship no image processor. The count comes from the
 image's size, as the trainer's ``deepseek_v41_image_tokens`` computes it.
 
-The two checkpoints differ in when a turn starts, which decides whose reasoning the
+The two checkpoints differ only in when a turn starts, which decides whose reasoning the
 template drops. V4.1 starts a turn at every user message, tool results included. 1017
 starts one only at a user message that holds text or an image. Neither drops reasoning
 when the conversation declares tools.
@@ -27,9 +31,10 @@ import json
 import math
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
-from typing import Any, Literal
+from dataclasses import dataclass
+from typing import Annotated, Any, Literal
 
+from pydantic import BaseModel, ConfigDict, Field
 from renderers.base import (
     MultiModalData,
     ParsedResponse,
@@ -68,25 +73,6 @@ _TOOLS_FOOTER = (
     "\n\nYou MUST strictly follow the above defined tool name and parameter schemas to "
     "invoke tool calls.\n"
 )
-
-_EFFORT_BUDGETS: dict[Variant, dict[str, int]] = {
-    "v4.1": {"low": 50, "medium": 62, "high": 75, "max": 100},
-    "1017": {
-        "none": 75,
-        "minimal": 50,
-        "low": 50,
-        "medium": 75,
-        "high": 75,
-        "xhigh": 75,
-        "max": 100,
-    },
-}
-_OPTIONS: dict[Variant, frozenset[str]] = {
-    "v4.1": frozenset({"thinking_mode", "enable_thinking", "reasoning_effort", "drop_thinking"}),
-    "1017": frozenset(
-        {"thinking_mode", "thinking", "enable_thinking", "reasoning_effort", "drop_thinking"}
-    ),
-}
 
 # vLLM's deepseek_v41 tool parser: V4's states, with V4.1's tag names.
 _GRAMMAR = TaggedGrammar(
@@ -148,54 +134,24 @@ def _shrink_to_budget(height: float, width: float) -> tuple[int, int]:
     )
 
 
-@dataclass(frozen=True)
-class Options:
-    """The chat-template options, resolved as the template resolves them."""
-
-    thinking: bool
-    drop_thinking: bool
-    budget: int
+_BUDGETS = {"low": 50, "high": 75, "max": 100}
 
 
-def options(variant: Variant, kwargs: Mapping[str, Any]) -> Options:
-    """Resolve ``renderer_chat_template_kwargs`` as the checkpoint's template does.
+class DeepSeekV41RendererConfig(BaseModel):
+    """The template options that ``renderer_chat_template_kwargs`` may set.
 
-    An option the template doesn't read is refused, so a misspelled option fails at
-    ``loops check`` instead of being ignored.
+    Both templates read these names, and both give the named efforts the same budgets.
     """
-    unknown = sorted(set(kwargs) - _OPTIONS[variant])
-    if unknown:
-        raise ValueError(
-            f"DeepSeek-V4.1 renderer options are {sorted(_OPTIONS[variant])}, not {unknown}"
-        )
-    effort = kwargs.get("reasoning_effort")
-    mode = kwargs.get("thinking_mode")
-    if mode is None:
-        switch = kwargs.get("thinking") if variant == "1017" else None
-        if switch is None:
-            switch = kwargs.get("enable_thinking")
-        if switch is not None:
-            mode = "thinking" if switch else "chat"
-        else:
-            mode = "chat" if variant == "1017" and effort == "none" else "thinking"
-    if mode not in ("chat", "thinking"):
-        raise ValueError(f'thinking_mode must be "chat" or "thinking", not {mode!r}')
-    if effort is None:
-        effort = "high"
-    budgets = _EFFORT_BUDGETS[variant]
-    if isinstance(effort, str) and effort in budgets:
-        budget = budgets[effort]
-    elif isinstance(effort, int) and not isinstance(effort, bool) and 1 <= effort <= 100:
-        budget = effort
-    else:
-        raise ValueError(
-            f"reasoning_effort must be an integer from 1 to 100 or one of {sorted(budgets)}, "
-            f"not {effort!r}"
-        )
-    drop = kwargs.get("drop_thinking", True)
-    if not isinstance(drop, bool):
-        raise TypeError(f"drop_thinking must be true or false, not {drop!r}")
-    return Options(thinking=mode == "thinking", drop_thinking=drop, budget=budget)
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+    enable_thinking: bool = True
+    drop_thinking: bool = True
+    reasoning_effort: Literal["low", "high", "max"] | Annotated[int, Field(ge=1, le=100)] = "high"
+
+    @property
+    def budget(self) -> int:
+        effort = self.reasoning_effort
+        return _BUDGETS[effort] if isinstance(effort, str) else effort
 
 
 # --- messages as the template merges them ---------------------------------------------
@@ -206,25 +162,17 @@ Piece = str | Mapping[str, Any]
 
 @dataclass
 class _Block:
-    kind: Literal["text", "image", "tool_result"]
     pieces: list[Piece]
     owner: int
-    call_id: Any = ""
+    call_id: Any = None  # set on a tool result
 
 
 @dataclass
 class _Turn:
     role: str
     owner: int
-    blocks: list[_Block] = field(default_factory=list)
-    message: Mapping[str, Any] = field(default_factory=dict)
-    tools: Sequence[Mapping[str, Any]] = ()
-
-
-def _is_image(part: Any) -> bool:
-    from loops_cookbook.llm.images import is_image_part
-
-    return isinstance(part, Mapping) and is_image_part(part)
+    blocks: list[_Block]
+    message: Mapping[str, Any]
 
 
 def _text(text: Any) -> str:
@@ -235,39 +183,33 @@ def _text(text: Any) -> str:
     return text
 
 
-def _joined(content: Any, *, images: bool) -> list[Piece]:
-    """Return a content list's text and images, joined by blank lines as the template joins them."""
+def _pieces(content: Any, *, images: bool) -> list[Piece]:
+    """Return a message's text and images, joined by blank lines as the template joins them."""
+    if isinstance(content, str):
+        return [_text(content)]
+    if not isinstance(content, list):
+        raise TypeError("DeepSeek-V4.1 content must be a string or a list of parts")
+    from loops_cookbook.llm.images import is_image_part
+
     pieces: list[Piece] = []
     for part in content:
         if pieces:
             pieces.append("\n\n")
         if isinstance(part, Mapping) and part.get("type") == "text":
             pieces.append(_text(part.get("text") or ""))
-        elif images and _is_image(part):
+        elif images and isinstance(part, Mapping) and is_image_part(part):
             pieces.append(part)
-        elif _is_image(part):
-            raise ValueError("DeepSeek-V4.1 takes images in system, user and tool messages only")
         else:
-            raise ValueError("DeepSeek-V4.1 content parts must be text or images")
+            raise ValueError(
+                "DeepSeek-V4.1 takes text parts, and images in user and tool messages only"
+            )
     return pieces
 
 
-def _body(content: Any, *, images: bool) -> list[Piece]:
-    if content is None:
-        return [""]
-    if isinstance(content, str):
-        return [_text(content)]
-    if isinstance(content, list):
-        return _joined(content, images=images)
-    raise ValueError("DeepSeek-V4.1 content must be a string or a list of parts")
+_REFUSED_KEYS = ("task", "wo_eos", "response_format", "tools", "content_blocks", "thinking")
 
 
-_REFUSED_KEYS = ("task", "wo_eos", "response_format", "tools", "content_blocks")
-
-
-def _merge(
-    variant: Variant, messages: Sequence[Mapping[str, Any]], tools: Sequence[Mapping[str, Any]]
-) -> list[_Turn]:
+def _merge(messages: Sequence[Mapping[str, Any]]) -> list[_Turn]:
     """Merge tool results and consecutive user messages into user turns, as the template does."""
     turns: list[_Turn] = []
     for index, message in enumerate(messages):
@@ -275,53 +217,29 @@ def _merge(
         refused = [key for key in _REFUSED_KEYS if message.get(key) is not None]
         if refused:
             raise ValueError(f"the DeepSeek-V4.1 renderer does not render {refused[0]!r}")
-        if role == "tool":
+        if role in ("user", "tool"):
             content = message.get("content")
-            if isinstance(content, list):
-                pieces = _joined(content, images=True)
-            elif content is None:
-                # The V4.1 template writes a missing tool content as Jinja writes None.
-                pieces = ["" if variant == "1017" else "None"]
+            if role == "tool":
+                if content is None:
+                    raise ValueError("a DeepSeek-V4.1 tool message needs content")
+                pieces = ["<tool_result>", *_pieces(content, images=True), "</tool_result>"]
+                block = _Block(pieces, index, message.get("tool_call_id", ""))
             else:
-                pieces = [_text(content)]
-            block = _Block(
-                "tool_result",
-                ["<tool_result>", *pieces, "</tool_result>"],
-                index,
-                message.get("tool_call_id", ""),
-            )
+                block = _Block(_pieces(content or "", images=True), index)
             if turns and turns[-1].role == "user":
                 turns[-1].blocks.append(block)
             else:
-                turns.append(_Turn("user", index, [block]))
-        elif role == "user":
-            content = message.get("content")
-            if isinstance(content, list):
-                blocks = []
-                for part in content:
-                    if _is_image(part):
-                        blocks.append(_Block("image", [part], index))
-                    elif isinstance(part, Mapping) and part.get("type") == "text":
-                        blocks.append(_Block("text", [_text(part.get("text") or "")], index))
-                    else:
-                        raise ValueError("DeepSeek-V4.1 content parts must be text or images")
-            else:
-                blocks = [_Block("text", [_text(content or "")], index)]
-            if turns and turns[-1].role == "user":
-                turns[-1].blocks.extend(blocks)
-            else:
-                turns.append(_Turn("user", index, blocks))
-        elif role in ("system", "assistant"):
-            if role == "assistant":
-                _reasoning(message)  # The template checks reasoning it then drops, too.
-            turns.append(_Turn(role, index, message=message))
+                turns.append(_Turn("user", index, [block], {}))
+        elif role == "system" and not turns:
+            turns.append(_Turn(role, index, [], message))
+        elif role == "assistant":
+            _text(message.get("reasoning_content") or "")  # checked even where it's dropped
+            turns.append(_Turn(role, index, [], message))
         else:
-            raise ValueError(f"the DeepSeek-V4.1 template has no {role!r} role")
-    if tools:
-        if turns and turns[0].role == "system":
-            turns[0].tools = tools
-        else:
-            turns.insert(0, _Turn("system", -1, message={"content": ""}, tools=tools))
+            raise ValueError(
+                "the DeepSeek-V4.1 renderer takes one leading system message, then user, "
+                f"assistant and tool messages, not {role!r} at messages[{index}]"
+            )
     return turns
 
 
@@ -341,29 +259,13 @@ def _order(call_ids: Sequence[Any], call_id: Any) -> int:
     return position
 
 
-def _sort_results(turns: list[_Turn]) -> None:
-    """Sort each user turn's tool results into the order of the latest assistant's calls."""
-    call_ids: list[Any] = []
-    for turn in turns:
-        if turn.role == "assistant" and turn.message.get("tool_calls"):
-            call_ids = _call_ids(turn.message)
-        elif turn.role == "user":
-            results = [block for block in turn.blocks if block.kind == "tool_result"]
-            if len(results) < 2:
-                continue
-            ordered = iter(sorted(results, key=lambda block: _order(call_ids, block.call_id)))
-            turn.blocks = [
-                next(ordered) if block.kind == "tool_result" else block for block in turn.blocks
-            ]
-
-
-def _qualified_name(name: Any) -> str:
-    if not isinstance(name, str):
-        raise TypeError("a tool name must be a string")
-    parts = name.split("::", 1)
-    if len(parts) == 2 and "::" in parts[1]:
-        raise ValueError(f"Tool name must not contain '::': {parts[1]}")
-    return name
+def _sorted_results(items: list, call_ids: Sequence[Any], call_id) -> list:
+    """Sort the tool results among ``items`` into call order, and leave the rest in place."""
+    results = [item for item in items if call_id(item) is not None]
+    if len(results) < 2:
+        return items
+    ordered = iter(sorted(results, key=lambda item: _order(call_ids, call_id(item))))
+    return [next(ordered) if call_id(item) is not None else item for item in items]
 
 
 def _tool_schemas(tools: Sequence[Mapping[str, Any]]) -> str:
@@ -372,39 +274,54 @@ def _tool_schemas(tools: Sequence[Mapping[str, Any]]) -> str:
         function = tool.get("function", tool)
         if tool.get("namespace") is not None or function.get("namespace") is not None:
             raise ValueError("the DeepSeek-V4.1 renderer does not render tool namespaces")
-        schema = dict(function)
-        schema["name"] = _qualified_name(function.get("name"))
-        schemas.append(json.dumps(schema, ensure_ascii=False))
+        schemas.append(json.dumps(dict(function), ensure_ascii=False))
     return _TOOLS_HEADER + "\n".join(schemas) + _TOOLS_FOOTER
 
 
-def _tool_calls(variant: Variant, calls: Sequence[Mapping[str, Any]]) -> str:
+def _tool_calls(calls: Sequence[Mapping[str, Any]]) -> str:
     invokes = []
     for call in calls:
         function = call.get("function") or {}
-        if call.get("namespace") or function.get("namespace"):
-            raise ValueError("the DeepSeek-V4.1 renderer does not render tool namespaces")
         arguments = function.get("arguments")
-        if isinstance(arguments, str) and variant == "1017":
-            raise ValueError("Tool call arguments must be a dict, not a JSON string")
         if not isinstance(arguments, Mapping):
-            arguments = {"arguments": arguments}
+            raise TypeError("DeepSeek-V4.1 tool call arguments must be an object")
         lines = [
             f'<{_PARAMETER} name="{key}" string="{"true" if isinstance(value, str) else "false"}">'
             f"{value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)}"
             f"</{_PARAMETER}>"
             for key, value in arguments.items()
         ]
-        name = _qualified_name(function.get("name"))
-        invokes.append(f'<{_INVOKE} name="{name}">\n' + "\n".join(lines) + f"\n</{_INVOKE}>")
+        invokes.append(
+            f'<{_INVOKE} name="{function.get("name")}">\n' + "\n".join(lines) + f"\n</{_INVOKE}>"
+        )
     return f"\n\n<{_CALLS}>\n" + "\n".join(invokes) + f"\n</{_CALLS}>"
 
 
-def _reasoning(message: Mapping[str, Any]) -> str:
-    reasoning = message.get("reasoning_content")
-    if reasoning is None:
-        reasoning = message.get("thinking")
-    return _text(reasoning or "")
+def _runs(ids: Sequence[int], token: int) -> list[PlaceholderRange]:
+    runs, at = [], 0
+    while at < len(ids):
+        if ids[at] == token:
+            start = at
+            while at < len(ids) and ids[at] == token:
+                at += 1
+            runs.append(PlaceholderRange(offset=start, length=at - start))
+        else:
+            at += 1
+    return runs
+
+
+def _images(ids: Sequence[int], token: int, new: Sequence[Mapping[str, Any]]):
+    """Report every image run, with the parts of the ``new`` images, which come last."""
+    ranges = _runs(ids, token)
+    if len(ranges) < len(new):
+        raise ValueError(f"rendered {len(new)} images but found {len(ranges)} image runs")
+    if not ranges:
+        return None
+    return MultiModalData(
+        mm_hashes={"image": [f"deepseek-{r.offset}" for r in ranges]},
+        mm_placeholders={"image": ranges},
+        mm_items={"image": [{} for _ in range(len(ranges) - len(new))] + [dict(p) for p in new]},
+    )
 
 
 # --- the renderer ---------------------------------------------------------------------
@@ -416,10 +333,10 @@ class DeepSeekV41Renderer:
     reads_calls_whole = True  # a block is read whole or reported, never in part
     is_multimodal = True  # renderers.base.is_multimodal honours this.
 
-    def __init__(self, tokenizer, variant: Variant, chat_template_kwargs: Mapping[str, Any]):
+    def __init__(self, tokenizer, variant: Variant, config: DeepSeekV41RendererConfig):
         self._tokenizer = tokenizer
         self.variant: Variant = variant
-        self.options = options(variant, chat_template_kwargs)
+        self.config = config
         self._eos = self._token_id(EOS)
         self._think_start = self._token_id(THINK_START)
         self._think_end = self._token_id(THINK_END)
@@ -435,114 +352,86 @@ class DeepSeekV41Renderer:
     def get_stop_token_ids(self) -> list[int]:
         return [self._eos]
 
+    def _starts_turn(self, turn: _Turn) -> bool:
+        """Whether a merged user turn bounds the reasoning that the template drops."""
+        if turn.role != "user":
+            return False
+        return self.variant == "v4.1" or any(block.call_id is None for block in turn.blocks)
+
     # --- rendering --------------------------------------------------------------------
 
     def render(self, messages, *, tools=None, add_generation_prompt=False) -> RenderedTokens:
-        return self._render(messages, tools or (), add_generation_prompt, continuation=False)
-
-    def _render(self, messages, tools, add_generation_prompt, *, continuation) -> RenderedTokens:
-        """Render as the template does.
-
-        A ``continuation`` renders messages that follow a sampled assistant turn. It
-        has no beginning of sentence and no effort prompt, and a system message in it
-        is not the conversation's first.
-        """
         if not messages:
             raise ValueError("No messages provided.")
-        # A continuation's tools are already declared at the start of the conversation.
-        turns = _merge(self.variant, messages, () if continuation else tools)
-        _sort_results(turns)
-        thinking = self.options.thinking
-        drop = self.options.drop_thinking and not tools
-        last_turn = -1
-        for index, turn in enumerate(turns):
-            if self._starts_turn(turn, first=index == 0 and not continuation):
-                last_turn = index
+        turns = _merge(messages)
+        if tools and turns[0].role != "system":
+            turns.insert(0, _Turn("system", -1, [], {"content": ""}))
+        call_ids: list[Any] = []
+        for turn in turns:
+            if turn.role == "assistant" and turn.message.get("tool_calls"):
+                call_ids = _call_ids(turn.message)
+            turn.blocks = _sorted_results(turn.blocks, call_ids, lambda block: block.call_id)
+        thinking = self.config.enable_thinking
+        drop = self.config.drop_thinking and not tools
+        last_turn = max((i for i, turn in enumerate(turns) if self._starts_turn(turn)), default=-1)
 
         writer = _Writer()
-        if not continuation:
-            writer.write(BOS, -1)
+        writer.write(BOS, -1)
+        if thinking or turns[0].role == "system":
+            writer.write(SYSTEM, -1)
+        if thinking:
+            writer.write(
+                f"Reasoning Effort: {self.config.budget} (range 1-100, the higher the value, "
+                "the more thorough the reasoning)\n\n",
+                -1,
+            )
         for index, turn in enumerate(turns):
-            first = index == 0 and not continuation
-            if first and (thinking or turn.role == "system"):
-                writer.write(SYSTEM, -1)
-            if first and thinking:
-                writer.write(
-                    f"Reasoning Effort: {self.options.budget} (range 1-100, the higher the "
-                    "value, the more thorough the reasoning)\n\n",
-                    -1,
-                )
             if turn.role == "system":
-                if not first:
-                    writer.write(SYSTEM, turn.owner)
-                writer.pieces(_body(turn.message.get("content"), images=True), turn.owner)
-                if turn.tools:
-                    writer.write("\n\n" + _tool_schemas(turn.tools), turn.owner)
+                writer.pieces(_pieces(turn.message.get("content") or "", images=False), turn.owner)
+                if tools:
+                    writer.write("\n\n" + _tool_schemas(tools), turn.owner)
             elif turn.role == "user":
-                writer.write(USER, turn.owner)
-                for number, block in enumerate(turn.blocks):
-                    if number:
-                        writer.write("\n\n", block.owner)
-                    writer.pieces(block.pieces, block.owner)
+                self._user(writer, turn)
             else:
                 message = turn.message
                 if thinking and (not drop or index > last_turn):
-                    writer.write(_reasoning(message) + THINK_END, turn.owner, sampled=True)
-                writer.pieces(_body(message.get("content"), images=False), turn.owner, sampled=True)
+                    reasoning = message.get("reasoning_content") or ""
+                    writer.write(reasoning + THINK_END, turn.owner, sampled=True)
+                content = _pieces(message.get("content") or "", images=False)
+                writer.pieces(content, turn.owner, sampled=True)
                 if message.get("tool_calls"):
-                    writer.write(
-                        _tool_calls(self.variant, message["tool_calls"]), turn.owner, sampled=True
-                    )
+                    writer.write(_tool_calls(message["tool_calls"]), turn.owner, sampled=True)
                 writer.write(EOS, turn.owner, sampled=True)
-            last = index == len(turns) - 1
-            if not last and turns[index + 1].role != "assistant":
-                continue
-            opens_turn = turn.role == "user" or (turn.role == "system" and not first)
-            if opens_turn and (add_generation_prompt or not last):
+            following = turns[index + 1].role if index + 1 < len(turns) else None
+            if turn.role == "user" and (
+                following == "assistant" or following is None and add_generation_prompt
+            ):
                 opens_reasoning = thinking and (not drop or index >= last_turn)
                 writer.write(ASSISTANT + (THINK_START if opens_reasoning else THINK_END), -1)
         return self._tokens(writer, messages)
 
-    def _starts_turn(self, turn: _Turn, *, first: bool) -> bool:
-        """Whether a merged message starts a turn, which bounds the reasoning the template drops."""
-        if turn.role == "system":
-            return not first
-        if turn.role != "user":
-            return False
-        return self.variant == "v4.1" or any(block.kind != "tool_result" for block in turn.blocks)
+    @staticmethod
+    def _user(writer: _Writer, turn: _Turn) -> None:
+        writer.write(USER, turn.owner)
+        for number, block in enumerate(turn.blocks):
+            if number:
+                writer.write("\n\n", block.owner)
+            writer.pieces(block.pieces, block.owner)
 
-    def _tokens(self, writer: _Writer, messages) -> RenderedTokens:
+    def _tokens(self, writer: _Writer, messages, prefix: Sequence[int] = ()) -> RenderedTokens:
         """Tokenize the rendered text in one pass, as the template's text is tokenized."""
         text, images = writer.text(self._image_count)
         encoding = self._tokenizer(text, add_special_tokens=False, return_offsets_mapping=True)
-        ids = list(encoding["input_ids"])
         owners, sampled = writer.attribute(encoding["offset_mapping"])
-        ranges, at = [], 0
-        while at < len(ids):
-            if ids[at] == self._image:
-                start = at
-                while at < len(ids) and ids[at] == self._image:
-                    at += 1
-                ranges.append(PlaceholderRange(offset=start, length=at - start))
-            else:
-                at += 1
-        if len(ranges) != len(images):
-            raise ValueError(f"rendered {len(images)} images but found {len(ranges)} image runs")
-        data = None
-        if ranges:
-            data = MultiModalData(
-                mm_hashes={"image": [f"deepseek-{r.offset}" for r in ranges]},
-                mm_placeholders={"image": ranges},
-                mm_items={"image": [dict(part) for part in images]},
-            )
+        ids = [*prefix, *encoding["input_ids"]]
         return RenderedTokens(
             token_ids=ids,
-            message_indices=owners,
-            sampled_mask=sampled,
+            message_indices=[-1] * len(prefix) + owners,
+            sampled_mask=[False] * len(prefix) + sampled,
             is_content=[],
             message_roles=[message.get("role") or "" for message in messages],
             message_tool_names=extract_message_tool_names(list(messages)),
-            multi_modal_data=data,
+            multi_modal_data=_images(ids, self._image, images),
         )
 
     def _image_count(self, part: Mapping[str, Any]) -> int:
@@ -554,8 +443,7 @@ class DeepSeekV41Renderer:
         key = hashlib.sha256(raw).hexdigest()
         if key not in self._image_cache:
             with Image.open(io.BytesIO(raw)) as image:
-                width, height = image.size
-            self._image_cache[key] = image_tokens(width, height)
+                self._image_cache[key] = image_tokens(*image.size)
         return self._image_cache[key]
 
     # --- continuing a sampled turn ----------------------------------------------------
@@ -571,23 +459,11 @@ class DeepSeekV41Renderer:
         for message in previous_messages:
             if message.get("role") == "assistant" and message.get("tool_calls"):
                 call_ids = _call_ids(message)
-        result = list(new_messages)
-        start = 0
-        while start < len(result):
-            end = start
-            while end < len(result) and result[end].get("role") in ("user", "tool"):
-                end += 1
-            run = result[start:end]
-            results = [message for message in run if message.get("role") == "tool"]
-            if len(results) > 1:
-                ordered = iter(
-                    sorted(results, key=lambda m: _order(call_ids, m.get("tool_call_id", "")))
-                )
-                result[start:end] = [
-                    next(ordered) if message.get("role") == "tool" else message for message in run
-                ]
-            start = end + 1
-        return result
+        return _sorted_results(
+            list(new_messages),
+            call_ids,
+            lambda m: m.get("tool_call_id", "") if m.get("role") == "tool" else None,
+        )
 
     def bridge_to_next_turn(
         self,
@@ -600,18 +476,26 @@ class DeepSeekV41Renderer:
     ) -> RenderedTokens | None:
         """Extend the sampled tokens with the new messages, or return ``None`` to render in full.
 
-        The bridge declines when a full render would drop the sampled reasoning. That
-        happens when thinking is on, ``drop_thinking`` is on, no tools are declared and a
-        new message starts a turn.
+        The new messages must be user and tool messages. The bridge declines when a full
+        render would drop the sampled reasoning, which happens in thinking mode with
+        ``drop_thinking`` on, no tools, and a new message that starts a turn.
         """
         if not previous_prompt_ids or not new_messages:
             return None
-        if any(message.get("role") not in ("user", "tool", "system") for message in new_messages):
+        if any(message.get("role") not in ("user", "tool") for message in new_messages):
             return None
-        if self.options.thinking and self.options.drop_thinking and not tools:
-            merged = _merge(self.variant, new_messages, ())
-            if any(self._starts_turn(turn, first=False) for turn in merged):
-                return None
+        try:
+            (turn,) = _merge(new_messages)
+        except (ValueError, TypeError):
+            return None
+        config = self.config
+        if (
+            config.enable_thinking
+            and config.drop_thinking
+            and not tools
+            and self._starts_turn(turn)
+        ):
+            return None
         completion = list(previous_completion_ids)
         parsed = self.parse_response(completion, prompt_ids=list(previous_prompt_ids), tools=tools)
         if parsed.reasoning_complete is False:
@@ -623,42 +507,14 @@ class DeepSeekV41Renderer:
         )
         if prefix is None:
             return None
+        writer = _Writer()
+        self._user(writer, turn)
+        # A continuation always ends at or after the last turn, so reasoning opens.
+        writer.write(ASSISTANT + (THINK_START if config.enable_thinking else THINK_END), -1)
         try:
-            extension = self._render(new_messages, tools or (), True, continuation=True)
+            return self._tokens(writer, new_messages, prefix)
         except (ValueError, TypeError):
             return None
-        ids = prefix + extension.token_ids
-        prior = len(prefix)
-        data = None
-        new_images = (
-            extension.multi_modal_data.mm_items["image"] if extension.multi_modal_data else []
-        )
-        ranges = [
-            PlaceholderRange(offset=offset, length=length)
-            for offset, length in _runs(prefix, self._image)
-        ] + [
-            PlaceholderRange(offset=prior + r.offset, length=r.length)
-            for r in (
-                extension.multi_modal_data.mm_placeholders["image"]
-                if extension.multi_modal_data
-                else []
-            )
-        ]
-        if ranges:
-            data = MultiModalData(
-                mm_hashes={"image": [f"deepseek-{r.offset}" for r in ranges]},
-                mm_placeholders={"image": ranges},
-                mm_items={"image": [{} for _ in range(len(ranges) - len(new_images))] + new_images},
-            )
-        return RenderedTokens(
-            token_ids=ids,
-            message_indices=[-1] * prior + extension.message_indices,
-            sampled_mask=[False] * len(ids),
-            is_content=[],
-            message_roles=extension.message_roles,
-            message_tool_names=extension.message_tool_names,
-            multi_modal_data=data,
-        )
 
     # --- parsing ----------------------------------------------------------------------
 
@@ -672,7 +528,9 @@ class DeepSeekV41Renderer:
         ids = list(token_ids)
         if self._eos in ids:
             ids = ids[: ids.index(self._eos)]
-        thinking = prompt_ids[-1] == self._think_start if prompt_ids else self.options.thinking
+        thinking = (
+            prompt_ids[-1] == self._think_start if prompt_ids else self.config.enable_thinking
+        )
         scanned = scan_tagged_response(
             self._tokenizer,
             ids,
@@ -684,30 +542,13 @@ class DeepSeekV41Renderer:
         if scanned.tools and content.endswith("\n\n"):
             # The template writes a blank line between the content and the calls.
             content = content[:-2]
-        declared = {
-            tool.get("function", tool).get("name")
-            for tool in tools or ()
-            if isinstance(tool, Mapping)
-        }
+        declared = {tool.get("function", tool).get("name") for tool in tools or ()}
         return ParsedResponse(
             content=content,
             reasoning_content=scanned.boundary.text,
             tool_calls=[_read_call(block, declared) for block in scanned.tools],
             reasoning_complete=not scanned.boundary.is_open,
         )
-
-
-def _runs(ids: Sequence[int], token: int) -> list[tuple[int, int]]:
-    runs, at = [], 0
-    while at < len(ids):
-        if ids[at] == token:
-            start = at
-            while at < len(ids) and ids[at] == token:
-                at += 1
-            runs.append((start, at - start))
-        else:
-            at += 1
-    return runs
 
 
 def _read_call(block, declared: set[Any]) -> ParsedToolCall:
@@ -726,8 +567,7 @@ def _read_call(block, declared: set[Any]) -> ParsedToolCall:
         key, is_string, value = match.groups()
         if key in arguments:
             malformed = True
-            continue
-        if is_string == "true":
+        elif is_string == "true":
             arguments[key] = value
         else:
             try:
@@ -758,6 +598,8 @@ class _Writer:
 
     def __init__(self) -> None:
         self._spans: list[tuple[Piece, int, bool]] = []
+        self._starts: list[int] = []
+        self._owners: list[tuple[int, bool]] = []
 
     def write(self, text: str, owner: int, *, sampled: bool = False) -> None:
         if text:
@@ -765,15 +607,12 @@ class _Writer:
 
     def pieces(self, pieces: Sequence[Piece], owner: int, *, sampled: bool = False) -> None:
         for piece in pieces:
-            if isinstance(piece, str):
-                self.write(piece, owner, sampled=sampled)
-            else:
+            if not isinstance(piece, str) or piece:
                 self._spans.append((piece, owner, sampled))
 
     def text(self, count) -> tuple[str, list[Mapping[str, Any]]]:
         """Return the text, with each image expanded to its tokens, and the images in order."""
-        parts, images, self._starts, self._owners = [], [], [], []
-        position = 0
+        parts, images, position = [], [], 0
         for piece, owner, sampled in self._spans:
             if not isinstance(piece, str):
                 images.append(piece)
@@ -788,8 +627,7 @@ class _Writer:
         """Give each token the owner and flag of the text where it starts."""
         owners, sampled = [], []
         for start, _ in offsets:
-            span = max(bisect.bisect_right(self._starts, start) - 1, 0)
-            owner, flag = self._owners[span]
+            owner, flag = self._owners[max(bisect.bisect_right(self._starts, start) - 1, 0)]
             owners.append(owner)
             sampled.append(flag)
         return owners, sampled
@@ -797,15 +635,17 @@ class _Writer:
 
 def v41(tokenizer, chat_template_kwargs):
     """Build the renderer for DeepSeek-V4.1-Flash, which the cookbook selects for it."""
-    return _wrap(DeepSeekV41Renderer(tokenizer, "v4.1", chat_template_kwargs))
+    return _wrap(tokenizer, "v4.1", chat_template_kwargs)
 
 
 def v41_1017(tokenizer, chat_template_kwargs):
     """Build the renderer for DeepSeek-V4.1-Flash-1017, which the cookbook selects for it."""
-    return _wrap(DeepSeekV41Renderer(tokenizer, "1017", chat_template_kwargs))
+    return _wrap(tokenizer, "1017", chat_template_kwargs)
 
 
-def _wrap(built: DeepSeekV41Renderer):
+def _wrap(tokenizer, variant: Variant, chat_template_kwargs):
     from loops_cookbook.llm.prime import PrimeRenderer
 
+    config = DeepSeekV41RendererConfig(**dict(chat_template_kwargs))
+    built = DeepSeekV41Renderer(tokenizer, variant, config)
     return PrimeRenderer(built, prepare_extension=built.prepare_extension)

@@ -36,7 +36,7 @@ against the model's own chat template.
 | Nemotron 3 Ultra (BF16, FP8, NVFP4) | `loops_cookbook.llm.renderer_extensions.nemotron:ultra` | It renders as Prime does. Under `medium_effort`, it also extends a conversation turn by turn, where Prime renders every turn again. It reads tool arguments as the template wrote them. |
 | Qwen3.6-27B, Qwen3.6-35B-A3B | `loops_cookbook.llm.renderer_extensions.qwen36:qwen36` | It renders as Prime does. It also reads tool arguments as the template wrote them. |
 | Qwen3.8-27B | `loops_cookbook.llm.renderer_extensions.qwen36:qwen38` | It renders as Prime does. It also reads tool arguments as the template wrote them. |
-| DeepSeek-V4.1-Flash | `loops_cookbook.llm.renderer_extensions.deepseek_v41:v41` | Prime has a renderer for DeepSeek-V4 only. V4.1 changed the tool-call tags, the start of the prompt and the reasoning effort, and it takes images. The cookbook's renderer writes the chat template's tokens, with images expanded as the trainer counts them. It also reads tool arguments as the template wrote them. |
+| DeepSeek-V4.1-Flash | `loops_cookbook.llm.renderer_extensions.deepseek_v41:v41` | Prime has a renderer for DeepSeek-V4 only. V4.1 changed the tool-call tags, the start of the prompt and the reasoning effort, and it takes images. The cookbook's renderer writes the chat template's tokens, with images expanded as the trainer counts them. It also reads tool arguments as the template wrote them. It refuses a system message after the first one, and tool-call arguments given as a JSON string. |
 | DeepSeek-V4.1-Flash-1017 | `loops_cookbook.llm.renderer_extensions.deepseek_v41:v41_1017` | It renders as the DeepSeek-V4.1-Flash renderer does, with the 1017 template's rules. That template doesn't start a turn at a message that holds only tool results, so it keeps the reasoning of an agent's tool calls in the prompt. |
 
 A Nemotron 3.5 Super VL config therefore needs only the model:
@@ -184,9 +184,8 @@ trains, as [sft.md](sft.md#continue-or-fork-a-run) explains.
 depends on the model. For example, Qwen accepts `{ enable_thinking = false }`, and
 GLM-5.3 accepts `{ reasoning_effort = "high", clear_thinking = false }`. Nemotron 3
 Ultra and Nemotron 3.5 Super VL accept `{ medium_effort = true }`. DeepSeek-V4.1
-accepts `thinking_mode`, `enable_thinking`, `reasoning_effort` and `drop_thinking`, as
-its template does, and 1017 also accepts `thinking`. The DeepSeek-V4.1 renderer refuses
-any other option. There is no
+accepts `enable_thinking`, `drop_thinking`, and a `reasoning_effort` of `"low"`,
+`"high"`, `"max"` or a number from 1 to 100. There is no
 universal setting for keeping reasoning in the history. Each model's renderer decides
 how it renders earlier `reasoning_content`.
 
@@ -403,8 +402,8 @@ would also defeat the bridge.
 
 Images render in user and tool messages, directly in the content list. GLM-5.3 also
 renders images in system and assistant messages, and inside bundled tool `output`
-entries, which are described below. DeepSeek-V4.1 also renders images in system
-messages. The Qwen renderers reject images in all of those places. Text-only renderers reject image parts instead of dropping them. Video and audio
+entries, which are described below. The Qwen and DeepSeek-V4.1 renderers reject
+images in both of those places. Text-only renderers reject image parts instead of dropping them. Video and audio
 parts are rejected everywhere.
 
 GLM-5.3 also accepts its template's bundled tool shape. That is one tool message whose

@@ -1,8 +1,12 @@
-"""DeepSeek-V4.1 renderer: image token counts and template options, without a tokenizer."""
+"""DeepSeek-V4.1 renderer: image token counts and options, without a tokenizer."""
 
 import pytest
+from pydantic import ValidationError
 
-from loops_cookbook.llm.renderer_extensions.deepseek_v41 import Options, image_tokens, options
+from loops_cookbook.llm.renderer_extensions.deepseek_v41 import (
+    DeepSeekV41RendererConfig,
+    image_tokens,
+)
 
 
 @pytest.mark.parametrize(
@@ -24,33 +28,28 @@ def test_image_tokens_stay_within_the_budget(width, height):
 
 
 @pytest.mark.parametrize(
-    ("variant", "kwargs", "expected"),
+    ("kwargs", "budget"),
     [
-        ("v4.1", {}, Options(thinking=True, drop_thinking=True, budget=75)),
-        ("v4.1", {"enable_thinking": False}, Options(False, True, 75)),
-        ("v4.1", {"reasoning_effort": "medium"}, Options(True, True, 62)),
-        ("1017", {"reasoning_effort": "medium"}, Options(True, True, 75)),
-        ("1017", {"reasoning_effort": "none"}, Options(False, True, 75)),
-        ("1017", {"reasoning_effort": "none", "thinking": True}, Options(True, True, 75)),
-        ("1017", {"thinking_mode": "chat", "drop_thinking": False}, Options(False, False, 75)),
-        ("1017", {"reasoning_effort": 30}, Options(True, True, 30)),
+        ({}, 75),
+        ({"reasoning_effort": "low"}, 50),
+        ({"reasoning_effort": "max"}, 100),
+        ({"reasoning_effort": 30}, 30),
     ],
 )
-def test_options_resolve_as_the_template_does(variant, kwargs, expected):
-    assert options(variant, kwargs) == expected
+def test_the_effort_budget_is_the_templates(kwargs, budget):
+    assert DeepSeekV41RendererConfig(**kwargs).budget == budget
 
 
 @pytest.mark.parametrize(
-    ("variant", "kwargs"),
+    "kwargs",
     [
-        ("v4.1", {"thinking": True}),
-        ("v4.1", {"reasoning_effort": "none"}),
-        ("1017", {"reasoning_effort": 0}),
-        ("1017", {"reasoning_effort": True}),
-        ("1017", {"thinking_mode": "fast"}),
-        ("1017", {"drop_thinking": "yes"}),
+        {"reasoning_effort": "medium"},
+        {"reasoning_effort": 0},
+        {"reasoning_effort": True},
+        {"thinking_mode": "chat"},
+        {"drop_thinking": "yes"},
     ],
 )
-def test_options_the_template_refuses_are_refused(variant, kwargs):
-    with pytest.raises((ValueError, TypeError)):
-        options(variant, kwargs)
+def test_options_outside_the_config_are_refused(kwargs):
+    with pytest.raises(ValidationError):
+        DeepSeekV41RendererConfig(**kwargs)
