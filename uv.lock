@@ -348,7 +348,7 @@ wheels = [
 
 [[package]]
 name = "baseten-loops"
-version = "0.34.0"
+version = "0.36.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "baseten-bdn" },
@@ -363,9 +363,9 @@ dependencies = [
     { name = "transformers" },
     { name = "wandb" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e4/44/14e4ca9c9f410aece12ba76d0d00540be3558013a65164a5e6b2a1a3f24b/baseten_loops-0.34.0.tar.gz", hash = "sha256:82db7167a26ce4a33b16bf31339dfc52fbc7109436e3d6c76cac063821aeb893", size = 396517, upload-time = "2026-11-05T16:33:27.807Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1d/5a/6fb68bb30e8947cfaacd3474a62f6eaa226212dc6263638e5dea4f8c8417/baseten_loops-0.36.0.tar.gz", hash = "sha256:7ab0fad765ddc63eca0b705622ed0a75ada8d988aca24da7b76632be02f49ce1", size = 404585, upload-time = "2026-11-16T06:05:34.94Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/39/18/d2a09ae8bd451ad280bf01e312c56d36e92afc0245b6e3952465d3fd2fd0/baseten_loops-0.34.0-py3-none-any.whl", hash = "sha256:d33adbb747e8706190fc98f37cb8d5543c5d54a2e24d74bd5b973778a62dbde5", size = 120543, upload-time = "2026-11-05T16:33:26.217Z" },
+    { url = "https://files.pythonhosted.org/packages/7f/d2/1624e44c44f03010ff92ac82564fc350e5db661b084a3bcf3e8c4fea610b/baseten_loops-0.36.0-py3-none-any.whl", hash = "sha256:2e3063b17269a7936788ba6acc4beaed350135cfd96f8ed3d6abd17818bea9c3", size = 124241, upload-time = "2026-11-16T06:05:33.588Z" },
 ]
 
 [package.optional-dependencies]
@@ -442,8 +442,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.14.4" },
-    { name = "baseten-loops", specifier = ">=0.34.0,<0.35" },
-    { name = "baseten-loops", extras = ["torch"], marker = "extra == 'custom-loss'", specifier = ">=0.34.0,<0.35" },
+    { name = "baseten-loops", specifier = ">=0.36.0,<0.37" },
+    { name = "baseten-loops", extras = ["torch"], marker = "extra == 'custom-loss'", specifier = ">=0.36.0,<0.37" },
     { name = "blaxel", marker = "extra == 'blaxel'", specifier = ">=0.4.20,<0.5" },
     { name = "blaxel", marker = "extra == 'harbor-blaxel'", specifier = ">=0.4.20,<0.5" },
     { name = "daytona", marker = "extra == 'daytona'", specifier = ">=0.220.0,<0.227" },
