@@ -24,6 +24,10 @@ uv run loops run   examples/counting/train.toml
 The `vision` extra brings torch and torchvision for the model's image processor. They
 run on the CPU.
 
+`train_deepseek_v41.toml` runs the same example for five steps on
+DeepSeek-V4.1-Flash-1017. It doesn't need the `vision` extra, because the cookbook's
+DeepSeek-V4.1 renderer counts each picture's image tokens from its size.
+
 `loops check` launches nothing. `loops run` trains on serverless Loops. When the
 command exits, it leaves the Loops run up, and it logs the run ID and the
 `loops deactivate` command that ends the run.

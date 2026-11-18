@@ -1,0 +1,60 @@
+# Counting circles on DeepSeek-V4.1-Flash-1017. It is train.toml with another model and
+# five steps. Each prompt is an image, and the answer is scored on the host, with no
+# environment. The DeepSeek-V4.1 renderer counts image tokens without the vision extra.
+# uv run loops check examples/counting/train_deepseek_v41.toml
+
+recipe = "rl"
+
+[rollout_runtime]
+factory = "loops_cookbook.episodes:create_runtime"
+has_images = true
+
+[rollout_runtime.config]
+episode = "count_episode:CountEpisode"
+# The agent's deadline. A rollout cut off before the model replies is discarded.
+# One cut off after the reply is graded, and scores 0 if it kept no answer.
+agent_timeout_seconds = 90
+
+[rollout_runtime.files]
+# make_tasks.py writes these 512 pictures.
+tasks = "tasks.jsonl"
+
+[model]
+base_model = "deepseek-ai/DeepSeek-V4.1-Flash-1017"
+lora_rank = 8
+max_seq_len = 1024
+renderer_chat_template_kwargs = { enable_thinking = false }
+
+[sampling]
+max_generation_tokens = 16
+
+[training]
+mode = "sync"
+group_size = 16
+max_group_losses = 0
+# Each step trains on eight new pictures.
+groups_per_step = 8
+max_steps = 5
+# Stop after this many groups in a row that can't train, such as groups in which
+# every rollout scores alike.
+max_consecutive_unusable_groups = 20
+learning_rate = 0.00005
+loss_fn = "cispo"
+
+[rollout]
+max_concurrent_rollouts = 128
+max_concurrent_verifiers = 128
+setup_timeout_seconds = 60
+
+[rollout.grading]
+timeout_seconds = 10
+
+[compute]
+scope = "serverless"
+
+[output]
+run_name = "counting-deepseek-v41"
+output_dir = "runs/counting"
+trainer_checkpoint_every = 0
+sampler_checkpoint_every = 0
+checkpoint_ttl_seconds = 0
