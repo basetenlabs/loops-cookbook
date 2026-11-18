@@ -353,6 +353,35 @@ def test_the_parser_reports_a_call_it_cannot_read_whole(deepseek_v41):
     assert parsed.native_message is None
 
 
+P = "｜DSML｜ parameter"
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        pytest.param(
+            f'<{P} name="a" string="true">x\n<{P} name="b" string="true">y</{P}>', id="unclosed"
+        ),
+        pytest.param(
+            f'<{P} name="a" string="maybe">x</{P}>\n<{P} name="b" string="true">y</{P}>',
+            id="bad flag",
+        ),
+        pytest.param(f'<{P} name="" string="true">x</{P}>', id="empty name"),
+    ],
+)
+def test_the_parser_never_reads_overrun_markup_as_a_call(deepseek_v41, parameters):
+    _, tokenizer, _ = deepseek_v41
+    renderer = create_renderer(tokenizer.name_or_path, tokenizer=tokenizer)
+    prompt = renderer.render(HISTORIES[2][:1], TOOLS)
+    completion = renderer.tokenize(
+        f'r</think>\n\n<｜DSML｜ calls>\n<｜DSML｜ invoke name="bash">\n{parameters}\n'
+        "</｜DSML｜ invoke>\n</｜DSML｜ calls><｜end▁of▁sentence｜>"
+    )
+    parsed = renderer.parse(prompt.ids, completion, TOOLS)
+    assert [call.status for call in parsed.tool_calls] == ["malformed_structure"]
+    assert parsed.native_message is None
+
+
 REFUSED = [
     pytest.param(
         [{"role": "user", "content": "q"}, {"role": "system", "content": "mid"}], id="late system"

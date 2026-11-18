@@ -559,13 +559,15 @@ def _read_call(block, declared: set[Any]) -> ParsedToolCall:
     end = f"</{_INVOKE}>"
     body = raw[header.end() : len(raw) - len(end) if block.closed else len(raw)] if header else ""
     arguments: dict[str, Any] = {}
-    malformed = header is None
+    # A quote in a name, or a tag opener in a value, means that a lazy match ran past
+    # an unclosed or misspelled tag into the next one, so the call can't be read whole.
+    malformed = header is None or '"' in (name or "")
     rest, cursor = [], 0
     for match in _PARAMETER_BLOCK.finditer(body):
         rest.append(body[cursor : match.start()])
         cursor = match.end()
         key, is_string, value = match.groups()
-        if key in arguments:
+        if not key or '"' in key or key in arguments or f"<{_DSML}" in value:
             malformed = True
         elif is_string == "true":
             arguments[key] = value
