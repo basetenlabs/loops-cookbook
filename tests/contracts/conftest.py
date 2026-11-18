@@ -216,3 +216,31 @@ def tool_call_model(request):
     tokenizer = pinned_tokenizer(name, revision, variable)
     renderer = create_renderer(name, tokenizer=tokenizer, chat_template_kwargs=options)
     return tokenizer, renderer, prefix
+
+
+DEEPSEEK_V41_MODELS = {
+    "DeepSeek-V4.1-Flash": ("v4.1", "314113f8a7dadb388215396ba5fbee2c610a04d6"),
+    "DeepSeek-V4.1-Flash-1017": ("1017", "08c8657f02291e11b6f6b63e0e16014f8e748518"),
+}
+
+
+@pytest.fixture(scope="module", params=sorted(DEEPSEEK_V41_MODELS))
+def deepseek_v41(request):
+    """Each DeepSeek-V4.1 checkpoint as ``(variant, tokenizer, config)``.
+
+    ``config`` is the checkpoint's ``config.json``. ``LOOPS_DEEPSEEK_TOKENIZER_CACHE``
+    points at a Hugging Face hub cache for offline runs.
+    """
+    import json
+
+    variant, revision = DEEPSEEK_V41_MODELS[request.param]
+    repo = f"deepseek-ai/{request.param}"
+    tokenizer = pinned_tokenizer(repo, revision, "LOOPS_DEEPSEEK_TOKENIZER_CACHE")
+    cache = os.environ.get("LOOPS_DEEPSEEK_TOKENIZER_CACHE")
+    if cache:
+        path = pinned_snapshot(cache, repo, revision) / "config.json"
+    else:
+        from huggingface_hub import hf_hub_download
+
+        path = Path(hf_hub_download(repo, "config.json", revision=revision))
+    return variant, tokenizer, json.loads(path.read_text())

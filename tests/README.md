@@ -31,7 +31,8 @@ You can give the tests the model files in two ways:
 - **Offline.** Point the variable for each model family at a Hugging Face hub cache
   that already holds the pinned snapshots. The variables are
   `LOOPS_QWEN_TOKENIZER_CACHE`, `LOOPS_GLM_TOKENIZER_CACHE`,
-  `LOOPS_NEMOTRON_TOKENIZER_CACHE` and `LOOPS_MUSE_TOKENIZER_CACHE`.
+  `LOOPS_NEMOTRON_TOKENIZER_CACHE`, `LOOPS_MUSE_TOKENIZER_CACHE` and
+  `LOOPS_DEEPSEEK_TOKENIZER_CACHE`.
   `contracts/conftest.py` names the pinned snapshots. Also set `HF_HUB_OFFLINE=1`, so
   that processors looked up by name stay local.
 - **Download.** Set `LOOPS_DOWNLOAD_CONTRACT_MODELS=1` to fetch the tokenizer and

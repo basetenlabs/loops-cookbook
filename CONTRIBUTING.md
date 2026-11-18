@@ -48,7 +48,8 @@ uv run pytest -q
 
 Tests that need real tokenizers skip unless one of these variables points at a Hugging
 Face cache: `LOOPS_GLM_TOKENIZER_CACHE`, `LOOPS_QWEN_TOKENIZER_CACHE`,
-`LOOPS_NEMOTRON_TOKENIZER_CACHE` or `LOOPS_MUSE_TOKENIZER_CACHE`. Alternatively,
+`LOOPS_NEMOTRON_TOKENIZER_CACHE`, `LOOPS_MUSE_TOKENIZER_CACHE` or
+`LOOPS_DEEPSEEK_TOKENIZER_CACHE`. Alternatively,
 `LOOPS_DOWNLOAD_CONTRACT_MODELS=1` downloads them. Live tests against real Blaxel
 sandboxes and Loops never run by default. See [tests/README.md](tests/README.md).
 

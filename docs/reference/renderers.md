@@ -21,7 +21,8 @@ renderer. For any other model, Prime selects a renderer from the tokenizer's nam
 
 Qwen3.5 gets Prime's renderer, which matches its template.
 `tests/contracts/test_qwen_renderer.py` checks its prompts, and the image tests check
-its images. Qwen3.6, Qwen3.8, GLM-5.3 and GLM-5.3-Flash get the cookbook's renderer.
+its images. Qwen3.6, Qwen3.8, GLM-5.3, GLM-5.3-Flash, DeepSeek-V4.1-Flash and
+DeepSeek-V4.1-Flash-1017 get the cookbook's renderer.
 
 The cookbook ships its own renderer for the models in this table. Each one is tested
 against the model's own chat template.
@@ -35,6 +36,8 @@ against the model's own chat template.
 | Nemotron 3 Ultra (BF16, FP8, NVFP4) | `loops_cookbook.llm.renderer_extensions.nemotron:ultra` | It renders as Prime does. Under `medium_effort`, it also extends a conversation turn by turn, where Prime renders every turn again. It reads tool arguments as the template wrote them. |
 | Qwen3.6-27B, Qwen3.6-35B-A3B | `loops_cookbook.llm.renderer_extensions.qwen36:qwen36` | It renders as Prime does. It also reads tool arguments as the template wrote them. |
 | Qwen3.8-27B | `loops_cookbook.llm.renderer_extensions.qwen36:qwen38` | It renders as Prime does. It also reads tool arguments as the template wrote them. |
+| DeepSeek-V4.1-Flash | `loops_cookbook.llm.renderer_extensions.deepseek_v41:v41` | Prime has a renderer for DeepSeek-V4 only. V4.1 changed the tool-call tags, the start of the prompt and the reasoning effort, and it takes images. The cookbook's renderer writes the chat template's tokens, with images expanded as the trainer counts them. It also reads tool arguments as the template wrote them. |
+| DeepSeek-V4.1-Flash-1017 | `loops_cookbook.llm.renderer_extensions.deepseek_v41:v41_1017` | It renders as the DeepSeek-V4.1-Flash renderer does, with the 1017 template's rules. That template doesn't start a turn at a message that holds only tool results, so it keeps the reasoning of an agent's tool calls in the prompt. |
 
 A Nemotron 3.5 Super VL config therefore needs only the model:
 
@@ -180,7 +183,10 @@ trains, as [sft.md](sft.md#continue-or-fork-a-run) explains.
 `renderer_chat_template_kwargs` is passed to the renderer unchanged. What it accepts
 depends on the model. For example, Qwen accepts `{ enable_thinking = false }`, and
 GLM-5.3 accepts `{ reasoning_effort = "high", clear_thinking = false }`. Nemotron 3
-Ultra and Nemotron 3.5 Super VL accept `{ medium_effort = true }`. There is no
+Ultra and Nemotron 3.5 Super VL accept `{ medium_effort = true }`. DeepSeek-V4.1
+accepts `thinking_mode`, `enable_thinking`, `reasoning_effort` and `drop_thinking`, as
+its template does, and 1017 also accepts `thinking`. The DeepSeek-V4.1 renderer refuses
+any other option. There is no
 universal setting for keeping reasoning in the history. Each model's renderer decides
 how it renders earlier `reasoning_content`.
 
@@ -323,6 +329,12 @@ the Qwen paths against Prime's placeholder runs and the real image processors' t
 counts. Both paths have also run end to end through Loops, covering sampling, grading,
 the training datums and the audit.
 
+DeepSeek-V4.1-Flash and DeepSeek-V4.1-Flash-1017 take images through the cookbook's
+DeepSeek-V4.1 renderer. Neither checkpoint ships an image processor, so the renderer
+counts each image's tokens from its size, as the trainer does. The `contracts` job
+checks the prompts against each chat template and the counts against the trainer's
+cases. This path hasn't run end to end through Loops yet.
+
 Gemma 4 follows Prime's Qwen convention, so it should work, but it hasn't been run.
 Kimi K2.5 renders a single placeholder per image and relies on the engine to expand it,
 so the cookbook rejects Kimi image parts with a clear error.
@@ -330,7 +342,8 @@ so the cookbook rejects Kimi image parts with a clear error.
 ### Install the vision extra
 
 Install the vision extra, which brings torch and torchvision for the model's Hugging
-Face image processor. Nothing runs on a GPU on the host, so CPU wheels are enough:
+Face image processor. Nothing runs on a GPU on the host, so CPU wheels are enough.
+The DeepSeek-V4.1 renderer uses no image processor, so it doesn't need the extra.
 
 ```sh
 uv sync --extra vision
@@ -363,7 +376,8 @@ renders the request, and `loops check` prints `Images: not declared`. With it,
 preflight renders a 32x32 probe image through every renderer before any Loops resource
 exists, and `loops check` prints `Images: declared (N tokens for a 32x32 probe)`.
 Preflight refuses the run if a renderer takes no images or the `vision` extra is
-missing. The probe downloads the model's processor config.
+missing. The probe downloads the model's processor config, except for DeepSeek-V4.1,
+which has none.
 
 ### Put images in messages
 
@@ -389,8 +403,8 @@ would also defeat the bridge.
 
 Images render in user and tool messages, directly in the content list. GLM-5.3 also
 renders images in system and assistant messages, and inside bundled tool `output`
-entries, which are described below. The Qwen renderers reject images in both of those
-places. Text-only renderers reject image parts instead of dropping them. Video and audio
+entries, which are described below. DeepSeek-V4.1 also renders images in system
+messages. The Qwen renderers reject images in all of those places. Text-only renderers reject image parts instead of dropping them. Video and audio
 parts are rejected everywhere.
 
 GLM-5.3 also accepts its template's bundled tool shape. That is one tool message whose
@@ -405,6 +419,11 @@ For GLM-5.3-Flash, the extension writes each image inline in the message text, a
 exactly how the HF processor expands the chat template, and N comes from the model's
 image processor. A user string that literally contains `<|image|>` is tokenized as that
 special token, which is also what the HF template does.
+
+For DeepSeek-V4.1, the template writes one `<｜deepseek_image｜>` for each image, and the
+engine expands it. The renderer writes N copies of that token instead, where N counts
+the image's grid with a newline slot after each row and a start and an end slot. The
+renderer refuses text that holds `<｜deepseek_image｜>`, as the template does.
 
 Run records never contain image bytes. The records are `samples/*.jsonl`,
 `batches/step-N.json` and `transcripts/*.json`, and they hold only a SHA-256 digest and

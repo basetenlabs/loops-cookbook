@@ -86,6 +86,55 @@ the tests skip unless `LOOPS_MUSE_TOKENIZER_CACHE` points at a hub cache that ho
 pinned snapshot, or `LOOPS_DOWNLOAD_CONTRACT_MODELS=1` downloads it with an `HF_TOKEN`
 that has access.
 
+## DeepSeek-V4.1-Flash and DeepSeek-V4.1-Flash-1017 (`deepseek_v41.py`)
+
+This extension renders both DeepSeek-V4.1 checkpoints as their `chat_template.jinja`
+does. Prime 0.2.0 has a renderer for DeepSeek-V4 only. V4.1 changed four things that
+change the tokens:
+
+- The tool-call tags have a space after `｜DSML｜`, as in `<｜DSML｜ calls>`.
+- The prompt opens with `<｜System｜>` in thinking mode, or when the first message is a
+  system message.
+- The reasoning effort is a number from 1 to 100, written as `Reasoning Effort: 75 (...)`.
+- Images render in system, user and tool messages.
+
+So the extension doesn't subclass Prime's V4 renderer. It renders the template's text
+itself and tokenizes that text in one pass, as `apply_chat_template` does. It uses
+Prime only for the result types, `trim_to_turn_close` and `scan_tagged_response`.
+Prime's open PR for V4.1 (PrimeIntellect-ai/renderers#192) has no tool calls, no images
+and no bridge. When a Prime release has a V4.1 renderer that matches the template,
+compare it with this extension.
+
+The two checkpoints differ in when a turn starts. The template drops the reasoning of
+assistant messages before the last turn, unless the conversation declares tools or
+`drop_thinking` is false. V4.1 starts a turn at every user message, and a message that
+holds only tool results counts as one. 1017 starts a turn only at a user message that
+holds text or an image. So without tools, 1017 keeps the reasoning of an agent's tool
+calls, and V4.1 drops it at the first tool result.
+
+The template writes one `<｜deepseek_image｜>` for each image, and the engine expands it.
+The trainer needs the expanded form. The checkpoints ship no image processor, so
+`image_tokens` counts each image from its size, as the trainer's
+`deepseek_v41_image_tokens` does. The start, the end and the newline after each row all
+use the same token, so an image is one run of `<｜deepseek_image｜>`.
+
+The bridge extends the sampled tokens with the new messages. It declines when a full
+render would drop the sampled reasoning, which happens in thinking mode with
+`drop_thinking` on, no tools, and a new message that starts a turn. Before the bridge
+runs, `prepare_extension` sorts new tool results into the order of the previous
+assistant's calls, as the template does.
+
+The parser reads each argument by the `string=` flag that the template writes. A
+`string="true"` value comes back exactly as written. Any other value comes back as its
+JSON, or as its text when it isn't JSON, for the tool to judge. A call to a tool that
+isn't declared is `unknown_tool`, and it keeps its message.
+
+`tests/contracts/test_deepseek_v41_extension.py` pins both template revisions. It
+compares prompts with each template under every option, and images with the template
+after expansion. It also tests the bridge against a full render, and the parser against
+what the template wrote. `tests/unit/llm/test_deepseek_v41.py` checks the image token
+counts against the trainer's own cases.
+
 ## Tool arguments as the template wrote them (`arguments.py`)
 
 Prime's parsers strip every argument value before they type it. File text loses its
