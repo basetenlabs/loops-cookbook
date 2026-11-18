@@ -1,7 +1,7 @@
 """Images reach the policy and train exactly: one step on Loops, on Blaxel, per model.
 
 ``train.toml`` trains GLM-5.3-Flash on serverless capacity, and
-``train_deepseek_v41.toml`` trains DeepSeek-V4.1-Flash-1017 on dedicated capacity.
+``train_deepseek_v41.toml`` trains DeepSeek-V4.1-Flash-1017 on serverless capacity too.
 ``loops run`` trains the job in ``vision_job/``: the agent's ``look`` tool returns
 each card's PNG as an image part, over several turns, and the verifier scores the
 answer. Loops cannot record an image prompt, so the job declares its images and trains

@@ -1,4 +1,4 @@
-# The live renderer check for deepseek-ai/DeepSeek-V4.1-Flash-1017, on dedicated capacity.
+# The live renderer check for deepseek-ai/DeepSeek-V4.1-Flash-1017, on serverless capacity.
 # uv run loops check examples/renderer_check/deepseek_v41_flash_1017.toml
 
 recipe = "rl"
@@ -45,8 +45,7 @@ setup_timeout_seconds = 60
 timeout_seconds = 10
 
 [compute]
-scope = "dedicated"
-spot_job = true
+scope = "serverless"
 keep_run = false
 
 [output]

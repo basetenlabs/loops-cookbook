@@ -1,6 +1,6 @@
 # The live image check (tests/live/test_images_end_to_end.py): one training step of
 # DeepSeek-V4.1-Flash-1017 on images returned by tools, through the DeepSeek-V4.1
-# renderer extension. It runs on dedicated capacity.
+# renderer extension. It runs on serverless capacity.
 
 recipe = "rl"
 
@@ -51,7 +51,7 @@ setup_timeout_seconds = 900
 timeout_seconds = 900  # > Harbor's own bound: build 660s + verifier 30s
 
 [compute]
-scope = "dedicated"
+scope = "serverless"
 keep_run = false
 
 [output]

@@ -42,6 +42,12 @@ _MUSE = re.compile(
     r'(?=\s*(?:<atem:parameter name="|</atem:invoke>|\Z))',
     re.DOTALL,
 )
+# DeepSeek-V4.1 writes <｜DSML｜ parameter name="k" string="true|false">v</｜DSML｜ parameter>,
+# with each value exactly as written.
+_DSML = re.compile(
+    r'<｜DSML｜ parameter name="([^"]*)" string="(?:true|false)">(.*?)</｜DSML｜ parameter>',
+    re.DOTALL,
+)
 
 # Qwen3.5 and Nemotron templates write these spellings; Qwen3.8 writes them at times.
 _PYTHON_SCALARS = {"True": True, "False": False, "None": None}
@@ -51,6 +57,8 @@ def written(raw: str) -> dict[str, str]:
     if pairs := _GLM.findall(raw):
         return {key.strip(): value for key, value in pairs}  # the renderer strips a key
     if pairs := _XML.findall(raw):
+        return dict(pairs)
+    if pairs := _DSML.findall(raw):
         return dict(pairs)
     return {html.unescape(key): value for key, value in _MUSE.findall(raw)}
 

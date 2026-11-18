@@ -62,8 +62,8 @@ real Loops trainer. They cost money, so they skip unless you ask for them:
   every resource was released.
   - The output test trains one step of `live/output_job` on Qwen3.5-4B, which takes
     about twenty minutes.
-  - The image test trains one step of `live/vision_job` on GLM-5.3-Flash on serverless
-    capacity, and one on DeepSeek-V4.1-Flash-1017 on dedicated capacity. In that job,
+  - The image test trains one step of `live/vision_job` on GLM-5.3-Flash, and one on
+    DeepSeek-V4.1-Flash-1017, both on serverless capacity. In that job,
     a tool returns images over several turns. Loops can't record an image prompt, so
     the job trains without router replay.
   - The trainer normalization contract uses one trainer, with no sampler or sandbox.
