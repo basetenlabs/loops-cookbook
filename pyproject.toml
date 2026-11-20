@@ -43,10 +43,12 @@ dependencies = [
 harbor = ["harbor>=0.23,<0.24", "litellm>=1.100.4,!=1.107.0"]
 # The Blaxel and Daytona providers reach SDK private members, so each range is
 # bounded. The dependency-ranges workflow checks both ends of each range.
-blaxel = ["blaxel>=0.4.20,<0.5"]
+# Blaxel 0.4.23 changed process.wait to long-poll /process/{id}/wait. The cap stays
+# until the live Blaxel tests pass on that release.
+blaxel = ["blaxel>=0.4.20,<0.4.23"]
 # The Harbor rollout runtime on Blaxel sandboxes. It needs Harbor's own Blaxel extra and
 # the provider.
-harbor-blaxel = ["harbor[blaxel]>=0.23,<0.24", "blaxel>=0.4.20,<0.5", "litellm>=1.100.4,!=1.107.0"]
+harbor-blaxel = ["harbor[blaxel]>=0.23,<0.24", "blaxel>=0.4.20,<0.4.23", "litellm>=1.100.4,!=1.107.0"]
 # The Daytona provider reads and sets two private members of the SDK's Image (its
 # Dockerfile and its build context).
 daytona = ["daytona>=0.220.0,<0.227"]
