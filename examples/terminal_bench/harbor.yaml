@@ -1,11 +1,12 @@
 datasets:
   - repo: https://github.com/harbor-framework/terminal-bench-2-1@7131e4375048a0e408a8fb404b5f499d726b695b
     path: tasks
-# The agent deadline, off by default, so every task keeps the deadline it declares.
-# Uncomment both lines together to double every task's agent deadline, which lets a
-# trajectory that would run past the deadline finish instead. The cap holds the longest
-# deadline at the 12000s it has today. Uncommenting the cap alone would shorten the two
-# longest tasks instead, because Harbor resolves min(task deadline, cap) x multiplier.
+# The deadline override is off by default, so every task keeps the deadline it
+# declares. Uncomment both lines together to double every task's agent deadline, which
+# lets a trajectory that would run past the deadline finish instead. Harbor resolves
+# min(task deadline, cap) x multiplier, so uncommenting one alone gets it wrong: the
+# multiplier alone takes the longest task past the sandbox ttl below, and the cap alone
+# shortens the two longest tasks.
 # The README's "The agent deadline" section covers when to use this and what it costs.
 # agent_timeout_multiplier: 2.0
 agents:

@@ -54,27 +54,33 @@ The deadline covers the agent's wait for the model as well as the commands it ru
 two different things make a rollout hit it. The agent can take more turns, or spend
 more tokens per turn, and run out of task budget. Or the sampler can be slow, and the
 agent spends the deadline queueing. These need different fixes, so check which one you
-have before changing anything. The sampler's `queue_wait_seconds` and its time to first
-token show whether rollouts are waiting; the agent's own turn and token counts show
-whether trajectories are growing.
+have before changing anything. The run's own metrics tell them apart.
+`trajectory/generations_per_rollout` and `trajectory/sampled_tokens_per_rollout` rise
+when trajectories are growing. When those two stay flat and `time/sampling/mean_seconds`
+rises, the sampler is slow.
 
 If the sampler is slow, a longer deadline doesn't help, because it doesn't make
 sampling faster. Lower `[rollout] max_concurrent_rollouts` so fewer rollouts share the
 sampler, or lower `[sampling] max_generation_tokens` so each turn is shorter.
 
-If trajectories are growing, you can give them more time. `harbor.yaml` carries a
-commented-out `agent_timeout_multiplier`, and uncommenting it at 2.0 doubles every
-task's agent deadline, which gives the 900-second tasks 1800 seconds. The agent's
-`max_timeout_sec` caps every deadline at 12000 seconds, which is the longest any task
-has today, so the longest trial takes no longer than it does now.
+If trajectories are growing, you can give them more time. `harbor.yaml` carries two
+commented-out settings, `agent_timeout_multiplier: 2.0` and `max_timeout_sec: 6000`.
+Uncomment both. Harbor resolves each deadline as the task's own deadline or 6000
+seconds, whichever is smaller, times 2. So the 900-second tasks get 1800 seconds, and
+no deadline passes 12000 seconds, which is the longest any task has today. Uncommenting
+the multiplier on its own takes `build-pov-ray` to 24000 seconds and its whole trial to
+over 10 hours, past the 8-hour sandbox `ttl` below, and `loops check` doesn't catch it.
 
-Leave it off unless you want that trade. A longer deadline makes the task easier than
-stock Terminal-Bench 2.1, so the scores no longer compare to published ones. It also
-removes the task's own penalty for a slow trajectory, which changes what the run
-rewards. In async mode, a trajectory that spans more policy updates can be discarded as
-`stale_before_training` instead of being cut off, so a slower rollout can cost a group
-either way, and it holds one of the `max_concurrent_rollouts` slots and its sandbox for
-as long as it runs. We haven't measured how that nets out across a run.
+Leave both off unless you want these trades:
+
+- The scores stop comparing to published Terminal-Bench 2.1, because a longer deadline
+  makes the task easier.
+- The run rewards something different, because the task's own penalty for a slow
+  trajectory is gone.
+- A slow rollout can still cost its group. In async mode a longer trajectory spans more
+  policy updates and can be discarded as `stale_before_training` instead of being cut
+  off, and it holds one of the `max_concurrent_rollouts` slots and its sandbox for as
+  long as it runs. We haven't measured how that nets out across a run.
 
 ## How the agent handles a cut generation
 
