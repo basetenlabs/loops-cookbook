@@ -56,7 +56,7 @@ more tokens per turn, and run out of task budget. Or the sampler can be slow, an
 agent spends the deadline queueing. These need different fixes, so check which one you
 have before changing anything. The run's own metrics tell them apart.
 `trajectory/generations_per_rollout` and `trajectory/sampled_tokens_per_rollout` rise
-when trajectories are growing. When those two stay flat and `time/sampling/mean_seconds`
+when trajectories are growing. When those two stay flat and `time/pipeline/sampling/mean_seconds`
 rises, the sampler is slow.
 
 If the sampler is slow, a longer deadline doesn't help, because it doesn't make
@@ -69,7 +69,8 @@ Uncomment both. Harbor resolves each deadline as the task's own deadline or 6000
 seconds, whichever is smaller, times 2. So the 900-second tasks get 1800 seconds, and
 no deadline passes 12000 seconds, which is the longest any task has today. Uncommenting
 the multiplier on its own takes `build-pov-ray` to 24000 seconds and its whole trial to
-over 10 hours, past the 8-hour sandbox `ttl` below, and `loops check` doesn't catch it.
+over 10 hours, past the 8-hour sandbox `ttl` in `harbor.yaml`, and `loops check` doesn't
+catch it.
 
 Leave both off unless you want these trades:
 
