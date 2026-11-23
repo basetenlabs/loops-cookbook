@@ -34,7 +34,7 @@ The example has these files:
   the cookbook's environment class, `loops_cookbook.harbor.blaxel:BlaxelEnvironment`.
   Its `retry` block applies only to a task whose verifier runs in a separate sandbox.
   The run retries a trial whose sandbox or agent fails, up to `max_rollout_retries`.
-  It also doubles every task's agent deadline, which the next section explains.
+  It carries an optional agent deadline override, which the section below explains.
 - `train.toml` runs in async mode, with eight rollouts per group, four groups per update
   and 50 updates, on serverless Loops.
 - `echo_loss.py` and `train_echo.toml` run the same training with
@@ -47,25 +47,34 @@ The example has these files:
 
 Each task sets its own agent deadline, and most of these tasks set it to 900 seconds.
 Harbor stops the agent when that deadline passes, and then grades whatever the agent
-left in the sandbox. The deadline covers the agent's wait for the model as well as the
-commands it runs. A sampler serving many rollouts at once answers each one more slowly,
-so the agent spends its deadline queueing and is cut off partway through the task.
+left in the sandbox. The deadline is part of the task: an agent that solves the task
+within it scores, and one that doesn't is cut off.
 
-A group whose rollouts were all cut off this way scores the same reward on every
-rollout, which carries nothing to learn from. The run discards such a group as
-`no_variance`, and a long run of them stops training.
+The deadline covers the agent's wait for the model as well as the commands it runs, so
+two different things make a rollout hit it. The agent can take more turns, or spend
+more tokens per turn, and run out of task budget. Or the sampler can be slow, and the
+agent spends the deadline queueing. These need different fixes, so check which one you
+have before changing anything. The sampler's `queue_wait_seconds` and its time to first
+token show whether rollouts are waiting; the agent's own turn and token counts show
+whether trajectories are growing.
 
-So `harbor.yaml` sets `agent_timeout_multiplier` to 2.0, which doubles every task's
-agent deadline. The 900-second tasks get 1800 seconds. The agent's `max_timeout_sec`
-caps every agent deadline at 12000 seconds, which is 6000 times the multiplier and the
-longest deadline any task has today. The longest trial therefore takes no longer than
-it does now. This makes the example harder than stock Terminal-Bench 2.1, so its
-scores are not comparable to published ones. Set the multiplier back to 1.0 for a run
-you intend to compare.
+If the sampler is slow, a longer deadline doesn't help, because it doesn't make
+sampling faster. Lower `[rollout] max_concurrent_rollouts` so fewer rollouts share the
+sampler, or lower `[sampling] max_generation_tokens` so each turn is shorter.
 
-A longer deadline gives the agent room to wait. It doesn't make sampling faster. If
-rollouts are still cut off, lower `[rollout] max_concurrent_rollouts` or
-`[sampling] max_generation_tokens` in `train.toml` instead.
+If trajectories are growing, you can give them more time. `harbor.yaml` carries a
+commented-out `agent_timeout_multiplier`, and uncommenting it at 2.0 doubles every
+task's agent deadline, which gives the 900-second tasks 1800 seconds. The agent's
+`max_timeout_sec` caps every deadline at 12000 seconds, which is the longest any task
+has today, so the longest trial takes no longer than it does now.
+
+Leave it off unless you want that trade. A longer deadline makes the task easier than
+stock Terminal-Bench 2.1, so the scores no longer compare to published ones. It also
+removes the task's own penalty for a slow trajectory, which changes what the run
+rewards. In async mode, a trajectory that spans more policy updates can be discarded as
+`stale_before_training` instead of being cut off, so a slower rollout can cost a group
+either way, and it holds one of the `max_concurrent_rollouts` slots and its sandbox for
+as long as it runs. We haven't measured how that nets out across a run.
 
 ## How the agent handles a cut generation
 
