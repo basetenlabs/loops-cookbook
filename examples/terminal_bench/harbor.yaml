@@ -1,8 +1,21 @@
 datasets:
   - repo: https://github.com/harbor-framework/terminal-bench-2-1@7131e4375048a0e408a8fb404b5f499d726b695b
     path: tasks
+# Each task declares its own agent deadline, and most of this dataset's tasks set it
+# to 900 seconds. That deadline covers the agent's wait for the model, not only the
+# commands it runs. So a busy sampler spends the deadline queueing, and Harbor cuts the
+# agent partway through the task. This multiplier scales every task's agent deadline,
+# which gives the agent room to finish a task the wait would otherwise cut short. It
+# leaves the build and verifier deadlines alone.
+agent_timeout_multiplier: 2.0
 agents:
   - import_path: terminal_agent:TerminalAgent
+    # Harbor resolves an agent deadline as min(task deadline, this) times the
+    # multiplier. So this cap holds every task at or above 6000s to the deadline it
+    # already had, and the multiplier only lengthens the shorter tasks. The longest
+    # trial stays as long as it is today, which keeps the [rollout]
+    # rollout_timeout_seconds clock and the sandbox ttl below unchanged.
+    max_timeout_sec: 6000
     kwargs:
       max_turns: 64
       command_timeout: 120
