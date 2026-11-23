@@ -1,8 +1,9 @@
 datasets:
   - repo: https://github.com/harbor-framework/terminal-bench-2-1@7131e4375048a0e408a8fb404b5f499d726b695b
     path: tasks
-# Most of this dataset's tasks cut the agent off at 900 seconds, which it spends
-# waiting on the sampler. The example's README explains this under "The agent deadline".
+# Most of this dataset's tasks cut the agent off at 900 seconds, much of which it
+# spends waiting on the sampler. The example's README explains this under "The agent
+# deadline".
 agent_timeout_multiplier: 2.0
 agents:
   - import_path: terminal_agent:TerminalAgent
