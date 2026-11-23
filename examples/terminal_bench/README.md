@@ -57,10 +57,11 @@ rollout, which carries nothing to learn from. The run discards such a group as
 
 So `harbor.yaml` sets `agent_timeout_multiplier` to 2.0, which doubles every task's
 agent deadline. The 900-second tasks get 1800 seconds. The agent's `max_timeout_sec`
-caps the deadline the multiplier applies to, so the longest tasks keep the deadline
-they already had and the longest trial takes no longer than it does today. This makes
-the example harder than stock Terminal-Bench 2.1, so its scores are not comparable to
-published ones. Set the multiplier back to 1.0 for a run you intend to compare.
+caps every agent deadline at 12000 seconds, which is 6000 times the multiplier and the
+longest deadline any task has today. The longest trial therefore takes no longer than
+it does now. This makes the example harder than stock Terminal-Bench 2.1, so its
+scores are not comparable to published ones. Set the multiplier back to 1.0 for a run
+you intend to compare.
 
 A longer deadline gives the agent room to wait. It doesn't make sampling faster. If
 rollouts are still cut off, lower `[rollout] max_concurrent_rollouts` or
