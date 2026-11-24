@@ -5,7 +5,7 @@ name: dependency-ranges
 # so a new upstream release that breaks us shows here before a user reports it, and
 # with each release (release.yml), which attaches the versions it checked. Like the
 # lock, it skips releases younger than 7 days ([tool.uv] exclude-newer), except
-# Baseten's own packages.
+# Baseten's own packages and Blaxel, which Baseten maintains.
 on:
   schedule:
     - cron: "0 6 * * *"

@@ -43,12 +43,10 @@ dependencies = [
 harbor = ["harbor>=0.23,<0.24", "litellm>=1.100.4,!=1.107.0"]
 # The Blaxel and Daytona providers reach SDK private members, so each range is
 # bounded. The dependency-ranges workflow checks both ends of each range.
-# Blaxel 0.4.23 changed process.wait to long-poll /process/{id}/wait. The cap stays
-# until the live Blaxel tests pass on that release.
-blaxel = ["blaxel>=0.4.20,<0.4.23"]
+blaxel = ["blaxel>=0.4.20,<0.5"]
 # The Harbor rollout runtime on Blaxel sandboxes. It needs Harbor's own Blaxel extra and
 # the provider.
-harbor-blaxel = ["harbor[blaxel]>=0.23,<0.24", "blaxel>=0.4.20,<0.4.23", "litellm>=1.100.4,!=1.107.0"]
+harbor-blaxel = ["harbor[blaxel]>=0.23,<0.24", "blaxel>=0.4.20,<0.5", "litellm>=1.100.4,!=1.107.0"]
 # The Daytona provider reads and sets two private members of the SDK's Image (its
 # Dockerfile and its build context).
 daytona = ["daytona>=0.220.0,<0.227"]
@@ -128,8 +126,9 @@ only-include = ["src/loops_cookbook", "examples", "patterns", "tasks", "pyprojec
 [tool.uv]
 # Skip releases younger than 7 days; a compromised version is usually yanked within that window.
 exclude-newer = "7 days"
-# Baseten's own packages are exempt: the cookbook moves to their releases on the day they ship.
-exclude-newer-package = { baseten = false, baseten-bdn = false, baseten-loops = false }
+# Baseten's own packages and Blaxel, which Baseten maintains, are exempt. The cookbook
+# moves to their releases on the day they ship.
+exclude-newer-package = { baseten = false, baseten-bdn = false, baseten-loops = false, blaxel = false }
 required-environments = [
     "sys_platform == 'darwin' and platform_machine == 'arm64'",
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
