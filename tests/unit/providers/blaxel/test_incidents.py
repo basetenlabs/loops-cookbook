@@ -268,9 +268,7 @@ async def test_a_runaway_output_is_read_to_the_cap_and_no_further(caplog):
 
 
 @pytest.mark.parametrize("long_poll_route", [True, False], ids=["long-poll", "fallback"])
-async def test_a_waited_process_is_polled_on_the_sandboxs_own_client(
-    monkeypatch, long_poll_route
-):
+async def test_a_waited_process_is_polled_on_the_sandboxs_own_client(monkeypatch, long_poll_route):
     """Every read goes out on the sandbox's client, which carries ``network_deadlines``
     and is the only one answered here; no other client is opened.
 
