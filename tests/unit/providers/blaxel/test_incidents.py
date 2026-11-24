@@ -267,16 +267,25 @@ async def test_a_runaway_output_is_read_to_the_cap_and_no_further(caplog):
     await close_clients(sandbox)
 
 
-async def test_a_waited_process_is_polled_on_the_sandboxs_own_client(monkeypatch):
-    """Every poll goes out on the sandbox's client, which carries ``network_deadlines``
-    and is the only one answered here; no other client is opened."""
-    polls = []
+@pytest.mark.parametrize("long_poll_route", [True, False], ids=["long-poll", "fallback"])
+async def test_a_waited_process_is_polled_on_the_sandboxs_own_client(monkeypatch, long_poll_route):
+    """Every read goes out on the sandbox's client, which carries ``network_deadlines``
+    and is the only one answered here; no other client is opened.
+
+    Blaxel 0.4.23 and later long-poll ``/process/{id}/wait``. A sandbox without that
+    route answers it with a plain-text 404, and the SDK then polls ``/process/{id}``.
+    Earlier releases always poll ``/process/{id}``.
+    """
+    reads = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        polls.append(request.url.path)
+        path = request.url.path
+        if path == "/process/p/wait" and not long_poll_route:
+            return httpx.Response(404, text="404 page not found")
+        reads.append(path)
         record = finished("done")
         return httpx.Response(
-            200, json=record | {"status": "running"} if len(polls) < 3 else record
+            200, json=record | {"status": "running"} if len(reads) < 3 else record
         )
 
     sandbox = sdk_sandbox(handler)
@@ -284,7 +293,9 @@ async def test_a_waited_process_is_polled_on_the_sandboxs_own_client(monkeypatch
     opened = []
     monkeypatch.setattr(httpx.AsyncClient, "__init__", lambda self, *a, **k: opened.append(k))
     record = await sandbox.process.wait("p", max_wait=5000, interval=1)
-    assert record.status == "completed" and polls == ["/process/p"] * 3 and opened == []
+    assert record.status == "completed" and len(reads) == 3 and opened == []
+    routes = {"/process/p/wait", "/process/p"} if long_poll_route else {"/process/p"}
+    assert set(reads) <= routes
     await close_clients(sandbox)
 
 

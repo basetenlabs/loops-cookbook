@@ -87,8 +87,9 @@ that the ranges allow, and the floor of each direct dependency.
 
 Like `uv.lock`, the check skips releases younger than 7 days, through `exclude-newer` in
 `pyproject.toml`. A broken release is often yanked within that time. Baseten's own
-packages, `baseten`, `baseten-bdn` and `baseten-loops`, are exempt, so the cookbook can
-move to their releases on the day they ship. Add a new Baseten dependency to that list.
+packages, `baseten`, `baseten-bdn` and `baseten-loops`, are exempt. Blaxel's `blaxel` is
+also exempt, because Baseten maintains it. The cookbook can move to their releases on
+the day they ship. Add a new Baseten dependency to that list.
 To use another package's release before it is 7 days old, add the package to
 `exclude-newer-package` with a cutoff date. Add a note to delete the entry once the 7
 days pass.
