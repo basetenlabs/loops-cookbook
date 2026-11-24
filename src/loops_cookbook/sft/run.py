@@ -429,10 +429,12 @@ class Schedule:
     sequences: int
     training: TrainingSettings
     shuffle_seed: int
+    reshuffle_each_epoch: bool = False
 
     @classmethod
     def of(cls, sequences: int, config: Config) -> Schedule:
-        return cls(sequences, config.training, config.data.shuffle_seed)
+        data = config.data
+        return cls(sequences, config.training, data.shuffle_seed, data.reshuffle_each_epoch)
 
     @property
     def steps_per_epoch(self) -> int:
@@ -481,12 +483,14 @@ class Schedule:
     def batch(self, step: int) -> list[int]:
         """Return the sequence indices for ``step``.
 
-        Epoch ``e`` is a shuffle seeded with ``seed + e``, so a resumed run picks up the
-        order where it stopped.
+        Every epoch is the shuffle seeded with ``seed``, or epoch ``e`` the shuffle seeded
+        with ``seed + e`` when ``reshuffle_each_epoch`` is true, so a resumed run picks up
+        the order where it stopped.
         """
         epoch, position = divmod(step, self.steps_per_epoch)
         order = list(range(self.sequences))
-        random.Random(self.shuffle_seed + epoch).shuffle(order)
+        seed = self.shuffle_seed + epoch if self.reshuffle_each_epoch else self.shuffle_seed
+        random.Random(seed).shuffle(order)
         size = self.training.batch_size
         return order[position * size : (position + 1) * size]
 
@@ -517,6 +521,7 @@ class Schedule:
         contract: dict[str, Any] = {
             "batch_size": training.batch_size,
             "shuffle_seed": self.shuffle_seed,
+            "reshuffle_each_epoch": self.reshuffle_each_epoch,
             "learning_rate": training.learning_rate,
             "lr_schedule": training.lr_schedule,
             "warmup_steps": training.warmup_steps,
@@ -656,7 +661,10 @@ def check_resume(resume: Manifest, data_digest: str, schedule: Schedule) -> None
             "checkpoint was written. A resume trains exactly what the run trained, so "
             "start a new run"
         )
-    recorded, now = resume.schedule, schedule.contract()
+    # A manifest written before reshuffle_each_epoch existed records a run that
+    # reshuffled every epoch.
+    recorded = {"reshuffle_each_epoch": True} | resume.schedule
+    now = schedule.contract()
     changed = sorted(
         name for name in recorded.keys() | now.keys() if recorded.get(name) != now.get(name)
     )
