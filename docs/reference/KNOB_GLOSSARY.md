@@ -354,7 +354,8 @@ An SFT config, `recipe = "sft"`, has its own TOML. Its `[model]`, `[compute]` an
 | `train` | string | *required* | The training rows, as JSONL with one row per line in the format that [data] format names. The path is relative to this config file, or to the shell's directory when it is passed as a command-line flag. |
 | `validation` | string | `None` | Held-out rows in the same format, which the run scores for validation negative log-likelihood (NLL). The path resolves like train. Set this or validation_fraction. Set neither for no validation. |
 | `validation_fraction` | number, > 0 | `None` | Hold out this fraction of the training rows for validation, instead of reading a separate file. shuffle_seed chooses the rows. |
-| `shuffle_seed` | integer | `0` | The seed that chooses the held-out rows and each epoch's order. Epoch e shuffles with shuffle_seed + e, so a resumed run sees the same order. |
+| `shuffle_seed` | integer | `0` | The seed that chooses the held-out rows and the order of the training sequences. By default every epoch uses the order shuffled with shuffle_seed, so a resumed run sees the same order. |
+| `reshuffle_each_epoch` | boolean | `False` | Give each epoch its own order, shuffled with shuffle_seed + e. By default every epoch uses the same order, shuffled with shuffle_seed. |
 | `render_workers` | integer, ≥ 1 | `None` | The number of worker processes that take over a split which is still rendering after a few seconds. 1 renders in this process. When it is unset, the cookbook uses one fewer than the cores this process may use, and at most 4. Each worker holds a copy of the renderer and its tokenizer. This setting changes how fast check and the start of a run are, and how much memory they use. It never changes what trains. |
 
 ## SFT `[training]`

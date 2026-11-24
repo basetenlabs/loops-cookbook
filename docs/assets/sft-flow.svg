@@ -58,7 +58,7 @@
 <rect x="70" y="670" width="380" height="150" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
 <text x="203.84" y="720.975" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">Pick a batch</text>
 <text x="146.9" y="747.375" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">batch_size sequences, epoch e</text>
-<text x="143.0" y="764.925" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">shuffled with shuffle_seed + e</text>
+<text x="143.0" y="764.925" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">shuffled with shuffle_seed</text>
 <text x="205.4" y="782.4749999999999" font-family="Menlo, monospace" font-size="13" font-weight="normal" fill="#6b7280">Schedule.batch</text>
 <rect x="530" y="670" width="380" height="150" rx="12" fill="#a5d8ff" fill-opacity="1.0" stroke="#1971c2" stroke-width="2"/>
 <text x="663.84" y="720.975" font-family="Helvetica, Arial" font-size="18" font-weight="bold" fill="#1e1e1e">Build datums</text>

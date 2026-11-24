@@ -58,8 +58,14 @@ class DataSettings(Section):
     )
     shuffle_seed: int = Field(
         default=0,
-        description="The seed that chooses the held-out rows and each epoch's order. "
-        "Epoch e shuffles with shuffle_seed + e, so a resumed run sees the same order.",
+        description="The seed that chooses the held-out rows and the order of the training "
+        "sequences. By default every epoch uses the order shuffled with shuffle_seed, so a "
+        "resumed run sees the same order.",
+    )
+    reshuffle_each_epoch: bool = Field(
+        default=False,
+        description="Give each epoch its own order, shuffled with shuffle_seed + e. By "
+        "default every epoch uses the same order, shuffled with shuffle_seed.",
     )
     render_workers: int | None = Field(
         default=None,

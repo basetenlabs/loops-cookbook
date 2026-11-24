@@ -60,8 +60,11 @@ def records(run):
 # --- schedule --------------------------------------------------------------------
 
 
-def test_each_epoch_trains_every_sequence_once_in_its_own_order(sft_config):
-    schedule = Schedule.of(10, sft_config(training={"batch_size": 4, "epochs": 3}))
+def test_reshuffle_each_epoch_trains_every_sequence_once_in_its_own_order(sft_config):
+    config = sft_config(
+        training={"batch_size": 4, "epochs": 3}, data={"reshuffle_each_epoch": True}
+    )
+    schedule = Schedule.of(10, config)
     assert (schedule.steps_per_epoch, schedule.total_steps) == (3, 9)
     epochs = [
         [index for step in range(epoch * 3, epoch * 3 + 3) for index in schedule.batch(step)]
@@ -69,9 +72,21 @@ def test_each_epoch_trains_every_sequence_once_in_its_own_order(sft_config):
     ]
     assert all(sorted(order) == list(range(10)) for order in epochs)
     assert epochs[0] != epochs[1]
-    assert Schedule.of(10, sft_config(training={"batch_size": 4, "epochs": 3})).batch(
-        4
-    ) == schedule.batch(4)
+    assert Schedule.of(10, config).batch(4) == schedule.batch(4)
+
+
+def test_every_epoch_trains_every_sequence_once_in_the_same_order_by_default(sft_config):
+    schedule = Schedule.of(10, sft_config(training={"batch_size": 4, "epochs": 3}))
+    epochs = [
+        [index for step in range(epoch * 3, epoch * 3 + 3) for index in schedule.batch(step)]
+        for epoch in range(3)
+    ]
+    assert sorted(epochs[0]) == list(range(10))
+    assert epochs[0] == epochs[1] == epochs[2]
+    reshuffled = Schedule.of(
+        10, sft_config(training={"batch_size": 4, "epochs": 3}, data={"reshuffle_each_epoch": True})
+    )
+    assert epochs[0] == [index for step in range(3) for index in reshuffled.batch(step)]
 
 
 @pytest.mark.parametrize(("max_steps", "total"), [(2, 2), (0, 9)], ids=["mid_epoch", "no_limit"])
@@ -317,26 +332,28 @@ CASES = {
 GOLDEN = {
     "chat": (
         "0defed13f17eff15a8cd253fc458e0c03226f165d5e0fdd9ab0d096623ad09f6",
-        "f2bbcc5bc6d243dd96b96cc0a1ed8b8a861a164fbbc5824083605b2283ae1879",
+        "bce12b6bdfb4fcbd3598f1dbd4d7d1b7f3ee99a972885d888d9e5c5484fdab1d",
     ),
     "per turn": (
         "6356ffed982d8b5d71a882102e725a8a1cf68b63863af27cd9b3a88e606189da",
-        "339341d32956377b94b26b6f980de5e98f27e09f2a9c0e1b884061f0a839ed08",
+        "eb7ef09f60d0408b7431592dcec1f364489142e5ac370cebcbe7459ffd24e568",
     ),
     "images": (
         "dc38c7d3d8249a4ad782f8626a6d575d7acd2b11124dd2f8172d6a9723c17674",
-        "5a184cd0eed649b87348b9027ba5b798620487038e89ee53e19ac886ccb8c77e",
+        "35a72a3dcfa4a18aa51a90759af8584483034909d3d783019e4a25a6e920f0df",
     ),
     "tokens": (
         "4357d9e9148a0bcd6507f2403bc8cc2f11cca7530c57c36853df3cd44c5bddf3",
-        "a516441dc274bc441b7eea08fb875628a9a77e27a8c914b665e40092f4fff11a",
+        "a9c197401413b9e146f5fa8ef6b87b122503d9dfdd1088bffb64056ec56f84fe",
     ),
 }
 """Each case's data digest, and a hash of its data.json and every datum the trainer is
 sent, recorded before sequences were held compactly (#104). Runs resume from manifests
 holding the digest, so the same data must keep it however sequences are held. The datum
 hashes were re-recorded for baseten-loops 0.33, whose ``Datum`` swaps
-``routed_experts_ref`` for the two provenance span fields: the data digests are unchanged."""
+``routed_experts_ref`` for the two provenance span fields: the data digests are unchanged.
+They were re-recorded again when every epoch began using the same order by default
+(``reshuffle_each_epoch``): the data digests are unchanged."""
 
 
 @pytest.mark.parametrize("case", CASES)
@@ -555,8 +572,8 @@ async def test_a_failure_after_the_update_was_kept_needs_no_last_gasp(sft_config
 
 @pytest.mark.parametrize(
     ("training", "data"),
-    [({"batch_size": 2}, {}), ({}, {"shuffle_seed": 7})],
-    ids=["batch size", "shuffle seed"],
+    [({"batch_size": 2}, {}), ({}, {"shuffle_seed": 7}), ({}, {"reshuffle_each_epoch": True})],
+    ids=["batch size", "shuffle seed", "reshuffle each epoch"],
 )
 async def test_resume_refuses_a_different_order_of_the_same_data(
     sft_config, manifest_after, training, data
@@ -568,6 +585,27 @@ async def test_resume_refuses_a_different_order_of_the_same_data(
     outcome = await resumed.execute()
     assert not outcome.ok and "which sequences each update trains" in outcome.reason
     assert trainer.updates == []
+
+
+async def test_a_manifest_from_before_the_setting_resumes_only_as_a_reshuffling_run(
+    sft_config, manifest_after
+):
+    """Runs saved before reshuffle_each_epoch existed shuffled each epoch with seed + e."""
+    manifest = await manifest_after(1)
+    saved = json.loads(manifest.read_text())
+    del saved["schedule"]["reshuffle_each_epoch"]
+    manifest.write_text(json.dumps(saved))
+
+    refused, trainer = run_with(sft_config(training={"resume_from": str(manifest)}))
+    outcome = await refused.execute()
+    assert not outcome.ok and "reshuffle_each_epoch" in outcome.reason
+    assert trainer.updates == []
+
+    resumed, trainer = run_with(
+        sft_config(training={"resume_from": str(manifest)}, data={"reshuffle_each_epoch": True})
+    )
+    assert (await resumed.execute()).ok
+    assert trainer.updates
 
 
 @pytest.mark.parametrize("scope", ["dedicated", "serverless"])

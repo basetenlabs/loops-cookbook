@@ -231,9 +231,10 @@ they are rendered.
   default and Loops' own default, the gradient is summed over the update's trained
   positions. With `"token_mean"`, Loops divides that sum by the number of trained
   positions. Both stay correct however the SDK splits the request.
-- Epoch `e` visits every training sequence once, in an order shuffled with the seed
-  `shuffle_seed + e`. A nonzero `max_steps` stops the run early, in the middle of an
-  epoch if necessary.
+- Every epoch visits every training sequence once. By default, every epoch uses the
+  same order, shuffled with the seed `shuffle_seed`. With `[data] reshuffle_each_epoch =
+  true`, epoch `e` uses its own order, shuffled with `shuffle_seed + e`. A nonzero
+  `max_steps` stops the run early, in the middle of an epoch if necessary.
 - The learning rate rises linearly over `warmup_steps`. After that, it holds steady
   when `lr_schedule` is `constant`. When `lr_schedule` is `linear` or `cosine`, it
   decays towards zero by the last update.
@@ -294,10 +295,11 @@ A resume continues in the same run directory, at the next update, with the epoch
 and learning rates that the run had. It refuses any change that would change what an
 update means. It refuses a change to the data, including a data file's name, to the
 renderer settings or to `max_seq_len`, because the digest in the manifest no longer
-matches. It also refuses a change to `batch_size`, `shuffle_seed`, `learning_rate`,
-`lr_schedule` or `warmup_steps`. With a `linear` or `cosine` schedule, it refuses a
-change to the total number of updates too, because the learning rate decays towards
-the last one.
+matches. It also refuses a change to `batch_size`, `shuffle_seed`, `reshuffle_each_epoch`,
+`learning_rate`, `lr_schedule` or `warmup_steps`. With a `linear` or `cosine` schedule,
+it refuses a change to the total number of updates too, because the learning rate
+decays towards the last one. A run saved before `reshuffle_each_epoch` existed
+reshuffled every epoch, so resume it with `--data.reshuffle_each_epoch true`.
 
 With a constant learning rate, you can resume a run for more updates by passing a
 larger `--training.max_steps`. As in RL, `max_steps` counts all of the run's updates,
